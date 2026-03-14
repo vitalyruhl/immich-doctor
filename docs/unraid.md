@@ -211,6 +211,7 @@ After start, open:
 Docker -> immich-doctor -> Logs
 
 Expected output should indicate that runtime validation completed successfully.
+After the startup check, the container should remain running in idle mode.
 
 ------------------------------------------------------------
 

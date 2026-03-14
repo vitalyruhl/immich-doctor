@@ -7,6 +7,7 @@ services:
       dockerfile: docker/Dockerfile
       target: dev
     image: immich-doctor:dev
+    restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     security_opt:
       - no-new-privileges:true
@@ -44,4 +45,4 @@ services:
       - ${HOST_LOG_PATH:-../data/logs}:/data/logs
       - ${HOST_TMP_PATH:-../data/tmp}:/data/tmp
       - ${HOST_CONFIG_PATH:-../config}:/config:ro
-    command: ["uv", "run", "python", "-m", "immich_doctor", "runtime", "validate", "--output", "json"]
+    command: ["sh", "-c", "uv run python -m immich_doctor runtime validate --output json && exec sleep infinity"]

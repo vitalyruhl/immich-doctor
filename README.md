@@ -198,6 +198,7 @@ re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 - [`docs/configuration.md`](./docs/configuration.md)
 - [`docs/development.md`](./docs/development.md)
 - [`docs/docker.md`](./docs/docker.md)
+- [`docs/ready-to-use-commands.md`](./docs/ready-to-use-commands.md)
 
 ## Open source workflow
 

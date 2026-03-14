@@ -27,7 +27,8 @@ SEMI-AUTOMATIC WORKFLOW GUIDELINES
 - User changes are sacred:
   - Never revert or overwrite user edits without asking first.
   - If the user edits files during the agent run, treat those edits as intentional and preserve them.
-  - If the user later requests a commit, include those user edits in the commit by default unless the user explicitly excludes specific files or changes.
+- If the user later requests a commit, include those user edits in the commit by default unless the user explicitly excludes specific files or changes.
+- Keep [`docs/ready-to-use-commands.md`] updated whenever a finished user-facing command is added, renamed, deprecated, or removed.
 
 - Confirm-before-write:
   - If requirements are ambiguous or the change impacts multiple subsystems/files,

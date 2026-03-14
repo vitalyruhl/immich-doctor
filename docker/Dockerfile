@@ -51,4 +51,4 @@ FROM base AS runtime
 USER app
 
 ENTRYPOINT ["immich-doctor-entrypoint"]
-CMD ["python", "-m", "immich_doctor", "runtime", "validate"]
+CMD ["sh", "-c", "python -m immich_doctor runtime validate && exec sleep infinity"]

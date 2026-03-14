@@ -3,7 +3,7 @@
 ## Purpose
 
 The Docker setup is intentionally safe by default.
-The default container command only runs runtime validation and does not modify user data.
+The default container command runs the initial runtime validation and then stays idle for later `docker exec` usage.
 
 ## Files
 
@@ -28,6 +28,17 @@ To run a one-off command:
 
 ```bash
 docker compose -f docker/docker-compose.yml run --rm immich-doctor python -m immich_doctor runtime validate
+```
+
+To use the long-running container and then execute checks manually:
+
+```bash
+docker exec -it immich-doctor python -m immich_doctor runtime validate
+docker exec -it immich-doctor python -m immich_doctor storage paths check
+docker exec -it immich-doctor python -m immich_doctor storage permissions check
+docker exec -it immich-doctor python -m immich_doctor backup verify
+docker exec -it immich-doctor python -m immich_doctor db health check
+docker exec -it immich-doctor python -m immich_doctor db performance indexes check
 ```
 
 ## Local development container
@@ -98,3 +109,4 @@ Fallback:
 - keep reports and quarantine on writable persistent storage
 - use runtime, storage, backup, and db validation before any future backup or repair workflow
 - the current container flow does not perform destructive actions
+- the runtime container now stays idle after the initial startup check so operator commands can be executed with `docker exec`
