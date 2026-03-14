@@ -1,2 +1,1 @@
 """Future config API routes."""
-

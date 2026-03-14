@@ -7,4 +7,3 @@ from immich_doctor.core.models import ValidationReport
 
 def build_report_payload(report: ValidationReport) -> dict[str, Any]:
     return report.to_dict()
-

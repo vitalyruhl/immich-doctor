@@ -40,4 +40,3 @@ def test_config_validate_with_sample_directories(tmp_path, monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert payload["command"] == "config validate"
     assert payload["overall_status"] == "warn"
-

@@ -13,4 +13,3 @@ app = typer.Typer(
 app.add_typer(health_app, name="health")
 app.add_typer(config_app, name="config")
 app.add_typer(backup_app, name="backup")
-

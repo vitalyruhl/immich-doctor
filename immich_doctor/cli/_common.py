@@ -15,4 +15,3 @@ def emit_report(report: ValidationReport, output_format: str) -> None:
     else:
         typer.echo(render_text_report(report))
     raise typer.Exit(code=report.exit_code)
-

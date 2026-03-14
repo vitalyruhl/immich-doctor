@@ -15,4 +15,3 @@ def render_text_report(report: ValidationReport) -> str:
     for check in report.checks:
         lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
     return "\n".join(lines)
-

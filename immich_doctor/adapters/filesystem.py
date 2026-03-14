@@ -64,4 +64,3 @@ class FilesystemAdapter:
         except ValueError:
             return False
         return True
-
