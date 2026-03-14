@@ -109,4 +109,4 @@ Fallback:
 - keep reports and quarantine on writable persistent storage
 - use runtime, storage, backup, and db validation before any future backup or repair workflow
 - the current container flow does not perform destructive actions
-- the runtime container now stays idle after the initial startup check so operator commands can be executed with `docker exec`
+- the runtime container now stays idle after the initial startup check via `tail -f /dev/null` so operator commands can be executed with `docker exec`
