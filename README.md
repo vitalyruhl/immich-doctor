@@ -30,6 +30,7 @@ Current MVP scope:
 - validation of expected configured path relationships
 - validation of PostgreSQL connectivity when a DSN is configured
 - validation of backup target writability
+- runtime validation for container identity, mounted paths, and database reachability
 - validation of required external tools when configured
 - structured text or JSON reports
 
@@ -87,16 +88,17 @@ implementations can call the same services without duplicating logic.
 2. Install the project in editable mode:
 
 ```bash
-python -m pip install -e .[dev]
+uv sync --dev
 ```
 
 3. Copy `.env.example` to `.env` and adjust your paths and PostgreSQL DSN.
 4. Run the safe MVP commands:
 
 ```bash
-python -m immich_doctor health ping
-python -m immich_doctor config validate
-python -m immich_doctor backup validate
+uv run python -m immich_doctor health ping
+uv run python -m immich_doctor config validate
+uv run python -m immich_doctor backup validate
+uv run python -m immich_doctor runtime validate
 ```
 
 ## Docker
@@ -104,12 +106,33 @@ python -m immich_doctor backup validate
 Docker and Compose files live in [`docker/`](./docker).
 They are prepared for:
 
-- mounting Immich storage paths
-- mounting backup target paths
-- mounting report, manifest, quarantine, log, and temp paths
-- connecting to Immich PostgreSQL through environment configuration
+- mounting Immich storage source paths read-only
+- mounting backup, report, manifest, quarantine, log, and temp output paths
+- mounting an optional config directory
+- connecting to Immich PostgreSQL through `DB_*` values or `IMMICH_DOCTOR_POSTGRES_DSN`
+- non-root execution by default, with optional `PUID`, `PGID`, and `UMASK` for Unraid
 
-The current container image is intended for local development and early validation.
+Useful commands:
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor
+docker compose --env-file .env -f docker/docker-compose.unraid.yml up -d
+```
+
+Published image for Unraid and other prebuilt deployments:
+
+```text
+ghcr.io/vitalyruhl/immich-doctor:latest
+```
+
+Unraid users should prefer the published GHCR image over a local Docker build.
+
+The default container command remains safe and non-destructive:
+
+```bash
+python -m immich_doctor runtime validate
+```
 
 ## License recommendation
 
@@ -126,6 +149,7 @@ re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 - [`docs/architecture.md`](./docs/architecture.md)
 - [`docs/configuration.md`](./docs/configuration.md)
 - [`docs/development.md`](./docs/development.md)
+- [`docs/docker.md`](./docs/docker.md)
 
 ## Open source workflow
 

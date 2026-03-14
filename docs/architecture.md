@@ -25,6 +25,9 @@ selection. It should never become the only place where workflow logic lives.
 Contains the application use cases. Services orchestrate adapters and build
 structured reports for CLI or future API responses.
 
+Current examples include configuration validation, backup target validation, and
+runtime validation for container identity, mounted storage, and database reachability.
+
 ### `immich_doctor.adapters`
 
 Contains infrastructure-facing code such as:
@@ -85,4 +88,3 @@ and so destructive behavior is not hidden inside temporary scripting.
 - dry-run before apply
 - no automatic destructive repair in the MVP
 - future repair actions must be traceable in reports and journals
-

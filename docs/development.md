@@ -3,26 +3,27 @@
 ## Local setup
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -e .[dev]
+uv sync --dev
 ```
 
-On Windows PowerShell, activate the virtual environment with:
+If you want to enter the managed environment directly:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+uv run python -m immich_doctor --help
 ```
 
 ## Useful commands
 
 ```bash
-python -m immich_doctor --help
-python -m immich_doctor health ping
-python -m immich_doctor config validate --output json
-python -m immich_doctor backup validate
+uv run python -m immich_doctor --help
+uv run python -m immich_doctor health ping
+uv run python -m immich_doctor config validate --output json
+uv run python -m immich_doctor backup validate
+uv run python -m immich_doctor runtime validate
 pytest
 ruff check .
+ruff format --check .
+docker compose -f docker/docker-compose.yml up --build
 ```
 
 ## Development expectations
@@ -32,3 +33,7 @@ ruff check .
 - add tests with behavior changes
 - update docs when scope or configuration changes
 
+Container-oriented work should additionally validate:
+
+- `docker build -f docker/Dockerfile .`
+- `docker compose -f docker/docker-compose.yml up --build`

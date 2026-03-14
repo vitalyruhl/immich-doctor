@@ -8,6 +8,8 @@ dist/
 *.egg-info/
 .coverage
 .env
+config/*
+!config/.gitkeep
 
 data/reports/*
 !data/reports/.gitkeep
@@ -19,4 +21,3 @@ data/logs/*
 !data/logs/.gitkeep
 data/tmp/*
 !data/tmp/.gitkeep
-

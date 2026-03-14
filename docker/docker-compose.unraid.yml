@@ -1,0 +1,42 @@
+name: immich-doctor-unraid
+
+services:
+  immich-doctor:
+    image: ${IMMICH_DOCTOR_IMAGE:-ghcr.io/<REPO_OWNER>/immich-doctor:latest}
+    container_name: immich-doctor
+    network_mode: bridge
+    restart: unless-stopped
+    user: "${PUID:-99}:${PGID:-100}"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      UMASK: ${UMASK:-002}
+      IMMICH_DOCTOR_ENVIRONMENT: docker-unraid
+      IMMICH_STORAGE_PATH: /mnt/immich/storage
+      IMMICH_UPLOADS_PATH: /mnt/immich/storage/upload
+      IMMICH_THUMBS_PATH: /mnt/immich/storage/thumbs
+      IMMICH_PROFILE_PATH: /mnt/immich/storage/profile
+      IMMICH_VIDEO_PATH: /mnt/immich/storage/encoded-video
+      BACKUP_TARGET_PATH: /mnt/backups/immich-doctor
+      REPORTS_PATH: /data/reports
+      MANIFESTS_PATH: /data/manifests
+      QUARANTINE_PATH: /data/quarantine
+      LOG_PATH: /data/logs
+      TMP_PATH: /data/tmp
+      CONFIG_PATH: /config
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-3}
+    volumes:
+      - ${HOST_IMMICH_STORAGE_PATH:-/mnt/user/images/immich}:/mnt/immich/storage:ro
+      - ${HOST_BACKUP_TARGET_PATH:-/mnt/user/backups/immich-doctor}:/mnt/backups/immich-doctor
+      - ${HOST_REPORTS_PATH:-/mnt/user/appdata/immich-doctor/reports}:/data/reports
+      - ${HOST_MANIFESTS_PATH:-/mnt/user/appdata/immich-doctor/manifests}:/data/manifests
+      - ${HOST_QUARANTINE_PATH:-/mnt/user/appdata/immich-doctor/quarantine}:/data/quarantine
+      - ${HOST_LOG_PATH:-/mnt/user/appdata/immich-doctor/logs}:/data/logs
+      - ${HOST_TMP_PATH:-/mnt/user/appdata/immich-doctor/tmp}:/data/tmp
+      - ${HOST_CONFIG_PATH:-/mnt/user/appdata/immich-doctor/config}:/config
+    command: ["python", "-m", "immich_doctor", "runtime", "validate"]

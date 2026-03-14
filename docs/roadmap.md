@@ -35,10 +35,12 @@ In scope now:
 - `health ping`
 - `config validate`
 - `backup validate`
+- `runtime validate`
 - environment-driven configuration
 - structured text and JSON output
 - validation-only PostgreSQL connectivity checks
 - validation-only filesystem and tool checks
+- Docker and Unraid-oriented runtime validation
 
 Exit criteria:
 
@@ -98,4 +100,3 @@ Goals:
 - recurring report generation
 - notification hooks
 - job journaling and operational history
-
