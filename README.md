@@ -147,7 +147,11 @@ uv run python -m immich_doctor storage permissions check
 uv run python -m immich_doctor backup verify
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
+uv run python -m immich_doctor db performance indexes check --verbose
 ```
+
+Default text output is concise for interactive terminal use.
+Use `--verbose` to show full diagnostic details.
 
 ## Docker
 

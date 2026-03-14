@@ -23,15 +23,23 @@ def runtime_validate(
         typer.Option("--env-file", exists=True, file_okay=True),
     ] = None,
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show full diagnostic details in text output."),
+    ] = False,
 ) -> None:
     settings = load_settings(env_file=env_file)
     report = RuntimeValidationService().run(settings)
-    emit_report(report, output)
+    emit_report(report, output, verbose=verbose)
 
 
 @runtime_health_app.command("check")
 def runtime_health_check(
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show full diagnostic details in text output."),
+    ] = False,
 ) -> None:
     report = RuntimeHealthCheckService().run()
-    emit_report(report, output)
+    emit_report(report, output, verbose=verbose)

@@ -59,6 +59,12 @@ Forbidden patterns:
 - health commands that perform integrity or performance analysis
 - legacy concepts like `config validate` as a primary command
 
+Output expectation:
+
+- default text output should stay concise for interactive terminal use
+- `--verbose` should reveal the full diagnostic detail set when needed
+- collectors keep rich data; renderers decide how much to show
+
 ## Migration mapping
 
 Current old-to-new mapping:

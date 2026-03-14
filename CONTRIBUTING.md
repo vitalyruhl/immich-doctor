@@ -113,6 +113,7 @@ must receive explicit maintainer review before merge.
 - Prefer targeted unit tests first.
 - Add integration tests for CLI or service flows when the behavior spans modules.
 - Document manual validation steps in the PR when automated coverage is not enough.
+- For diagnostic commands, keep default text output concise and expose full detail via `--verbose`.
 
 ## Safety rules for repair-oriented changes
 

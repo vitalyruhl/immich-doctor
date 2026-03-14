@@ -158,6 +158,138 @@ def test_db_validate_indexes_json_output(monkeypatch) -> None:
     assert payload["sections"][0]["name"] == "INDEX_LIST"
 
 
+def test_db_validate_indexes_default_text_output_is_compact(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings):
+        return ValidationReport(
+            domain="db.performance.indexes",
+            action="check",
+            summary="Database index checks completed.",
+            checks=[],
+            sections=[
+                ValidationSection(
+                    name="INDEX_LIST",
+                    status=CheckStatus.PASS,
+                    rows=[
+                        {
+                            "schemaname": "public",
+                            "tablename": "face_search",
+                            "indexname": "face_index",
+                            "indexdef": "CREATE INDEX face_index ON public.face_search USING hnsw",
+                        }
+                    ],
+                ),
+                ValidationSection(
+                    name="UNUSED_INDEXES",
+                    status=CheckStatus.WARN,
+                    rows=[
+                        {"table_name": "a", "index_name": "a_idx", "idx_scan": 0},
+                        {"table_name": "b", "index_name": "b_idx", "idx_scan": 0},
+                        {"table_name": "c", "index_name": "c_idx", "idx_scan": 0},
+                        {"table_name": "d", "index_name": "d_idx", "idx_scan": 0},
+                    ],
+                ),
+                ValidationSection(
+                    name="LARGE_INDEXES",
+                    status=CheckStatus.PASS,
+                    rows=[
+                        {
+                            "table_name": "face_search",
+                            "index_name": "face_index",
+                            "index_size": "0 bytes",
+                        },
+                        {
+                            "table_name": "assets",
+                            "index_name": "assets_pkey",
+                            "index_size": "16 kB",
+                        },
+                    ],
+                ),
+                ValidationSection(name="INVALID_INDEXES", status=CheckStatus.PASS),
+                ValidationSection(name="MISSING_FK_INDEXES", status=CheckStatus.PASS),
+            ],
+        )
+
+    monkeypatch.setattr(db_cli.DbPerformanceIndexesCheckService, "run", fake_run)
+
+    result = runner.invoke(app, ["db", "performance", "indexes", "check"])
+
+    assert result.exit_code == 0
+    assert "CREATE INDEX face_index" not in result.stdout
+    assert "0 bytes" not in result.stdout
+    assert "index_name=d_idx" not in result.stdout
+    assert "Hint: Use --verbose for full diagnostic details." in result.stdout
+
+
+def test_db_validate_indexes_verbose_text_output_shows_full_details(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings):
+        return ValidationReport(
+            domain="db.performance.indexes",
+            action="check",
+            summary="Database index checks completed.",
+            checks=[],
+            sections=[
+                ValidationSection(
+                    name="INDEX_LIST",
+                    status=CheckStatus.PASS,
+                    rows=[
+                        {
+                            "schemaname": "public",
+                            "tablename": "face_search",
+                            "indexname": "face_index",
+                            "indexdef": "CREATE INDEX face_index ON public.face_search USING hnsw",
+                        }
+                    ],
+                ),
+                ValidationSection(
+                    name="UNUSED_INDEXES",
+                    status=CheckStatus.WARN,
+                    rows=[
+                        {"table_name": "a", "index_name": "a_idx", "idx_scan": 0},
+                        {"table_name": "b", "index_name": "b_idx", "idx_scan": 0},
+                        {"table_name": "c", "index_name": "c_idx", "idx_scan": 0},
+                        {"table_name": "d", "index_name": "d_idx", "idx_scan": 0},
+                    ],
+                ),
+                ValidationSection(
+                    name="LARGE_INDEXES",
+                    status=CheckStatus.PASS,
+                    rows=[
+                        {
+                            "table_name": "face_search",
+                            "index_name": "face_index",
+                            "index_size": "0 bytes",
+                        },
+                    ],
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(db_cli.DbPerformanceIndexesCheckService, "run", fake_run)
+
+    result = runner.invoke(app, ["db", "performance", "indexes", "check", "--verbose"])
+
+    assert result.exit_code == 0
+    assert "CREATE INDEX face_index" in result.stdout
+    assert "0 bytes" in result.stdout
+    assert "index_name': 'd_idx'" in result.stdout
+
+
 def test_db_health_check_json_output(monkeypatch) -> None:
     runner = CliRunner()
 

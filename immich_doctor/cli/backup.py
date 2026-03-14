@@ -19,7 +19,11 @@ def backup_verify(
         typer.Option("--env-file", exists=True, file_okay=True),
     ] = None,
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show full diagnostic details in text output."),
+    ] = False,
 ) -> None:
     settings = load_settings(env_file=env_file)
     report = BackupVerifyService().run(settings)
-    emit_report(report, output)
+    emit_report(report, output, verbose=verbose)
