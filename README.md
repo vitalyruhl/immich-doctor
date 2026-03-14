@@ -127,3 +127,12 @@ re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 - [`docs/configuration.md`](./docs/configuration.md)
 - [`docs/development.md`](./docs/development.md)
 
+## Open source workflow
+
+- Contribution guide: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- Security policy: [`.github/SECURITY.md`](./.github/SECURITY.md)
+- Pull requests are required for changes to `main`
+- CI and lint checks are intended to be required before merge
+
+Changes that could become destructive in future repair workflows require explicit
+review and must not bypass the safety principles documented in this repository.
