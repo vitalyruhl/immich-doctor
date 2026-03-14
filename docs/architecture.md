@@ -144,6 +144,27 @@ This step is intentionally structural only:
 Until later phases are implemented, `backup verify` remains the only user-facing
 backup command.
 
+### Backup files rsync foundation (WIP)
+
+Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`
+without exposing a new CLI command yet.
+
+Current file-backup internals are limited to:
+
+- request and execution-plan models for local source to local target flows
+- deterministic versioned destination path generation
+- safe rsync command construction with non-destructive defaults
+- a local executor abstraction that runs rsync via argument lists only
+
+Explicit constraints for this phase:
+
+- local paths only
+- no remote transport
+- no database backup coupling
+- no scheduling
+- no retention
+- no destructive rsync flags such as `--delete`
+
 ### `immich_doctor.reports`
 
 Transforms service results into stable text or JSON output and later into persisted
