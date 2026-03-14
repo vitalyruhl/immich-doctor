@@ -11,4 +11,3 @@ def can_connect(dsn: str, timeout_seconds: int) -> tuple[bool, str]:
             return True, "PostgreSQL connection established."
     except Exception as exc:  # pragma: no cover - exact driver errors vary by environment
         return False, f"PostgreSQL connection failed: {exc}"
-

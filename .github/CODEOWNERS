@@ -1,0 +1,9 @@
+# Repository-wide ownership
+* @vitalyruhl
+
+# Community and governance files
+/.github/ @vitalyruhl
+/README.md @vitalyruhl
+/CONTRIBUTING.md @vitalyruhl
+/docs/ @vitalyruhl
+

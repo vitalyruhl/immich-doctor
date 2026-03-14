@@ -24,4 +24,3 @@ def runtime_paths(settings: AppSettings) -> dict[str, Path]:
         "logs_path": settings.logs_path,
         "tmp_path": settings.tmp_path,
     }
-

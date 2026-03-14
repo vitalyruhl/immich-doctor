@@ -12,7 +12,11 @@ and operational safety before adding more power.
 2. Keep CLI code thin and move reusable logic into services and adapters.
 3. Add or update tests for changed behavior.
 4. Update documentation when architecture, configuration, or scope changes.
-5. Open a pull request with clear context, risk notes, and validation steps.
+5. Run local validation before opening a pull request:
+   - `pytest`
+   - `ruff check .`
+   - `ruff format --check .`
+6. Open a pull request with clear context, risk notes, and validation steps.
 
 ## Branch model
 
@@ -27,12 +31,16 @@ Do not push directly to `main`.
 
 - Keep commits focused and reviewable.
 - Use clear commit messages that describe intent.
+- Prefer squash merge for pull requests.
 - PRs should explain:
   - what changed
   - why the change is needed
   - what was validated
   - what remains out of scope
   - any operational or data safety risk
+- Use the repository pull request template.
+- Link related issues when applicable.
+- Use the issue forms for bug reports and feature requests.
 
 ## Code style basics
 
@@ -53,6 +61,9 @@ Review should focus on:
 - traceability
 - test coverage for changed core logic
 - clarity for future maintainers with basic Python knowledge
+
+Changes that can delete, move, quarantine, rewrite, or otherwise alter user data
+must receive explicit maintainer review before merge.
 
 ## Testing expectations
 
@@ -85,10 +96,23 @@ Recommended repository settings for GitHub:
 - protect `main`
 - require pull requests before merge
 - require required status checks before merge
+- require at least one approving review before merge
 - require the branch to be up to date before merge
 - block direct pushes to `main`
 - prefer squash merges
+- dismiss stale reviews when new commits are pushed to a PR
+- require review from code owners
+
+Recommended required status checks:
+
+- `Tests (Python 3.12)`
+- `Tests (Python 3.13)`
+- `Ruff`
 
 These settings are documented here on purpose. They should be configured in GitHub,
 not enforced indirectly through application code.
 
+## Security reporting
+
+For vulnerability reporting and coordinated disclosure expectations, follow
+[`.github/SECURITY.md`](./.github/SECURITY.md).

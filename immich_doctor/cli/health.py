@@ -16,4 +16,3 @@ def health_ping(
 ) -> None:
     report = HealthService().run_ping()
     emit_report(report, output)
-

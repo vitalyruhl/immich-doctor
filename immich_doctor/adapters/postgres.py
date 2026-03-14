@@ -12,4 +12,3 @@ class PostgresAdapter:
             status=CheckStatus.PASS if connected else CheckStatus.FAIL,
             message=message,
         )
-

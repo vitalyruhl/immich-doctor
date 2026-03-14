@@ -56,4 +56,3 @@ class ValidationReport:
             "metadata": self.metadata,
             "checks": [check.to_dict() for check in self.checks],
         }
-

@@ -1,0 +1,60 @@
+name: Feature request
+description: Propose an improvement or new capability.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests aligned with the project principles:
+        backup first, analyze before repair, quarantine before delete, dry-run before apply.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider?
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Requested scope
+      options:
+        - Documentation
+        - CLI
+        - Service layer
+        - API groundwork
+        - Web UI groundwork
+        - Docker or deployment
+        - CI or repository workflow
+  - type: dropdown
+    id: safety_impact
+    attributes:
+      label: Safety impact
+      description: Does this proposal affect data-changing behavior?
+      options:
+        - No
+        - Yes, but report-only
+        - Yes, dry-run or quarantine
+        - Yes, potentially destructive
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add links, examples, or constraints.
+

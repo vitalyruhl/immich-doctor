@@ -54,4 +54,3 @@ def load_settings(env_file: Path | None = None) -> AppSettings:
     if env_file is None:
         return AppSettings()
     return AppSettings(_env_file=env_file)
-

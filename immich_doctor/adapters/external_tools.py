@@ -29,4 +29,3 @@ class ExternalToolsAdapter:
                     )
                 )
         return checks
-

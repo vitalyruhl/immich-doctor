@@ -28,4 +28,3 @@ class HealthService:
             checks=checks,
             metadata={"version": __version__},
         )
-

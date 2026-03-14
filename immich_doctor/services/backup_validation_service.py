@@ -41,7 +41,9 @@ class BackupValidationService:
             )
 
         if settings.required_external_tools:
-            checks.extend(self.external_tools.validate_required_tools(settings.required_external_tools))
+            checks.extend(
+                self.external_tools.validate_required_tools(settings.required_external_tools)
+            )
         else:
             checks.append(
                 CheckResult(

@@ -8,4 +8,3 @@ from immich_doctor.reports.models import build_report_payload
 
 def render_json_report(report: ValidationReport) -> dict[str, Any]:
     return build_report_payload(report)
-
