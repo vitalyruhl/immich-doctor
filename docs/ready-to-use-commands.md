@@ -26,6 +26,7 @@ docker exec -it immich-doctor python -m immich_doctor storage permissions check
 ## Backup
 
 ```bash
+docker exec -it immich-doctor python -m immich_doctor backup files
 docker exec -it immich-doctor python -m immich_doctor backup verify
 ```
 

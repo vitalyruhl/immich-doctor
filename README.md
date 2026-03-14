@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: initial scaffold / MVP skeleton
+Project phase: validation + early backup foundation
 
 Current MVP scope:
 
@@ -42,6 +42,12 @@ Not in scope yet:
 - no file modifications
 - no quarantine moves
 - no API or Web UI runtime yet
+- no DB backup
+- no metadata backup
+- no remote backup targets
+- no retention
+- no restore
+- no backup-all orchestration
 
 ## Safety warning
 
@@ -92,27 +98,6 @@ immich-doctor db health check
 immich-doctor db performance indexes check
 ```
 
-Deprecated and removed command concepts:
-
-```text
-health ping
-config validate
-backup validate
-db validate-indexes
-```
-
-Old-to-new command mapping:
-
-```text
-health ping                -> runtime health check
-config validate            -> runtime validate
-config validate            -> storage paths check
-config validate            -> storage permissions check
-config validate            -> db health check
-backup validate            -> backup verify
-db validate-indexes        -> db performance indexes check
-```
-
 No legacy aliases are kept.
 
 ## Architecture direction
@@ -155,6 +140,19 @@ uv run python -m immich_doctor db performance indexes check --verbose
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
 
+Implemented now:
+
+- validation commands across runtime, storage, backup target, and DB health
+- DB index inspection with compact default output and verbose details
+- `backup files` as a thin local file backup flow on top of the backup foundation
+
+Planned next:
+
+- backup manifests
+- DB backup inclusion
+- metadata capture
+- backup-all orchestration
+
 ## Docker
 
 Docker and Compose files live in [`docker/`](./docker).
@@ -192,10 +190,6 @@ python -m immich_doctor runtime validate
 
 This repository currently uses the MIT license.
 
-The choice is pragmatic for an operational helper tool that may need easy reuse in
-private homelab setups, internal automation, and downstream wrappers. If you later
-want stronger copyleft guarantees for hosted derivatives or community governance,
-re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 
 ## Documentation
 
@@ -213,5 +207,3 @@ re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 - Pull requests are required for changes to `main`
 - CI and lint checks are intended to be required before merge
 
-Changes that could become destructive in future repair workflows require explicit
-review and must not bypass the safety principles documented in this repository.
