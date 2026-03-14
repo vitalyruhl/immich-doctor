@@ -1,0 +1,96 @@
+# Docker Runtime Guide
+
+## Purpose
+
+The Docker setup is intentionally safe by default.
+The default container command only runs runtime validation and does not modify user data.
+
+## Files
+
+- `docker/Dockerfile`
+- `docker/docker-compose.yml`
+- `docker/docker-compose.dev.yml`
+- `docker/docker-compose.unraid.yml`
+
+## Build the image
+
+```bash
+docker build -f docker/Dockerfile -t immich-doctor:local .
+```
+
+## Local runtime validation
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
+
+To run a one-off command:
+
+```bash
+docker compose -f docker/docker-compose.yml run --rm immich-doctor python -m immich_doctor runtime validate
+```
+
+## Local development container
+
+```bash
+docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor
+```
+
+Useful development commands:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor uv run pytest
+docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor uv run python -m immich_doctor --help
+```
+
+## Unraid-style deployment
+
+```bash
+docker compose -f docker/docker-compose.unraid.yml up --build -d
+```
+
+Recommended Unraid mount pattern:
+
+- Immich source storage: read-only
+- backup destination: writable
+- reports, manifests, quarantine, logs, tmp: writable
+- config directory: read-only
+
+Example host path styles:
+
+- `/mnt/user/...`
+- `/mnt/cache/...`
+- `/mnt/diskX/...`
+
+## Runtime validation behavior
+
+`runtime validate` checks:
+
+- package startup
+- CLI availability
+- effective UID, GID, username, group, working directory, and umask
+- source path existence and readability
+- whether source mounts appear writable
+- output path existence, readability, and safe write-probe behavior
+- optional config directory readability
+- database hostname resolution
+- database TCP reachability
+- PostgreSQL login if enough credentials are configured
+
+## Non-root vs root
+
+Default recommendation:
+
+- run as non-root
+- set `PUID`, `PGID`, and `UMASK` explicitly for Unraid
+
+Fallback:
+
+- use root only if a host filesystem or mount setup makes non-root technically impossible
+
+## Safety notes
+
+- never mount source storage writable unless you have a very specific reason
+- keep reports and quarantine on writable persistent storage
+- use runtime validation before any future backup or repair workflow
+- the current container flow does not perform destructive actions

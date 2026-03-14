@@ -1,25 +1,47 @@
+name: immich-doctor-dev
+
 services:
   immich-doctor:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      args:
-        INSTALL_DEV: "true"
+      target: dev
     image: immich-doctor:dev
-    env_file:
-      - ../.env
+    user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    working_dir: /workspace
     environment:
-      IMMICH_DOCTOR_IMMICH_LIBRARY_ROOT: /workspace/mnt/immich/library
-      IMMICH_DOCTOR_BACKUP_TARGET_PATH: /workspace/mnt/backups/immich
-      IMMICH_DOCTOR_REPORTS_PATH: /workspace/data/reports
-      IMMICH_DOCTOR_MANIFESTS_PATH: /workspace/data/manifests
-      IMMICH_DOCTOR_QUARANTINE_PATH: /workspace/data/quarantine
-      IMMICH_DOCTOR_LOGS_PATH: /workspace/data/logs
-      IMMICH_DOCTOR_TMP_PATH: /workspace/data/tmp
+      UMASK: ${UMASK:-002}
+      UV_PROJECT_ENVIRONMENT: /tmp/immich-doctor-venv
+      UV_CACHE_DIR: /tmp/uv-cache
+      IMMICH_DOCTOR_ENVIRONMENT: docker-dev
+      IMMICH_STORAGE_PATH: /mnt/immich/storage
+      IMMICH_UPLOADS_PATH: /mnt/immich/storage/upload
+      IMMICH_THUMBS_PATH: /mnt/immich/storage/thumbs
+      IMMICH_PROFILE_PATH: /mnt/immich/storage/profile
+      IMMICH_VIDEO_PATH: /mnt/immich/storage/encoded-video
+      BACKUP_TARGET_PATH: /mnt/backups/immich
+      REPORTS_PATH: /data/reports
+      MANIFESTS_PATH: /data/manifests
+      QUARANTINE_PATH: /data/quarantine
+      LOG_PATH: /data/logs
+      TMP_PATH: /data/tmp
+      CONFIG_PATH: /config
+      DB_HOST: ${DB_HOST:-}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-3}
     volumes:
       - ..:/workspace
-      - ${HOST_IMMICH_LIBRARY_ROOT:-../data/mock/immich-library}:/workspace/mnt/immich/library:ro
-      - ${HOST_BACKUP_TARGET_PATH:-../data/mock/backups}:/workspace/mnt/backups/immich
-    working_dir: /workspace
-    command: ["config", "validate"]
-
+      - ${HOST_IMMICH_STORAGE_PATH:-../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${HOST_BACKUP_TARGET_PATH:-../data/mock/backups}:/mnt/backups/immich
+      - ${HOST_REPORTS_PATH:-../data/reports}:/data/reports
+      - ${HOST_MANIFESTS_PATH:-../data/manifests}:/data/manifests
+      - ${HOST_QUARANTINE_PATH:-../data/quarantine}:/data/quarantine
+      - ${HOST_LOG_PATH:-../data/logs}:/data/logs
+      - ${HOST_TMP_PATH:-../data/tmp}:/data/tmp
+      - ${HOST_CONFIG_PATH:-../config}:/config:ro
+    command: ["uv", "run", "python", "-m", "immich_doctor", "runtime", "validate", "--output", "json"]
