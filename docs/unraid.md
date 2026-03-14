@@ -219,3 +219,6 @@ Expected output should indicate that runtime validation completed successfully.
 If needed, run manually:
 
 docker exec -it immich-doctor python -m immich_doctor runtime validate
+docker exec -it immich-doctor python -m immich_doctor storage paths check
+docker exec -it immich-doctor python -m immich_doctor storage permissions check
+docker exec -it immich-doctor python -m immich_doctor db health check

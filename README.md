@@ -24,13 +24,14 @@ Project phase: initial scaffold / MVP skeleton
 
 Current MVP scope:
 
-- safe CLI commands only
+- safe hierarchical CLI commands only
 - configuration loading from environment or `.env`
-- validation of configured Immich paths
-- validation of expected configured path relationships
-- validation of PostgreSQL connectivity when a DSN is configured
-- validation of backup target writability
-- runtime validation for container identity, mounted paths, and database reachability
+- runtime environment validation
+- storage path validation
+- storage permission validation
+- backup target verification
+- database health validation
+- database index inspection
 - validation of required external tools when configured
 - structured text or JSON reports
 
@@ -69,6 +70,50 @@ introduced carefully, documented, reviewed, and validated before real-world use.
 - future API orchestration layer
 - future Web UI orchestration layer
 
+## Canonical command architecture
+
+The CLI is now treated as a stable product contract for future GUI and API work.
+All commands must follow this hierarchy:
+
+```text
+immich-doctor <domain> <subdomain> <action> [options]
+```
+
+Current canonical commands:
+
+```text
+immich-doctor runtime validate
+immich-doctor runtime health check
+immich-doctor storage paths check
+immich-doctor storage permissions check
+immich-doctor backup verify
+immich-doctor db health check
+immich-doctor db performance indexes check
+```
+
+Deprecated and removed command concepts:
+
+```text
+health ping
+config validate
+backup validate
+db validate-indexes
+```
+
+Old-to-new command mapping:
+
+```text
+health ping                -> runtime health check
+config validate            -> runtime validate
+config validate            -> storage paths check
+config validate            -> storage permissions check
+config validate            -> db health check
+backup validate            -> backup verify
+db validate-indexes        -> db performance indexes check
+```
+
+No legacy aliases are kept.
+
 ## Architecture direction
 
 The repository is split into clear layers:
@@ -95,10 +140,13 @@ uv sync --dev
 4. Run the safe MVP commands:
 
 ```bash
-uv run python -m immich_doctor health ping
-uv run python -m immich_doctor config validate
-uv run python -m immich_doctor backup validate
+uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
+uv run python -m immich_doctor storage paths check
+uv run python -m immich_doctor storage permissions check
+uv run python -m immich_doctor backup verify
+uv run python -m immich_doctor db health check
+uv run python -m immich_doctor db performance indexes check
 ```
 
 ## Docker

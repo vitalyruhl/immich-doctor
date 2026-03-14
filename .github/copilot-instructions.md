@@ -83,6 +83,18 @@ The architecture MUST remain layered:
 - Domain/Core layer
 - Adapter/Infrastructure layer
 
+Canonical command hierarchy:
+
+- All CLI commands MUST follow:
+  - `immich-doctor <domain> <subdomain> <action> [options]`
+- Domain-specific one-off flags and flat shortcut commands are forbidden
+- `health` is only for minimal reachability and readiness checks
+- index analysis belongs under:
+  - `db performance indexes check`
+- `config validate` is not a canonical command concept and must not be reintroduced
+- New command work must map cleanly to future GUI/API grouping:
+  - Domain -> Subdomain -> Action
+
 Rules:
 - CLI MUST NOT access database or filesystem directly
 - Services coordinate use-cases

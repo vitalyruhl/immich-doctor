@@ -5,15 +5,15 @@ from typing import Annotated
 
 import typer
 
+from immich_doctor.backup.verify.service import BackupVerifyService
 from immich_doctor.cli._common import emit_report
 from immich_doctor.core.config import load_settings
-from immich_doctor.services.backup_validation_service import BackupValidationService
 
-backup_app = typer.Typer(help="Backup validation commands.")
+backup_app = typer.Typer(help="Backup verification commands.")
 
 
-@backup_app.command("validate")
-def backup_validate(
+@backup_app.command("verify")
+def backup_verify(
     env_file: Annotated[
         Path | None,
         typer.Option("--env-file", exists=True, file_okay=True),
@@ -21,5 +21,5 @@ def backup_validate(
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
     settings = load_settings(env_file=env_file)
-    report = BackupValidationService().run(settings)
+    report = BackupVerifyService().run(settings)
     emit_report(report, output)

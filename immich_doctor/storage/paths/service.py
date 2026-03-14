@@ -3,75 +3,73 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from immich_doctor.adapters.filesystem import FilesystemAdapter
-from immich_doctor.adapters.postgres import PostgresAdapter
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus, ValidationReport
 from immich_doctor.core.paths import configured_immich_paths, runtime_paths
 
 
 @dataclass(slots=True)
-class ConfigValidationService:
+class StoragePathsCheckService:
     filesystem: FilesystemAdapter = field(default_factory=FilesystemAdapter)
-    postgres: PostgresAdapter = field(default_factory=PostgresAdapter)
 
     def run(self, settings: AppSettings) -> ValidationReport:
         checks: list[CheckResult] = []
-        immich_paths = configured_immich_paths(settings)
+        source_paths = configured_immich_paths(settings)
 
-        if not immich_paths:
+        if not source_paths:
             checks.append(
                 CheckResult(
-                    name="immich_paths_configured",
+                    name="source_paths_configured",
                     status=CheckStatus.FAIL,
-                    message="No Immich paths are configured.",
+                    message="No source paths are configured.",
                 )
             )
         else:
             checks.append(
                 CheckResult(
-                    name="immich_paths_configured",
+                    name="source_paths_configured",
                     status=CheckStatus.PASS,
-                    message="Immich paths are configured.",
-                    details={"count": len(immich_paths)},
+                    message="Source paths are configured.",
+                    details={"count": len(source_paths)},
                 )
             )
 
-        for name, path in immich_paths.items():
+        for name, path in source_paths.items():
             checks.append(self.filesystem.validate_directory(name=name, path=path))
 
-        checks.extend(self._validate_runtime_paths(settings))
-        checks.extend(self._validate_directory_relationships(settings))
-        checks.append(self._validate_postgres(settings))
+        checks.extend(self._validate_child_relationships(settings))
+
+        for name, path in runtime_paths(settings).items():
+            checks.append(self.filesystem.validate_directory(name=name, path=path))
+
+        if settings.config_path is None:
+            checks.append(
+                CheckResult(
+                    name="config_path",
+                    status=CheckStatus.SKIP,
+                    message="Optional config path is not configured.",
+                )
+            )
+        else:
+            checks.append(
+                self.filesystem.validate_directory(
+                    name="config_path",
+                    path=settings.config_path,
+                )
+            )
 
         return ValidationReport(
-            command="config validate",
+            domain="storage.paths",
+            action="check",
+            summary="Storage path checks completed.",
             checks=checks,
             metadata={"environment": settings.environment},
         )
 
-    def _validate_runtime_paths(self, settings: AppSettings) -> list[CheckResult]:
-        checks: list[CheckResult] = []
-        for name, path in runtime_paths(settings).items():
-            checks.append(
-                CheckResult(
-                    name=name,
-                    status=CheckStatus.PASS,
-                    message="Runtime path configured.",
-                    details={"path": str(path)},
-                )
-            )
-        return checks
-
-    def _validate_directory_relationships(self, settings: AppSettings) -> list[CheckResult]:
+    def _validate_child_relationships(self, settings: AppSettings) -> list[CheckResult]:
         root = settings.immich_library_root
         if root is None:
-            return [
-                CheckResult(
-                    name="immich_structure_relationships",
-                    status=CheckStatus.SKIP,
-                    message="Library root not configured; child path relationship checks skipped.",
-                )
-            ]
+            return []
 
         child_paths = {
             "immich_uploads_path": settings.immich_uploads_path,
@@ -104,13 +102,3 @@ class ConfigValidationService:
                 )
             )
         return relationship_checks
-
-    def _validate_postgres(self, settings: AppSettings) -> CheckResult:
-        dsn = settings.postgres_dsn_value()
-        if not dsn:
-            return CheckResult(
-                name="postgres_connection",
-                status=CheckStatus.WARN,
-                message="PostgreSQL DSN not configured; connection check skipped.",
-            )
-        return self.postgres.validate_connection(dsn, settings.postgres_connect_timeout_seconds)

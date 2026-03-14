@@ -32,10 +32,13 @@ Status: `[active]`
 
 In scope now:
 
-- `health ping`
-- `config validate`
-- `backup validate`
+- `runtime health check`
 - `runtime validate`
+- `storage paths check`
+- `storage permissions check`
+- `backup verify`
+- `db health check`
+- `db performance indexes check`
 - environment-driven configuration
 - structured text and JSON output
 - validation-only PostgreSQL connectivity checks

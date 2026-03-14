@@ -12,6 +12,66 @@ API-backed and UI-driven system later without rewriting core logic.
 - keep services reusable by CLI, API, and future background jobs
 - keep repair behavior non-destructive by default
 - keep reports and journals as first-class outputs
+- keep the CLI hierarchy stable enough for future GUI and API mapping
+
+## Canonical command hierarchy
+
+All project commands must follow:
+
+```text
+immich-doctor <domain> <subdomain> <action> [options]
+```
+
+Top-level domains:
+
+- `runtime`
+- `db`
+- `storage`
+- `backup`
+- `diagnostics`
+- `system`
+
+Current canonical command surface:
+
+```text
+immich-doctor runtime validate
+immich-doctor runtime health check
+immich-doctor storage paths check
+immich-doctor storage permissions check
+immich-doctor backup verify
+immich-doctor db health check
+immich-doctor db performance indexes check
+```
+
+Placement rules:
+
+- runtime: process-level readiness and execution-environment checks
+- db.health: reachability, login, session creation, round-trip queries
+- db.performance.indexes: index existence, invalid indexes, usage, size, missing FK indexes
+- storage.paths: storage path existence and structural relationships
+- storage.permissions: readability, writability, and mount safety
+- backup.verify: backup target readiness and required tool presence
+
+Forbidden patterns:
+
+- flat domain-specific flags
+- one-off commands like `check-indexes`
+- health commands that perform integrity or performance analysis
+- legacy concepts like `config validate` as a primary command
+
+## Migration mapping
+
+Current old-to-new mapping:
+
+- `health ping` -> `runtime health check`
+- `config validate` -> `runtime validate`
+- `config validate` -> `storage paths check`
+- `config validate` -> `storage permissions check`
+- `config validate` -> `db health check`
+- `backup validate` -> `backup verify`
+- `db validate-indexes` -> `db performance indexes check`
+
+No temporary compatibility aliases are kept.
 
 ## Module boundaries
 
@@ -25,8 +85,8 @@ selection. It should never become the only place where workflow logic lives.
 Contains the application use cases. Services orchestrate adapters and build
 structured reports for CLI or future API responses.
 
-Current examples include configuration validation, backup target validation, and
-runtime validation for container identity, mounted storage, and database reachability.
+Current examples include runtime validation, storage checks, backup verification,
+database health checks, and database index inspection.
 
 ### `immich_doctor.adapters`
 

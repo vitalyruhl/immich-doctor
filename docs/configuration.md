@@ -79,10 +79,13 @@ DB_PASSWORD=change-me
 
 Current command behavior:
 
-- `health ping` does not require infrastructure configuration
-- `config validate` validates configured Immich paths and PostgreSQL connectivity if a DSN is present
-- `backup validate` validates backup target writability and configured required tools
-- `runtime validate` validates runtime identity, configured mounts, read/write access, and database reachability
+- `runtime health check` does not require infrastructure configuration
+- `runtime validate` validates runtime identity and process-level environment facts
+- `storage paths check` validates configured source and runtime storage paths
+- `storage permissions check` validates source readability, mount safety, and runtime path writability
+- `backup verify` validates backup target readiness and configured required tools
+- `db health check` validates host resolution, TCP reachability, login, and round-trip query execution
+- `db performance indexes check` validates index inventory and index health facts
 
 ## Notes for Docker and Unraid usage
 

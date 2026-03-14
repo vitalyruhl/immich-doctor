@@ -71,15 +71,15 @@ See `docs/unraid.md` for the Unraid-specific setup flow and `.env.unraid.example
 `runtime validate` checks:
 
 - package startup
-- CLI availability
 - effective UID, GID, username, group, working directory, and umask
-- source path existence and readability
-- whether source mounts appear writable
-- output path existence, readability, and safe write-probe behavior
-- optional config directory readability
-- database hostname resolution
-- database TCP reachability
-- PostgreSQL login if enough credentials are configured
+
+Additional canonical commands:
+
+- `storage paths check`
+- `storage permissions check`
+- `backup verify`
+- `db health check`
+- `db performance indexes check`
 
 ## Non-root vs root
 
@@ -96,5 +96,5 @@ Fallback:
 
 - never mount source storage writable unless you have a very specific reason
 - keep reports and quarantine on writable persistent storage
-- use runtime validation before any future backup or repair workflow
+- use runtime, storage, backup, and db validation before any future backup or repair workflow
 - the current container flow does not perform destructive actions
