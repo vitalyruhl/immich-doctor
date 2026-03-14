@@ -7,6 +7,7 @@ It does not build locally and does not perform destructive actions by default.
 
 The container should run as non-root by default and mount Immich storage read-only.
 For Unraid, prefer the published image `ghcr.io/vitalyruhl/immich-doctor:latest` instead of a local build.
+The current example stack is intended to join the external `immich_default` network so it can reach the Immich PostgreSQL container by service name.
 
 ------------------------------------------------------------
 
@@ -18,6 +19,7 @@ You need:
 - environment values for all `${...}` variables used in that compose file
 
 If the repository does not provide `.env.unraid.example`, create the environment values manually in Unraid using the `ENV FILE` editor.
+If you prefer keeping an Unraid-specific copy next to the stack file, mirror the same values into `docker/env-example.unraid.yml`.
 
 ------------------------------------------------------------
 
@@ -106,20 +108,14 @@ HOST_LOG_PATH=/mnt/user/appdata/immich-doctor/logs
 HOST_TMP_PATH=/mnt/user/appdata/immich-doctor/tmp
 HOST_CONFIG_PATH=/mnt/user/appdata/immich-doctor/config
 
-DB_HOST=
+DB_HOST=immich_postgres
 DB_PORT=5432
-DB_NAME=
-DB_USER=
-DB_PASSWORD=
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=immich
 DB_CONNECT_TIMEOUT_SECONDS=3
 
-Replace:
-
-<REPO_OWNER>
-
-with the actual GitHub owner or a full image path.
-
-If you do not want database validation yet, leave the DB fields empty.
+If your Immich PostgreSQL container uses a different network alias or credentials, adjust the `DB_*` values accordingly.
 
 Click:
 
@@ -157,6 +153,8 @@ OK
 ### Step 6 — Deploy the stack
 
 After Compose File and Env File are filled in, deploy or start the stack from the Unraid Compose UI.
+
+If `immich_default` does not already exist as an external Docker network on your Unraid host, create it first or adjust the compose file to match your actual Immich stack network name.
 
 ------------------------------------------------------------
 

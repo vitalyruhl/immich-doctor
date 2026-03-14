@@ -1,6 +1,7 @@
 PUID=99
 PGID=100
 UMASK=002
+
 IMMICH_DOCTOR_IMAGE=ghcr.io/vitalyruhl/immich-doctor:latest
 
 HOST_IMMICH_STORAGE_PATH=/mnt/user/images/immich
@@ -14,7 +15,7 @@ HOST_CONFIG_PATH=/mnt/user/appdata/immich-doctor/config
 
 DB_HOST=immich_postgres
 DB_PORT=5432
-DB_NAME=immich
 DB_USER=postgres
 DB_PASSWORD=postgres
+DB_NAME=immich
 DB_CONNECT_TIMEOUT_SECONDS=3

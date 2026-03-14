@@ -1,11 +1,10 @@
-name: immich-doctor-unraid
-
 services:
   immich-doctor:
-    image: ${IMMICH_DOCTOR_IMAGE:-ghcr.io/<REPO_OWNER>/immich-doctor:latest}
+    image: ${IMMICH_DOCTOR_IMAGE:-ghcr.io/vitalyruhl/immich-doctor:latest}
     container_name: immich-doctor
-    network_mode: bridge
-    restart: unless-stopped
+    networks:
+      - immich_default
+    restart: no
     user: "${PUID:-99}:${PGID:-100}"
     security_opt:
       - no-new-privileges:true
@@ -40,3 +39,7 @@ services:
       - ${HOST_TMP_PATH:-/mnt/user/appdata/immich-doctor/tmp}:/data/tmp
       - ${HOST_CONFIG_PATH:-/mnt/user/appdata/immich-doctor/config}:/config
     command: ["python", "-m", "immich_doctor", "runtime", "validate"]
+networks:
+  immich_default:
+    external: true  
+
