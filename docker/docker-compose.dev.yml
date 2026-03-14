@@ -1,0 +1,25 @@
+services:
+  immich-doctor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        INSTALL_DEV: "true"
+    image: immich-doctor:dev
+    env_file:
+      - ../.env
+    environment:
+      IMMICH_DOCTOR_IMMICH_LIBRARY_ROOT: /workspace/mnt/immich/library
+      IMMICH_DOCTOR_BACKUP_TARGET_PATH: /workspace/mnt/backups/immich
+      IMMICH_DOCTOR_REPORTS_PATH: /workspace/data/reports
+      IMMICH_DOCTOR_MANIFESTS_PATH: /workspace/data/manifests
+      IMMICH_DOCTOR_QUARANTINE_PATH: /workspace/data/quarantine
+      IMMICH_DOCTOR_LOGS_PATH: /workspace/data/logs
+      IMMICH_DOCTOR_TMP_PATH: /workspace/data/tmp
+    volumes:
+      - ..:/workspace
+      - ${HOST_IMMICH_LIBRARY_ROOT:-../data/mock/immich-library}:/workspace/mnt/immich/library:ro
+      - ${HOST_BACKUP_TARGET_PATH:-../data/mock/backups}:/workspace/mnt/backups/immich
+    working_dir: /workspace
+    command: ["config", "validate"]
+

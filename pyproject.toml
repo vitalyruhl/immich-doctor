@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "immich-doctor"
+version = "0.1.0"
+description = "CLI-first validation and maintenance scaffold for Immich environments."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "immich-doctor contributors" }
+]
+dependencies = [
+  "pydantic>=2.11.0,<3.0.0",
+  "pydantic-settings>=2.8.0,<3.0.0",
+  "psycopg[binary]>=3.2.0,<4.0.0",
+  "typer>=0.16.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0,<9.0.0",
+  "ruff>=0.11.0,<0.12.0",
+]
+
+[project.scripts]
+immich-doctor = "immich_doctor.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["immich_doctor"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "B",
+  "UP",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+

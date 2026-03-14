@@ -1,0 +1,26 @@
+services:
+  immich-doctor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: immich-doctor:local
+    env_file:
+      - ../.env
+    environment:
+      IMMICH_DOCTOR_IMMICH_LIBRARY_ROOT: /mnt/immich/library
+      IMMICH_DOCTOR_BACKUP_TARGET_PATH: /mnt/backups/immich
+      IMMICH_DOCTOR_REPORTS_PATH: /app/data/reports
+      IMMICH_DOCTOR_MANIFESTS_PATH: /app/data/manifests
+      IMMICH_DOCTOR_QUARANTINE_PATH: /app/data/quarantine
+      IMMICH_DOCTOR_LOGS_PATH: /app/data/logs
+      IMMICH_DOCTOR_TMP_PATH: /app/data/tmp
+    volumes:
+      - ${HOST_IMMICH_LIBRARY_ROOT:-../data/mock/immich-library}:/mnt/immich/library:ro
+      - ${HOST_BACKUP_TARGET_PATH:-../data/mock/backups}:/mnt/backups/immich
+      - ../data/reports:/app/data/reports
+      - ../data/manifests:/app/data/manifests
+      - ../data/quarantine:/app/data/quarantine
+      - ../data/logs:/app/data/logs
+      - ../data/tmp:/app/data/tmp
+    command: ["health", "ping"]
+
