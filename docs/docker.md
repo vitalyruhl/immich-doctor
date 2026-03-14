@@ -46,7 +46,7 @@ docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor uv run py
 ## Unraid-style deployment
 
 ```bash
-docker compose -f docker/docker-compose.unraid.yml up --build -d
+docker compose --env-file .env -f docker/docker-compose.unraid.yml up -d
 ```
 
 Recommended Unraid mount pattern:
@@ -54,13 +54,17 @@ Recommended Unraid mount pattern:
 - Immich source storage: read-only
 - backup destination: writable
 - reports, manifests, quarantine, logs, tmp: writable
-- config directory: read-only
+- config directory: writable
 
 Example host path styles:
 
 - `/mnt/user/...`
-- `/mnt/cache/...`
 - `/mnt/diskX/...`
+- `/mnt/user/images/immich`
+- `/mnt/user/appdata/immich-doctor/...`
+- `/mnt/user/backups/immich-doctor`
+
+See `docs/unraid.md` for the Unraid-specific setup flow and `.env.unraid.example` for recommended environment values.
 
 ## Runtime validation behavior
 

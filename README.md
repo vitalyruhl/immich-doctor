@@ -117,8 +117,16 @@ Useful commands:
 ```bash
 docker compose -f docker/docker-compose.yml up --build
 docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor
-docker compose -f docker/docker-compose.unraid.yml up --build
+docker compose --env-file .env -f docker/docker-compose.unraid.yml up -d
 ```
+
+Published image for Unraid and other prebuilt deployments:
+
+```text
+ghcr.io/vitalyruhl/immich-doctor:latest
+```
+
+Unraid users should prefer the published GHCR image over a local Docker build.
 
 The default container command remains safe and non-destructive:
 
