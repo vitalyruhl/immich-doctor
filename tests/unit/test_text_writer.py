@@ -18,8 +18,7 @@ def test_default_db_index_text_output_is_compact() -> None:
                         "tablename": "face_search",
                         "indexname": "face_index",
                         "indexdef": (
-                            "CREATE INDEX face_index ON public.face_search "
-                            "USING hnsw (embedding)"
+                            "CREATE INDEX face_index ON public.face_search USING hnsw (embedding)"
                         ),
                     }
                 ],
@@ -80,8 +79,7 @@ def test_verbose_db_index_text_output_keeps_full_details() -> None:
                         "tablename": "face_search",
                         "indexname": "face_index",
                         "indexdef": (
-                            "CREATE INDEX face_index ON public.face_search "
-                            "USING hnsw (embedding)"
+                            "CREATE INDEX face_index ON public.face_search USING hnsw (embedding)"
                         ),
                     }
                 ],
