@@ -7,8 +7,8 @@ from immich_doctor.core.models import CheckResult, CheckStatus, ValidationReport
 from immich_doctor.version import __version__
 
 
-class HealthService:
-    def run_ping(self) -> ValidationReport:
+class RuntimeHealthCheckService:
+    def run(self) -> ValidationReport:
         checks = [
             CheckResult(
                 name="python_runtime",
@@ -24,7 +24,9 @@ class HealthService:
             ),
         ]
         return ValidationReport(
-            command="health ping",
+            domain="runtime.health",
+            action="check",
+            summary="Runtime health checks completed.",
             checks=checks,
             metadata={"version": __version__},
         )

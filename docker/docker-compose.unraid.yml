@@ -4,7 +4,7 @@ services:
     container_name: immich-doctor
     networks:
       - immich_default
-    restart: no
+    restart: unless-stopped
     user: "${PUID:-99}:${PGID:-100}"
     security_opt:
       - no-new-privileges:true
@@ -38,7 +38,7 @@ services:
       - ${HOST_LOG_PATH:-/mnt/user/appdata/immich-doctor/logs}:/data/logs
       - ${HOST_TMP_PATH:-/mnt/user/appdata/immich-doctor/tmp}:/data/tmp
       - ${HOST_CONFIG_PATH:-/mnt/user/appdata/immich-doctor/config}:/config
-    command: ["python", "-m", "immich_doctor", "runtime", "validate"]
+    command: ["sh", "-c", "python -m immich_doctor runtime validate && exec tail -f /dev/null"]
 networks:
   immich_default:
     external: true  

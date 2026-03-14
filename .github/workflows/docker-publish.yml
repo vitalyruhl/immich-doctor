@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/**
   workflow_dispatch:
 
 permissions:
@@ -41,6 +42,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=db,enable=${{ github.ref == 'refs/heads/feature/db' }}
             type=sha,format=short
             type=ref,event=branch
           labels: |

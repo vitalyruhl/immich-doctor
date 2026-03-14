@@ -9,7 +9,7 @@ from immich_doctor.core.models import CheckResult, CheckStatus, ValidationReport
 
 
 @dataclass(slots=True)
-class BackupValidationService:
+class BackupVerifyService:
     filesystem: FilesystemAdapter = field(default_factory=FilesystemAdapter)
     external_tools: ExternalToolsAdapter = field(default_factory=ExternalToolsAdapter)
 
@@ -34,8 +34,20 @@ class BackupValidationService:
                 )
             )
             checks.append(
+                self.filesystem.validate_directory(
+                    name="backup_target_path",
+                    path=settings.backup_target_path,
+                )
+            )
+            checks.append(
+                self.filesystem.validate_readable_directory(
+                    name="backup_target_path_readable",
+                    path=settings.backup_target_path,
+                )
+            )
+            checks.append(
                 self.filesystem.validate_writable_directory(
-                    name="backup_target_writable",
+                    name="backup_target_path_writable",
                     path=settings.backup_target_path,
                 )
             )
@@ -54,7 +66,9 @@ class BackupValidationService:
             )
 
         return ValidationReport(
-            command="backup validate",
+            domain="backup",
+            action="verify",
+            summary="Backup verification completed.",
             checks=checks,
             metadata={"environment": settings.environment},
         )

@@ -16,10 +16,13 @@ uv run python -m immich_doctor --help
 
 ```bash
 uv run python -m immich_doctor --help
-uv run python -m immich_doctor health ping
-uv run python -m immich_doctor config validate --output json
-uv run python -m immich_doctor backup validate
+uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
+uv run python -m immich_doctor storage paths check --output json
+uv run python -m immich_doctor storage permissions check
+uv run python -m immich_doctor backup verify
+uv run python -m immich_doctor db health check
+uv run python -m immich_doctor db performance indexes check
 pytest
 ruff check .
 ruff format --check .

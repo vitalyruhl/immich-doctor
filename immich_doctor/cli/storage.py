@@ -7,17 +7,19 @@ import typer
 
 from immich_doctor.cli._common import emit_report
 from immich_doctor.core.config import load_settings
-from immich_doctor.runtime.health.service import RuntimeHealthCheckService
-from immich_doctor.runtime.validate.service import RuntimeValidationService
+from immich_doctor.storage.paths.service import StoragePathsCheckService
+from immich_doctor.storage.permissions.service import StoragePermissionsCheckService
 
-runtime_app = typer.Typer(help="Execution environment validation commands.")
-runtime_health_app = typer.Typer(help="Runtime reachability and readiness checks.")
+storage_app = typer.Typer(help="Filesystem and mount state checks.")
+paths_app = typer.Typer(help="Storage path existence and relationship checks.")
+permissions_app = typer.Typer(help="Storage readability and writability checks.")
 
-runtime_app.add_typer(runtime_health_app, name="health")
+storage_app.add_typer(paths_app, name="paths")
+storage_app.add_typer(permissions_app, name="permissions")
 
 
-@runtime_app.command("validate")
-def runtime_validate(
+@paths_app.command("check")
+def storage_paths_check(
     env_file: Annotated[
         Path | None,
         typer.Option("--env-file", exists=True, file_okay=True),
@@ -29,17 +31,22 @@ def runtime_validate(
     ] = False,
 ) -> None:
     settings = load_settings(env_file=env_file)
-    report = RuntimeValidationService().run(settings)
+    report = StoragePathsCheckService().run(settings)
     emit_report(report, output, verbose=verbose)
 
 
-@runtime_health_app.command("check")
-def runtime_health_check(
+@permissions_app.command("check")
+def storage_permissions_check(
+    env_file: Annotated[
+        Path | None,
+        typer.Option("--env-file", exists=True, file_okay=True),
+    ] = None,
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Show full diagnostic details in text output."),
     ] = False,
 ) -> None:
-    report = RuntimeHealthCheckService().run()
+    settings = load_settings(env_file=env_file)
+    report = StoragePermissionsCheckService().run(settings)
     emit_report(report, output, verbose=verbose)

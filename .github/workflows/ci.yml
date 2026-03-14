@@ -62,4 +62,4 @@ jobs:
         run: pytest
 
       - name: Run CLI smoke check
-        run: python -m immich_doctor health ping --output json
+        run: python -m immich_doctor runtime health check --output json

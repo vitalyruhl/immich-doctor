@@ -10,13 +10,55 @@ and operational safety before adding more power.
 
 1. Start with a small, focused change.
 2. Keep CLI code thin and move reusable logic into services and adapters.
-3. Add or update tests for changed behavior.
-4. Update documentation when architecture, configuration, or scope changes.
-5. Run local validation before opening a pull request:
+3. Place every new command in the canonical domain hierarchy.
+4. Split mixed concepts into separate domain commands instead of adding umbrella commands.
+5. Add or update tests for changed behavior.
+6. Update documentation when architecture, configuration, or scope changes.
+7. Run local validation before opening a pull request:
    - `pytest`
    - `ruff check .`
    - `ruff format --check .`
-6. Open a pull request with clear context, risk notes, and validation steps.
+8. Open a pull request with clear context, risk notes, and validation steps.
+
+## Canonical command architecture
+
+All contributor-facing CLI work must follow:
+
+```text
+immich-doctor <domain> <subdomain> <action> [options]
+```
+
+Current canonical domains:
+
+- `runtime`
+- `db`
+- `storage`
+- `backup`
+- `diagnostics`
+- `system`
+
+Current command examples:
+
+```text
+immich-doctor runtime validate
+immich-doctor runtime health check
+immich-doctor storage paths check
+immich-doctor storage permissions check
+immich-doctor backup verify
+immich-doctor db health check
+immich-doctor db performance indexes check
+```
+
+Contributor rules:
+
+- do not add new top-level flags for domain logic
+- do not keep mixed semantics inside one command
+- do not use `health` for performance or integrity analysis
+- place index logic only under `db.performance.indexes`
+- do not revive `config validate` as a catch-all command
+- prefer architecture consistency over backward compatibility
+
+Reviewers must reject non-canonical naming or placement before merge.
 
 ## Branch model
 
@@ -71,6 +113,7 @@ must receive explicit maintainer review before merge.
 - Prefer targeted unit tests first.
 - Add integration tests for CLI or service flows when the behavior spans modules.
 - Document manual validation steps in the PR when automated coverage is not enough.
+- For diagnostic commands, keep default text output concise and expose full detail via `--verbose`.
 
 ## Safety rules for repair-oriented changes
 
