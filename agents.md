@@ -45,11 +45,31 @@ SEMI-AUTOMATIC WORKFLOW GUIDELINES
 GIT WORKFLOW GUIDELINES
 ========================================
 - main is protected
+- main must always stay runnable and represent the latest tested stable state
 - never commit directly to main
 - use:
   - feature/*
   - fix/*
   - chore/*
+
+- Branch model:
+  - long-running work for a larger topic belongs on a dedicated feature branch
+  - example: `feature/db`
+  - short-lived implementation branches for that topic branch off from the feature branch
+  - example: `chore/db-real-runtime-validation`
+  - short-lived chore branches must be merged back into the matching feature branch first
+  - only when the whole feature is complete and runnable, open a PR from the feature branch to `main`
+
+- Branch freshness rules:
+  - always branch from the latest relevant base
+  - for a new feature branch, branch from current `main`
+  - for a chore branch inside a feature, branch from the current feature branch
+  - do not start a new work branch while the intended base branch is behind the tested latest state
+  - after a feature is merged, delete obsolete work branches for that feature
+
+- Merge rules:
+  - prefer keeping feature branches up to date by fast-forwarding or rebasing short-lived chore branches into them
+  - do not keep multiple parallel branches alive for the same completed topic when one canonical branch is enough
 
 - Stage/commit/push only on explicit user request
 
