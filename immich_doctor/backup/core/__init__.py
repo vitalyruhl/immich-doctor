@@ -1,4 +1,4 @@
-"""Backup domain package and shared abstractions."""
+"""Core backup abstractions shared by future backup workflows."""
 
 from immich_doctor.backup.core.models import (
     BackupArtifact,

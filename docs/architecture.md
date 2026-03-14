@@ -107,6 +107,43 @@ Contains infrastructure-facing code such as:
 Reserved for PostgreSQL-specific connection and query helpers that may later grow
 beyond simple connectivity checks.
 
+## Backup domain foundation (WIP)
+
+The backup domain now has a dedicated internal foundation package layout that is
+prepared for later implementation work without exposing new user-facing commands.
+
+Current internal backup packages:
+
+- `immich_doctor.backup.core`
+- `immich_doctor.backup.db`
+- `immich_doctor.backup.files`
+- `immich_doctor.backup.metadata`
+- `immich_doctor.backup.orchestration`
+- `immich_doctor.backup.scheduler`
+- `immich_doctor.backup.remote`
+
+Responsibilities:
+
+- `backup.core`: shared backup data contracts such as context, jobs, targets,
+  artifacts, manifests, results, and location resolution
+- `backup.db`: future PostgreSQL backup coordination
+- `backup.files`: future filesystem artifact collection
+- `backup.metadata`: future metadata and manifest enrichment
+- `backup.orchestration`: future sequential backup planning, locking, and reporting
+- `backup.scheduler`: future scheduler integration boundary
+- `backup.remote`: future remote transport integration boundary
+
+This step is intentionally structural only:
+
+- no backup execution
+- no subprocess integration
+- no storage writes
+- no remote transfer
+- no scheduling logic
+
+Until later phases are implemented, `backup verify` remains the only user-facing
+backup command.
+
 ### `immich_doctor.reports`
 
 Transforms service results into stable text or JSON output and later into persisted
