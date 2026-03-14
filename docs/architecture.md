@@ -38,6 +38,7 @@ immich-doctor runtime validate
 immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
+immich-doctor backup files
 immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check
@@ -50,6 +51,7 @@ Placement rules:
 - db.performance.indexes: index existence, invalid indexes, usage, size, missing FK indexes
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
+- backup.files: versioned local file backup execution through the backup application layer
 - backup.verify: backup target readiness and required tool presence
 
 Forbidden patterns:
@@ -146,8 +148,7 @@ backup command.
 
 ### Backup files rsync foundation (WIP)
 
-Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`
-without exposing a new CLI command yet.
+Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`.
 
 Current file-backup internals are limited to:
 
@@ -164,6 +165,28 @@ Explicit constraints for this phase:
 - no scheduling
 - no retention
 - no destructive rsync flags such as `--delete`
+
+### Backup files application flow (WIP)
+
+Phase 3 adds a thin `backup files` command on top of the Phase 1 and Phase 2
+backup foundation.
+
+Current flow:
+
+1. CLI parses arguments and loads settings
+2. `BackupFilesService` creates one backup operation context
+3. `BackupLocationResolver` resolves the configured local target
+4. file backup request and execution plan are created
+5. rsync command construction stays in `immich_doctor.backup.files`
+6. local execution returns one shared `BackupResult`
+
+Current constraints:
+
+- `BackupContext.started_at` is the authoritative timestamp for one backup set
+- rsync remains confined to `backup.files`
+- CLI does not import subprocess or rsync internals
+- artifact paths must stay traceable from the backup root
+- no retention, remote transport, DB backup, scheduler, or backup-all logic
 
 ### `immich_doctor.reports`
 

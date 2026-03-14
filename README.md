@@ -29,6 +29,7 @@ Current MVP scope:
 - runtime environment validation
 - storage path validation
 - storage permission validation
+- file backup execution through a thin backup application flow
 - backup target verification
 - database health validation
 - database index inspection
@@ -40,7 +41,6 @@ Not in scope yet:
 - no destructive repair actions
 - no file modifications
 - no quarantine moves
-- no backup execution
 - no API or Web UI runtime yet
 
 ## Safety warning
@@ -86,6 +86,7 @@ immich-doctor runtime validate
 immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
+immich-doctor backup files
 immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check
@@ -144,6 +145,7 @@ uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
 uv run python -m immich_doctor storage paths check
 uv run python -m immich_doctor storage permissions check
+uv run python -m immich_doctor backup files
 uv run python -m immich_doctor backup verify
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check

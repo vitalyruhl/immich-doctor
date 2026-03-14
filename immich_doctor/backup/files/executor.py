@@ -5,7 +5,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Protocol
 
 from immich_doctor.backup.core.models import BackupArtifact, BackupResult, BackupTarget
@@ -27,8 +26,27 @@ class CommandRunner(Protocol):
         """Run the provided argument list and return a completed process."""
 
 
+@dataclass(slots=True)
 class FileBackupExecutionError(RuntimeError):
     """Raised when local file backup execution cannot proceed safely."""
+
+    message: str
+    argv: tuple[str, ...] = ()
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+
+    def __post_init__(self) -> None:
+        RuntimeError.__init__(self, self.message)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "message": self.message,
+            "argv": list(self.argv),
+            "exit_code": self.exit_code,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+        }
 
 
 @dataclass(slots=True)
@@ -53,7 +71,7 @@ class LocalFileBackupExecutor:
 
         if not self.is_available():
             raise FileBackupExecutionError(
-                f"Required executable is not available: {self.command_builder.executable}"
+                message=f"Required executable is not available: {self.command_builder.executable}"
             )
 
         plan.destination_path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,23 +84,34 @@ class LocalFileBackupExecutor:
         )
         if completed.returncode != 0:
             raise FileBackupExecutionError(
-                f"Rsync execution failed with exit code {completed.returncode}."
+                message=f"Rsync execution failed with exit code {completed.returncode}.",
+                argv=command.argv,
+                exit_code=completed.returncode,
+                stdout=completed.stdout,
+                stderr=completed.stderr,
             )
 
         artifact_target = BackupTarget(
             kind="local",
-            reference=str(plan.destination_path),
-            display_name=plan.destination_path.name,
+            reference=str(plan.backup_root_path),
+            display_name=plan.backup_root_path.name,
         )
         artifact = BackupArtifact(
-            name=plan.destination_path.name,
+            name=plan.request.source_label,
             kind="file_archive",
             target=artifact_target,
-            relative_path=Path(plan.destination_path.name),
+            relative_path=plan.artifact_relative_path,
         )
         return BackupResult(
+            domain="backup.files",
+            action="run",
             status="success",
             summary="File backup execution completed.",
             context=plan.request.context,
             artifacts=(artifact,),
+            details={
+                "backup_root_path": plan.backup_root_path.as_posix(),
+                "destination_path": plan.destination_path.as_posix(),
+                "command": list(command.argv),
+            },
         )
