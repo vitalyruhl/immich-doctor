@@ -260,6 +260,11 @@ Current API surface:
 - `GET /api/runtime/integrity/inspect`
 - `GET /api/runtime/metadata-failures/inspect`
 - `POST /api/runtime/metadata-failures/repair`
+- `GET /api/runtime/metadata-failures/repair-readiness`
+- `GET /api/repair/runs`
+- `GET /api/repair/runs/{repair_run_id}`
+- `GET /api/repair/quarantine/summary`
+- `GET /api/backup/snapshots`
 - `GET /api/settings`
 - `GET /api/settings/schema`
 - `PUT /api/settings`
@@ -275,6 +280,9 @@ Current API constraints:
   instead of presenting them as unexplained job failures
 - metadata repair remains dry-run by default and may only apply actions with
   explicit safe execution primitives
+- repair and backup safety visibility endpoints must expose real persisted
+  state only; they must not imply that automated undo, quarantine execution,
+  or restore orchestration already exists
 - settings routes use `/api/settings` as the canonical global contract; nested
   domain-specific settings prefixes are not allowed
 - `PUT /api/settings` is reserved but remains non-persistent until a safe
@@ -290,6 +298,19 @@ The intended long-term flow is:
 4. Web UI calls the API and renders reports, status, and workflow controls
 
 This keeps the Web UI as an orchestration layer instead of a second source of truth.
+
+Current safety visibility in the UI includes:
+
+- runtime apply readiness and blocking preconditions
+- persisted repair run history and journal entries
+- persisted backup snapshot manifests
+- quarantine foundation state
+
+Current exclusions remain explicit:
+
+- no restore automation
+- no automated undo execution
+- no quarantine move/restore workflow
 
 ## UI-to-backend contract rule
 

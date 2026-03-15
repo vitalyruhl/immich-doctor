@@ -160,31 +160,35 @@ class BackupVerifyService:
         return checks
 
     def _snapshot_consistency_error(self, snapshot) -> str | None:
-        if snapshot.manifest_path.suffix != ".json":
-            return "Snapshot manifest path must point to a JSON file."
+        return snapshot_consistency_error(snapshot)
 
-        if snapshot.kind in {SnapshotKind.PRE_REPAIR, SnapshotKind.POST_REPAIR}:
-            if snapshot.repair_run_id is None:
-                return "Repair-classified snapshots must reference a repair run ID."
 
-        if snapshot.kind not in {
-            SnapshotKind.PRE_REPAIR,
-            SnapshotKind.POST_REPAIR,
-            SnapshotKind.PERIODIC,
-            SnapshotKind.MANUAL,
-        }:
-            return "Snapshot kind is unsupported."
+def snapshot_consistency_error(snapshot) -> str | None:
+    if snapshot.manifest_path.suffix != ".json":
+        return "Snapshot manifest path must point to a JSON file."
 
-        if snapshot.coverage == SnapshotCoverage.FILES_ONLY:
-            if not snapshot.file_artifacts or snapshot.db_artifact is not None:
-                return "Files-only snapshot must contain file artifacts and no db artifact."
-            return None
-        if snapshot.coverage == SnapshotCoverage.DB_ONLY:
-            if snapshot.file_artifacts or snapshot.db_artifact is None:
-                return "DB-only snapshot must contain exactly one db artifact."
-            return None
-        if snapshot.coverage == SnapshotCoverage.PAIRED:
-            if not snapshot.file_artifacts or snapshot.db_artifact is None:
-                return "Paired snapshot must contain both file artifacts and a db artifact."
-            return None
-        return "Snapshot coverage is unsupported."
+    if snapshot.kind in {SnapshotKind.PRE_REPAIR, SnapshotKind.POST_REPAIR}:
+        if snapshot.repair_run_id is None:
+            return "Repair-classified snapshots must reference a repair run ID."
+
+    if snapshot.kind not in {
+        SnapshotKind.PRE_REPAIR,
+        SnapshotKind.POST_REPAIR,
+        SnapshotKind.PERIODIC,
+        SnapshotKind.MANUAL,
+    }:
+        return "Snapshot kind is unsupported."
+
+    if snapshot.coverage == SnapshotCoverage.FILES_ONLY:
+        if not snapshot.file_artifacts or snapshot.db_artifact is not None:
+            return "Files-only snapshot must contain file artifacts and no db artifact."
+        return None
+    if snapshot.coverage == SnapshotCoverage.DB_ONLY:
+        if snapshot.file_artifacts or snapshot.db_artifact is None:
+            return "DB-only snapshot must contain exactly one db artifact."
+        return None
+    if snapshot.coverage == SnapshotCoverage.PAIRED:
+        if not snapshot.file_artifacts or snapshot.db_artifact is None:
+            return "Paired snapshot must contain both file artifacts and a db artifact."
+        return None
+    return "Snapshot coverage is unsupported."

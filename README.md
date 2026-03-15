@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: validation + backup snapshot foundation + repair safety foundation
+Project phase: validation + backup snapshot foundation + repair safety foundation + GUI safety visibility
 
 Current MVP scope:
 
@@ -34,6 +34,7 @@ Current MVP scope:
 - quarantine index foundation for later quarantine-first file handling
 - persisted backup snapshot manifests with explicit files-only vs paired coverage modeling
 - pre-repair snapshot creation for integrated mutating repair flows
+- GUI visibility for repair runs, journal entries, backup snapshots, and quarantine foundation
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
@@ -265,6 +266,17 @@ The same runtime container now also serves the built Vue frontend over HTTP. The
 FastAPI app returns `index.html` on `/`, serves hashed static assets under
 `/assets`, and falls back to `index.html` for SPA routes such as `/dashboard`.
 
+The GUI now exposes real safety context before broader repair rollout:
+
+- runtime apply readiness and blocking preconditions
+- pre-repair snapshot visibility for integrated runtime apply
+- persisted `RepairRun` and journal visibility
+- backup snapshot visibility with explicit files-only coverage labeling
+- quarantine foundation visibility without pretending move/restore is already implemented
+
+Undo visibility now exists in the GUI through persisted journal data. Automated
+undo and restore orchestration are still not implemented.
+
 `runtime integrity inspect` is the first physical-file inspection workflow for
 the currently supported Immich PostgreSQL runtime schema. It inspects source
 files first, optionally includes derivative `asset_file` rows, and classifies
@@ -297,6 +309,14 @@ nullable DB artifact, verification flag, and optional `repair_run_id`.
 `backup verify` still checks backup target readiness and now also validates
 persisted snapshot manifest structure and coverage consistency. It does not yet
 claim full artifact-content verification or restore readiness.
+
+The API/UI surface for current repair and backup safety visibility now also includes:
+
+- `GET /api/runtime/metadata-failures/repair-readiness`
+- `GET /api/repair/runs`
+- `GET /api/repair/runs/{repair_run_id}`
+- `GET /api/repair/quarantine/summary`
+- `GET /api/backup/snapshots`
 
 ## Docker
 

@@ -130,3 +130,33 @@ export interface RuntimeMetadataFailuresRepairResponse {
   post_validation: RuntimeMetadataFailuresInspectResponse | null;
   recommendations: string[];
 }
+
+export interface RuntimeRepairPrecondition {
+  id: string;
+  label: string;
+  status: "ok" | "warning" | "error" | "unknown";
+  blocking: boolean;
+  summary: string;
+  details: Record<string, unknown>;
+}
+
+export interface RuntimeRepairReadinessResponse {
+  generatedAt: string;
+  action: "fix_permissions";
+  applyAllowed: boolean;
+  blockingReasons: string[];
+  preconditions: RuntimeRepairPrecondition[];
+  snapshotPlan: {
+    kind: "pre_repair";
+    coverage: "files_only";
+    willCreate: boolean;
+    note: string;
+  };
+  undoVisibility: {
+    journalUndoAvailable: boolean;
+    automatedUndo: boolean;
+    note: string;
+  };
+  restoreImplemented: boolean;
+  limitations: string[];
+}

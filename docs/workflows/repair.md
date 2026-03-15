@@ -20,6 +20,13 @@ Status: active foundation
   - undo payload with old/new mode values for chmod-based permission repair
 - runtime metadata permission repair now requests one real files-only `pre_repair`
   snapshot before apply and aborts before mutation if snapshot creation fails
+- GUI visibility now exposes:
+  - repair history based on persisted `RepairRun` records
+  - per-run journal entries
+  - apply preconditions and blocking reasons for the integrated runtime permission repair
+  - linked `pre_repair_snapshot_id`
+  - undo visibility from persisted journal data
+  - explicit notice that full restore is still not implemented
 
 ## Safety rules
 
@@ -42,3 +49,6 @@ Status: active foundation
 The presence of a persisted repair journal does not yet mean the whole system can
 be rolled back automatically. This phase provides the mandatory persistence and
 drift-protection primitives so later repair migrations can become reversible.
+
+The GUI currently shows undo visibility and snapshot linkage, but it does not
+offer automated undo execution, quarantine moves, or restore actions yet.

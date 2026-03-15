@@ -26,6 +26,14 @@ Status: active
   `post_repair_snapshot_id` fields on persisted `RepairRun` records
 - integrated runtime repair apply now requests a real `pre_repair` snapshot and
   stores its `snapshot_id` on the `RepairRun`
+- GUI visibility now exposes persisted snapshot manifests with:
+  - `snapshot_id`
+  - `created_at`
+  - `kind`
+  - `coverage`
+  - optional `repair_run_id`
+  - verification/basic validity signal
+- GUI also shows quarantine foundation status separately from snapshot coverage
 
 ## Snapshot coverage semantics
 
@@ -55,3 +63,9 @@ Status: active
 - restore orchestration is still not implemented, but remains a required later safety layer
 - destructive cleanup defaults
 - scheduler / cron
+
+Current UI limitation:
+
+- snapshots are visible and linkable from repair history
+- current executable snapshot creation is still files-only
+- restore and targeted undo are not yet executable through GUI or API

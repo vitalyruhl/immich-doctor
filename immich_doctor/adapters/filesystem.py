@@ -103,6 +103,53 @@ class FilesystemAdapter:
             details={"path": str(path)},
         )
 
+    def validate_creatable_directory(self, name: str, path: Path) -> CheckResult:
+        if path.exists():
+            return self.validate_writable_directory(name, path)
+
+        parent = path.parent
+        while not parent.exists() and parent != parent.parent:
+            parent = parent.parent
+
+        if not parent.exists():
+            return CheckResult(
+                name=name,
+                status=CheckStatus.FAIL,
+                message="Configured directory cannot be created because no parent path exists.",
+                details={"path": str(path)},
+            )
+
+        probe_path = parent / f".immich-doctor-dir-probe-{uuid4().hex}"
+        try:
+            probe_path.mkdir()
+        except PermissionError:
+            return CheckResult(
+                name=name,
+                status=CheckStatus.FAIL,
+                message="Configured directory cannot be created due to permissions.",
+                details={"path": str(path), "parent": str(parent), "reason": "permission_denied"},
+            )
+        except OSError as exc:
+            reason = self._write_failure_reason(exc)
+            return CheckResult(
+                name=name,
+                status=CheckStatus.FAIL,
+                message=reason["message"],
+                details={"path": str(path), "parent": str(parent), "reason": reason["reason"]},
+            )
+        finally:
+            try:
+                probe_path.rmdir()
+            except OSError:
+                pass
+
+        return CheckResult(
+            name=name,
+            status=CheckStatus.PASS,
+            message="Configured directory can be created and written by the current process.",
+            details={"path": str(path), "parent": str(parent)},
+        )
+
     def validate_source_mount_mode(self, name: str, path: Path) -> CheckResult:
         directory_state = self._directory_state(name=name, path=path)
         if directory_state is not None:
