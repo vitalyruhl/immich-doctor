@@ -37,6 +37,11 @@ Status: active
   - `coverage`
   - optional `repair_run_id`
   - verification/basic validity signal
+- GUI now also exposes real backup execution actions for:
+  - `Perform Backup`
+  - `Create Pre-Repair Snapshot`
+  - both actions call the existing files backup flow and surface the created
+    `snapshot_id`, `kind`, `coverage`, and basic validity result
 - GUI also shows quarantine foundation status separately from snapshot coverage
 
 ## Snapshot coverage semantics
@@ -71,5 +76,6 @@ Status: active
 Current UI limitation:
 
 - snapshots are visible and linkable from repair history
+- executable GUI snapshot creation is still files-only, even for `pre_repair`
 - current executable snapshot creation is still files-only
 - restore is simulation-only and targeted undo is not yet exposed as a GUI action

@@ -32,6 +32,7 @@ Status: active foundation
   - apply preconditions and blocking reasons for the integrated runtime permission repair
   - linked `pre_repair_snapshot_id`
   - undo visibility from persisted journal data
+  - backup-side actions to create a manual files backup or a standalone `pre_repair` snapshot
   - explicit notice that full restore is still not implemented
 
 ## Safety rules

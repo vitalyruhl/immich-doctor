@@ -280,6 +280,9 @@ The GUI now exposes real safety context before broader repair rollout:
 - pre-repair snapshot visibility for integrated runtime apply
 - persisted `RepairRun` and journal visibility
 - backup snapshot visibility with explicit files-only coverage labeling
+- real backup execution actions for:
+  - `Perform Backup`
+  - `Create Pre-Repair Snapshot`
 - quarantine foundation visibility without pretending move/restore is already implemented
 
 Undo visibility now exists in the GUI through persisted journal data. Automated

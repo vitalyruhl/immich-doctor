@@ -10,6 +10,81 @@
       message="Current snapshots are real and persisted, but they are still files-only unless a later paired DB snapshot phase is implemented."
     />
 
+    <section class="settings-grid">
+      <article class="panel">
+        <div class="settings-section__header">
+          <div>
+            <h3>Backup execution</h3>
+            <p>Trigger the current files backup flow directly from the UI.</p>
+          </div>
+        </div>
+        <p class="health-card__details">
+          Every executable snapshot currently has <strong>files-only</strong> coverage. Restore
+          execution is still not automated.
+        </p>
+        <section class="runtime-actions">
+          <button
+            class="runtime-action"
+            type="button"
+            :disabled="backupStore.isExecuting"
+            @click="void backupStore.executeBackup('manual')"
+          >
+            {{ backupStore.activeExecutionKind === "manual" ? "Performing Backup" : "Perform Backup" }}
+          </button>
+          <button
+            class="runtime-action"
+            type="button"
+            :disabled="backupStore.isExecuting"
+            @click="void backupStore.executeBackup('pre_repair')"
+          >
+            {{ backupStore.activeExecutionKind === "pre_repair" ? "Creating Pre-Repair Snapshot" : "Create Pre-Repair Snapshot" }}
+          </button>
+        </section>
+        <p v-if="backupStore.executionError" class="runtime-blocking-message">
+          {{ backupStore.executionError }}
+        </p>
+      </article>
+
+      <article v-if="backupStore.lastExecution" class="panel backup-card">
+        <div class="backup-card__header">
+          <div>
+            <h3>Last execution</h3>
+            <p class="health-card__details">{{ backupStore.lastExecution.generatedAt }}</p>
+          </div>
+          <StatusTag :status="executionStatusTag(backupStore.lastExecution.result.status)" />
+        </div>
+        <p class="health-card__summary">{{ backupStore.lastExecution.result.summary }}</p>
+        <dl class="runtime-detail__grid">
+          <dt>Requested kind</dt>
+          <dd>{{ backupStore.lastExecution.requestedKind }}</dd>
+          <dt>Snapshot ID</dt>
+          <dd>{{ backupStore.lastExecution.snapshot?.snapshotId ?? "No snapshot created" }}</dd>
+          <dt>Coverage</dt>
+          <dd>{{ backupStore.lastExecution.snapshot?.coverage ?? "Unavailable" }}</dd>
+          <dt>Verified</dt>
+          <dd>{{ backupStore.lastExecution.snapshot?.verified ? "Yes" : "No" }}</dd>
+          <dt>Validity</dt>
+          <dd>{{ backupStore.lastExecution.snapshot?.basicValidity ?? "Unavailable" }}</dd>
+        </dl>
+        <p
+          v-if="backupStore.lastExecution.snapshot"
+          class="health-card__details"
+        >
+          {{ backupStore.lastExecution.snapshot.validityMessage }}
+        </p>
+        <p
+          v-for="warning in backupStore.lastExecution.result.warnings"
+          :key="warning"
+          class="health-card__details"
+        >
+          {{ warning }}
+        </p>
+        <p class="health-card__details">
+          Full restore execution is not yet implemented. Current snapshot creation remains files-only.
+        </p>
+      </article>
+    </section>
+
     <LoadingState
       v-if="backupStore.isLoading && !backupStore.snapshots"
       title="Loading backup safety data"
@@ -113,6 +188,18 @@ import RiskNotice from "@/components/safety/RiskNotice.vue";
 import { useBackupStore } from "@/stores/backup";
 
 const backupStore = useBackupStore();
+
+function executionStatusTag(status: "SUCCESS" | "WARN" | "FAIL"): "ok" | "warning" | "error" {
+  if (status === "SUCCESS") {
+    return "ok";
+  }
+
+  if (status === "WARN") {
+    return "warning";
+  }
+
+  return "error";
+}
 
 onMounted(async () => {
   await backupStore.load();

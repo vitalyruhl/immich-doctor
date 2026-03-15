@@ -276,6 +276,7 @@ Current API surface:
 - `POST /api/repair/runs/{repair_run_id}/undo`
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
+- `POST /api/backup/files`
 - `GET /api/restore/simulate`
 - `GET /api/settings`
 - `GET /api/settings/schema`
@@ -319,6 +320,7 @@ Current safety visibility in the UI includes:
 - runtime apply readiness and blocking preconditions
 - persisted repair run history and journal entries
 - persisted backup snapshot manifests
+- real files-backup execution and standalone `pre_repair` snapshot creation
 - quarantine foundation state
 
 Current exclusions remain explicit:

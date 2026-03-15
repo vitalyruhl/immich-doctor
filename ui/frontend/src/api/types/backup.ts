@@ -17,3 +17,20 @@ export interface BackupSnapshotsResponse {
   items: BackupSnapshotSummary[];
   limitations: string[];
 }
+
+export interface BackupExecutionSummary {
+  domain: string;
+  action: string;
+  status: "SUCCESS" | "WARN" | "FAIL";
+  summary: string;
+  warnings: string[];
+  details: Record<string, unknown>;
+}
+
+export interface BackupExecutionResponse {
+  generatedAt: string;
+  requestedKind: "manual" | "pre_repair";
+  result: BackupExecutionSummary;
+  snapshot: BackupSnapshotSummary | null;
+  limitations: string[];
+}
