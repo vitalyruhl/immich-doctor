@@ -166,6 +166,18 @@ npm install
 npm run dev
 ```
 
+For containerized UI testing, the runtime image now serves both API and UI on:
+
+```text
+http://<host>:8000/
+```
+
+API example:
+
+```text
+http://<host>:8000/api/health/overview
+```
+
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
 
@@ -228,6 +240,10 @@ already reports backend-driven states for:
 Immich API configuration/reachability and scheduler-specific health remain
 `unknown` until dedicated backend adapters exist.
 
+The same runtime container now also serves the built Vue frontend over HTTP. The
+FastAPI app returns `index.html` on `/`, serves hashed static assets under
+`/assets`, and falls back to `index.html` for SPA routes such as `/dashboard`.
+
 ## Docker
 
 Docker and Compose files live in [`docker/`](./docker).
@@ -255,10 +271,16 @@ ghcr.io/vitalyruhl/immich-doctor:latest
 
 Unraid users should prefer the published GHCR image over a local Docker build.
 
-The default container command remains safe and non-destructive:
+The default container command now starts the HTTP server for both API and UI:
 
 ```bash
-python -m immich_doctor runtime validate
+uvicorn immich_doctor.api:app --host 0.0.0.0 --port 8000
+```
+
+Set the Unraid Web UI field to:
+
+```text
+http://[IP]:[PORT]/
 ```
 
 ## License recommendation

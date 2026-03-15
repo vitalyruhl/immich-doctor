@@ -2,6 +2,8 @@ services:
   immich-doctor:
     image: ${IMMICH_DOCTOR_IMAGE:-ghcr.io/vitalyruhl/immich-doctor:latest}
     container_name: immich-doctor
+    ports:
+      - "${IMMICH_DOCTOR_PORT:-3456}:8000"
     networks:
       - immich_default
     restart: unless-stopped
@@ -38,8 +40,8 @@ services:
       - ${HOST_LOG_PATH:-/mnt/user/appdata/immich-doctor/logs}:/data/logs
       - ${HOST_TMP_PATH:-/mnt/user/appdata/immich-doctor/tmp}:/data/tmp
       - ${HOST_CONFIG_PATH:-/mnt/user/appdata/immich-doctor/config}:/config
-    command: ["sh", "-c", "python -m immich_doctor runtime validate && exec tail -f /dev/null"]
+    command: ["uvicorn", "immich_doctor.api:app", "--host", "0.0.0.0", "--port", "8000"]
+
 networks:
   immich_default:
-    external: true  
-
+    external: true

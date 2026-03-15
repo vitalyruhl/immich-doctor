@@ -55,3 +55,14 @@ Without mock mode, the dashboard now requests the real backend endpoint:
 ```text
 GET /api/health/overview
 ```
+
+## Container runtime
+
+The production Docker image now serves:
+
+- the FastAPI backend on port `8000`
+- the built Vue UI from `/`
+- static frontend assets from `/assets`
+
+Deep links such as `/dashboard` or `/settings` are handled with SPA fallback and
+return `index.html`.

@@ -1,3 +1,13 @@
+FROM node:22-alpine AS frontend-build
+
+WORKDIR /frontend
+
+COPY ui/frontend/package.json ui/frontend/package-lock.json ./
+RUN npm ci
+
+COPY ui/frontend/ ./
+RUN npm run build
+
 FROM python:3.13-slim AS base
 
 COPY --from=ghcr.io/astral-sh/uv:0.6.17 /uv /uvx /bin/
@@ -8,6 +18,7 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 ENV UV_PROJECT_ENVIRONMENT=/opt/immich-doctor/.venv
 ENV PATH="/opt/immich-doctor/.venv/bin:/bin:${PATH}"
+ENV IMMICH_DOCTOR_UI_DIST_PATH=/app/ui/dist
 
 WORKDIR /opt/immich-doctor
 
@@ -19,9 +30,12 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY immich_doctor /opt/immich-doctor/immich_doctor
 COPY docker/entrypoint.sh /usr/local/bin/immich-doctor-entrypoint
+COPY --from=frontend-build /frontend/dist /app/ui/dist
 
-RUN chmod +x /usr/local/bin/immich-doctor-entrypoint && \
+RUN sed -i 's/\r$//' /usr/local/bin/immich-doctor-entrypoint && \
+    chmod +x /usr/local/bin/immich-doctor-entrypoint && \
     mkdir -p \
+      /app/ui/dist \
       /opt/immich-doctor/data/reports \
       /opt/immich-doctor/data/manifests \
       /opt/immich-doctor/data/quarantine \
@@ -34,7 +48,7 @@ RUN chmod +x /usr/local/bin/immich-doctor-entrypoint && \
       /data/tmp \
       /config && \
     uv sync --frozen --no-dev && \
-    chown -R app:app /opt/immich-doctor /data /config
+    chown -R app:app /app /opt/immich-doctor /data /config
 
 FROM base AS dev
 
@@ -49,6 +63,7 @@ CMD ["uv", "run", "python", "-m", "immich_doctor", "--help"]
 FROM base AS runtime
 
 USER app
+EXPOSE 8000
 
 ENTRYPOINT ["immich-doctor-entrypoint"]
-CMD ["sh", "-c", "python -m immich_doctor runtime validate && exec tail -f /dev/null"]
+CMD ["uvicorn", "immich_doctor.api:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -98,6 +98,7 @@ PGID=100
 UMASK=002
 
 IMMICH_DOCTOR_IMAGE=ghcr.io/vitalyruhl/immich-doctor:latest
+IMMICH_DOCTOR_PORT=3456
 
 HOST_IMMICH_STORAGE_PATH=/mnt/user/images/immich
 HOST_BACKUP_TARGET_PATH=/mnt/user/backups/immich-doctor
@@ -139,7 +140,7 @@ Icon:
 https://raw.githubusercontent.com/<REPO_OWNER>/<REPO_NAME>/main/docs/icon.png
 
 Web UI:
-(blank)
+http://192.168.2.3:3456/
 
 Shell:
 /bin/sh
@@ -200,6 +201,15 @@ Typical meaning:
 - Web UI: optional URL opened from the UI
 - Shell: optional shell path inside the container, for example `/bin/sh`
 
+With the default published port from `docker/docker-compose.unraid.yml`, the
+Web UI value is:
+
+```text
+http://192.168.2.3:3456/
+```
+
+If you change `IMMICH_DOCTOR_PORT`, use that port in the Web UI URL as well.
+
 If the container image has no shell or you are not sure, leave it empty.
 
 ------------------------------------------------------------
@@ -210,8 +220,11 @@ After start, open:
 
 Docker -> immich-doctor -> Logs
 
-Expected output should indicate that runtime validation completed successfully.
-After the startup check, the container should remain running in idle mode.
+Expected output should indicate that Uvicorn started successfully on port `8000`.
+After startup, the container should keep running and serve:
+
+- `/` for the Vue UI
+- `/api/health/overview` for the backend health JSON
 
 ------------------------------------------------------------
 
