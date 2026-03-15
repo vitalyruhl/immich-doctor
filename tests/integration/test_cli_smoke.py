@@ -358,8 +358,7 @@ def test_remote_sync_validate_json_output(monkeypatch) -> None:
             domain="remote.sync",
             action="validate",
             summary=(
-                "Remote sync validation found no server-side PostgreSQL "
-                "album/asset link issues."
+                "Remote sync validation found no server-side PostgreSQL album/asset link issues."
             ),
             checks=[
                 CheckResult(
@@ -532,8 +531,7 @@ def test_consistency_repair_json_output(monkeypatch) -> None:
                         repair_mode=ConsistencyRepairMode.SAFE_DELETE,
                         status=ConsistencyRepairStatus.WOULD_REPAIR,
                         message=(
-                            "Dry-run would repair category "
-                            "`db.orphan.album_asset.missing_asset`."
+                            "Dry-run would repair category `db.orphan.album_asset.missing_asset`."
                         ),
                         target_table="public.album_asset",
                         finding_ids=("album_asset:missing_asset:album-1:asset-missing-1",),

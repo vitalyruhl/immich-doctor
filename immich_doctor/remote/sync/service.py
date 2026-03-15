@@ -159,9 +159,7 @@ class RemoteSyncValidationService:
             CheckResult(
                 name="album_asset_fk_metadata",
                 status=(
-                    CheckStatus.PASS
-                    if inspection.album_asset_foreign_keys
-                    else CheckStatus.SKIP
+                    CheckStatus.PASS if inspection.album_asset_foreign_keys else CheckStatus.SKIP
                 ),
                 message=(
                     "Foreign key metadata for `album_asset` was collected."

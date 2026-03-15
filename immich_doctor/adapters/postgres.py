@@ -178,8 +178,7 @@ class PostgresAdapter:
         sample_limit: int,
     ) -> dict[str, object]:
         sample_select = [
-            sql.SQL("{column}").format(column=sql.Identifier(column))
-            for column in sample_columns
+            sql.SQL("{column}").format(column=sql.Identifier(column)) for column in sample_columns
         ]
         query = sql.SQL(
             """

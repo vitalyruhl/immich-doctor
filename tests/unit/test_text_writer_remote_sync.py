@@ -45,8 +45,7 @@ def test_remote_sync_text_output_includes_server_counts_and_samples() -> None:
                 name="album_asset_missing_assets",
                 status=CheckStatus.FAIL,
                 message=(
-                    "Server-side `album_asset` rows with missing assets: "
-                    "found 2 broken references."
+                    "Server-side `album_asset` rows with missing assets: found 2 broken references."
                 ),
                 details={
                     "severity": "error",

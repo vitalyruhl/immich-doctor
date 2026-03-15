@@ -112,8 +112,7 @@ class RemoteSyncRepairService:
                     name="album_asset_repair_scope",
                     status=CheckStatus.SKIP,
                     message=(
-                        "Repair scope skipped because `album_asset` is missing "
-                        "from PostgreSQL."
+                        "Repair scope skipped because `album_asset` is missing from PostgreSQL."
                     ),
                     details={"severity": "info", "expected_table": "album_asset"},
                 )

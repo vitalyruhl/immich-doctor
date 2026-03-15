@@ -49,8 +49,7 @@ def remote_sync_repair(
         typer.Option(
             "--apply",
             help=(
-                "Apply orphan album_asset deletions. "
-                "Without this flag the command is dry-run only."
+                "Apply orphan album_asset deletions. Without this flag the command is dry-run only."
             ),
         ),
     ] = False,

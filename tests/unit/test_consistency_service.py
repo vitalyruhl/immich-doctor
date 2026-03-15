@@ -233,7 +233,7 @@ def test_consistency_validation_checks_asset_file_paths_exactly_as_stored(tmp_pa
     preview_finding = next(
         finding for finding in result.findings if finding.category == MISSING_PREVIEW_PATH_CATEGORY
     )
-    assert preview_finding.affected_paths[0].replace("\\", "/").endswith(
-        "different-prefix/thumb.jpg"
+    assert (
+        preview_finding.affected_paths[0].replace("\\", "/").endswith("different-prefix/thumb.jpg")
     )
     assert all(finding.category != MISSING_THUMBNAIL_PATH_CATEGORY for finding in result.findings)

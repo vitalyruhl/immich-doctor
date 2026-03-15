@@ -275,8 +275,7 @@ def test_consistency_repair_all_safe_selects_only_safe_delete_categories() -> No
     )
 
     assert all(
-        action.category != MISSING_PREVIEW_PATH_CATEGORY
-        for action in result.repair_plan.actions
+        action.category != MISSING_PREVIEW_PATH_CATEGORY for action in result.repair_plan.actions
     )
 
 
