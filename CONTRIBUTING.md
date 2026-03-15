@@ -44,6 +44,7 @@ immich-doctor runtime validate
 immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
+immich-doctor backup files
 immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check

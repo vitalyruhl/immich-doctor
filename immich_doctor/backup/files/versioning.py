@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from immich_doctor.backup.files.models import FileBackupExecutionPlan, FileBackupRequest
 
@@ -22,9 +23,14 @@ class VersionedDestinationBuilder:
     files_directory_name: str = "files"
 
     def build(self, request: FileBackupRequest) -> FileBackupExecutionPlan:
-        timestamp_label = request.timestamp.strftime("%Y%m%dT%H%M%SZ")
+        timestamp_label = request.context.started_at.strftime("%Y%m%dT%H%M%SZ")
         source_label = _slugify_label(request.source_label)
-        destination_path = (
-            request.target_root / timestamp_label / self.files_directory_name / source_label
+        artifact_relative_path = Path(self.files_directory_name) / source_label
+        backup_root_path = request.location.root_path / timestamp_label
+        destination_path = backup_root_path / artifact_relative_path
+        return FileBackupExecutionPlan(
+            request=request,
+            backup_root_path=backup_root_path,
+            artifact_relative_path=artifact_relative_path,
+            destination_path=destination_path,
         )
-        return FileBackupExecutionPlan(request=request, destination_path=destination_path)

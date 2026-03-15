@@ -7,6 +7,7 @@ from immich_doctor.backup.core.models import (
     BackupManifest,
     BackupResult,
     BackupTarget,
+    ResolvedBackupLocation,
 )
 from immich_doctor.backup.core.resolver import BackupLocationResolver
 
@@ -17,5 +18,6 @@ __all__ = [
     "BackupLocationResolver",
     "BackupManifest",
     "BackupResult",
+    "ResolvedBackupLocation",
     "BackupTarget",
 ]

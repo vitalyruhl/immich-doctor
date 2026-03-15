@@ -10,6 +10,7 @@ from immich_doctor.backup.core import (
     BackupManifest,
     BackupResult,
     BackupTarget,
+    ResolvedBackupLocation,
 )
 from immich_doctor.backup.core.placeholder import __doc__ as core_placeholder_doc
 from immich_doctor.backup.db.placeholder import __doc__ as db_placeholder_doc
@@ -22,6 +23,7 @@ from immich_doctor.backup.scheduler.placeholder import __doc__ as scheduler_plac
 
 def test_backup_foundation_models_can_be_instantiated() -> None:
     target = BackupTarget(kind="local", reference="/backups/immich", display_name="Local backup")
+    resolved = ResolvedBackupLocation(target=target, root_path=Path("/backups/immich"))
     context = BackupContext(
         job_name="nightly-backup",
         requested_components=("database", "files"),
@@ -45,9 +47,16 @@ def test_backup_foundation_models_can_be_instantiated() -> None:
         description="Placeholder database backup job.",
         target=target,
     )
-    result = BackupResult(status="pending", summary="Not implemented.", context=context)
+    result = BackupResult(
+        domain="backup",
+        action="run",
+        status="pending",
+        summary="Not implemented.",
+        context=context,
+    )
 
     assert context.target is target
+    assert resolved.root_path == Path("/backups/immich")
     assert artifact.target is target
     assert manifest.artifacts == (artifact,)
     assert job.component == "database"

@@ -36,6 +36,7 @@ In scope now:
 - `runtime validate`
 - `storage paths check`
 - `storage permissions check`
+- `backup files`
 - `backup verify`
 - `db health check`
 - `db performance indexes check`
@@ -44,6 +45,7 @@ In scope now:
 - validation-only PostgreSQL connectivity checks
 - validation-only filesystem and tool checks
 - Docker and Unraid-oriented runtime validation
+- initial local file backup flow with versioned destination paths
 
 Exit criteria:
 
@@ -63,14 +65,18 @@ Goals:
 
 ## Phase 3 - Backup workflows
 
-Status: `[next]`
+Status: `[active]`
 
 Goals:
 
-- define backup manifests
-- validate backup strategy end to end
-- add optional backup command orchestration
-- journal all backup actions and outputs
+- `[done]` backup domain foundation
+- `[done]` rsync foundation for local file backup internals
+- `[done]` thin `backup files` application flow
+- `[active]` prepare manifest-ready artifact tracking
+- `[next]` add DB backup inclusion
+- `[next]` add metadata capture
+- `[later]` add backup-all orchestration
+- `[later]` add retention and remote targets
 
 ## Phase 4 - Guided repair preparation
 

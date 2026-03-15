@@ -40,6 +40,7 @@ immich-doctor runtime validate
 immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
+immich-doctor backup files
 immich-doctor backup verify
 immich-doctor consistency validate
 immich-doctor consistency repair
@@ -58,6 +59,7 @@ Placement rules:
 - db.performance.indexes: index existence, invalid indexes, usage, size, missing FK indexes
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
+- backup.files: versioned local file backup execution through the backup application layer
 - backup.verify: backup target readiness and required tool presence
 - remote.sync: older separate remote-scope diagnostics and repair flow; not the
   canonical consistency command family
@@ -146,19 +148,19 @@ Responsibilities:
 
 This step is intentionally structural only:
 
-- no backup execution
 - no subprocess integration
 - no storage writes
 - no remote transfer
 - no scheduling logic
 
-Until later phases are implemented, `backup verify` remains the only user-facing
-backup command.
+Phase 1 created the package structure and shared contracts. Phase 2 added the
+local rsync foundation. Phase 3 now adds the first thin user-facing backup
+command without expanding into DB backup, metadata capture, remote targets, or
+backup-all orchestration.
 
 ### Backup files rsync foundation (WIP)
 
-Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`
-without exposing a new CLI command yet.
+Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`.
 
 Current file-backup internals are limited to:
 
@@ -175,6 +177,42 @@ Explicit constraints for this phase:
 - no scheduling
 - no retention
 - no destructive rsync flags such as `--delete`
+
+### Backup files application flow (WIP)
+
+Phase 3 adds a thin `backup files` command on top of the Phase 1 and Phase 2
+backup foundation.
+
+Current flow:
+
+1. CLI parses arguments and loads settings
+2. `BackupFilesService` creates one backup operation context
+3. `BackupLocationResolver` resolves the configured local target
+4. file backup request and execution plan are created
+5. rsync command construction stays in `immich_doctor.backup.files`
+6. local execution returns one shared `BackupResult`
+
+Current constraints:
+
+- `BackupContext.started_at` is the authoritative timestamp for one backup set
+- rsync remains confined to `backup.files`
+- CLI does not import subprocess or rsync internals
+- artifact paths must stay traceable from the backup root
+- no retention, remote transport, DB backup, scheduler, or backup-all logic
+
+Implemented now:
+
+- one local source to local target file backup flow
+- versioned destination generation from one authoritative backup context timestamp
+- target resolution through `BackupLocationResolver`
+- structured `BackupResult` and traceable `BackupArtifact` metadata
+
+Planned next:
+
+- manifest persistence
+- DB backup integration
+- metadata backup integration
+- higher-level backup orchestration across multiple artifacts
 
 ### `immich_doctor.reports`
 

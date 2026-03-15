@@ -1,7 +1,10 @@
 import json
+from datetime import UTC, datetime
 
 from typer.testing import CliRunner
 
+from immich_doctor.backup.core.models import BackupContext, BackupResult, BackupTarget
+from immich_doctor.cli import backup as backup_cli
 from immich_doctor.cli import consistency as consistency_cli
 from immich_doctor.cli import db as db_cli
 from immich_doctor.cli import remote as remote_cli
@@ -129,6 +132,39 @@ def test_backup_verify_json_output(tmp_path, monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert payload["domain"] == "backup"
     assert payload["action"] == "verify"
+
+
+def test_backup_files_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_run(self, settings):
+        return BackupResult(
+            domain="backup.files",
+            action="run",
+            status="success",
+            summary="File backup execution completed.",
+            context=BackupContext(
+                job_name="backup-files",
+                requested_components=("files",),
+                target=BackupTarget(
+                    kind="local",
+                    reference="/backups/immich",
+                    display_name="immich",
+                ),
+                started_at=datetime(2026, 3, 14, 21, 30, tzinfo=UTC),
+            ),
+            details={"backup_root_path": "/backups/immich/20260314T213000Z"},
+        )
+
+    monkeypatch.setattr(backup_cli.BackupFilesService, "run", fake_run)
+
+    result = runner.invoke(app, ["backup", "files", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "backup.files"
+    assert payload["action"] == "run"
+    assert payload["status"] == "SUCCESS"
 
 
 def test_db_validate_indexes_json_output(monkeypatch) -> None:
