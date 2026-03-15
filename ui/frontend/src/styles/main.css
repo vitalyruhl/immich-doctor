@@ -200,6 +200,12 @@ a {
   gap: 1rem;
 }
 
+.settings-capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
 .health-card__header,
 .health-card__footer {
   display: flex;
@@ -262,6 +268,31 @@ a {
   color: #4c5a65;
 }
 
+.capability-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.capability-tag--ready {
+  background: #ddf3e4;
+  color: #0b6b31;
+}
+
+.capability-tag--partial {
+  background: #fff0cf;
+  color: #8b5b00;
+}
+
+.capability-tag--not_implemented {
+  background: #e7ebef;
+  color: #4c5a65;
+}
+
 .state-card {
   display: grid;
   gap: 0.35rem;
@@ -274,6 +305,59 @@ a {
 
 .state-card__icon {
   font-size: 1.35rem;
+}
+
+.settings-overview-card,
+.settings-capability-card,
+.settings-section__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.settings-overview-card h3,
+.settings-capability-card h3,
+.settings-section__header h3,
+.settings-section__summary,
+.settings-capability-card__summary,
+.settings-capability-card__details,
+.settings-overview-card__summary {
+  margin: 0;
+}
+
+.settings-overview-card__summary,
+.settings-capability-card__details,
+.settings-section__summary,
+.settings-section__header p {
+  color: #5a6873;
+}
+
+.settings-capability-card {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.settings-capability-card__summary,
+.settings-section__summary {
+  font-weight: 600;
+}
+
+.settings-section__fields {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) 1fr;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 0;
+}
+
+.settings-section__fields dt,
+.settings-section__fields dd {
+  margin: 0;
+}
+
+.settings-section__fields dt {
+  color: #5c6b77;
+  font-weight: 600;
 }
 
 @media (max-width: 980px) {
