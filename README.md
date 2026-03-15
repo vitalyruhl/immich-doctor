@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: validation + backup snapshot foundation + repair safety foundation + GUI safety visibility
+Project phase: validation + backup snapshot foundation + repair safety foundation + GUI safety visibility + minimal restore/undo orchestration
 
 Current MVP scope:
 
@@ -35,6 +35,8 @@ Current MVP scope:
 - persisted backup snapshot manifests with explicit files-only vs paired coverage modeling
 - pre-repair snapshot creation for integrated mutating repair flows
 - GUI visibility for repair runs, journal entries, backup snapshots, and quarantine foundation
+- targeted undo for journal-backed runtime permission repairs
+- structured full-restore simulation with restore readiness and blockers
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
@@ -55,17 +57,17 @@ Not in scope yet:
 - no metadata backup
 - no remote backup targets
 - no retention
-- no restore orchestration yet
+- no broad full restore execution yet
 - no backup-all orchestration
 
 ## Safety warning
 
 This repository is not production-safe yet.
 
-Do not treat the current scaffold as a proven full rollback tool. The current
-phase adds mandatory repair safety primitives such as persisted repair runs,
-journals, plan tokens, and quarantine indexing, but it does not yet provide
-full restore orchestration.
+Do not treat the current scaffold as a proven one-click rollback tool. The current
+phase adds targeted undo for journal-backed runtime permission repairs and
+deterministic full-restore simulation, but it still does not provide broad
+automated restore execution across all repair domains.
 
 ## Development philosophy
 
@@ -108,10 +110,13 @@ immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup files
 immich-doctor backup verify
+immich-doctor backup restore simulate
 immich-doctor consistency validate
 immich-doctor consistency repair
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor repair undo plan
+immich-doctor repair undo apply
 immich-doctor remote sync validate
 immich-doctor remote sync repair
 ```
@@ -162,12 +167,15 @@ uv run python -m immich_doctor storage paths check
 uv run python -m immich_doctor storage permissions check
 uv run python -m immich_doctor backup files
 uv run python -m immich_doctor backup verify
+uv run python -m immich_doctor backup restore simulate --repair-run-id <repair-run-id>
 uv run python -m immich_doctor consistency validate
 uv run python -m immich_doctor consistency repair --category db.orphan.album_asset.missing_asset
 uv run python -m immich_doctor consistency repair --all-safe --apply
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
 uv run python -m immich_doctor db performance indexes check --verbose
+uv run python -m immich_doctor repair undo plan --repair-run-id <repair-run-id>
+uv run python -m immich_doctor repair undo apply --repair-run-id <repair-run-id>
 uv run python -m immich_doctor remote sync validate
 uv run python -m immich_doctor remote sync repair
 uv run python -m immich_doctor remote sync repair --apply
@@ -298,8 +306,12 @@ Applied runtime metadata permission repair now persists a `RepairRun`,
 `plan-token.json`, and `journal.jsonl` under `data/manifests/repair/`. The
 journal records old/new mode values for later undo design. Before apply, the
 integrated runtime repair flow now also creates a real files-only `pre_repair`
-snapshot and stores its `snapshot_id` on the `RepairRun`. Full restore and
-quarantine move orchestration still remain later phases.
+snapshot and stores its `snapshot_id` on the `RepairRun`.
+
+`repair undo plan` and `repair undo apply` now use that persisted journal data
+for the first real targeted undo path. In this phase, only runtime permission
+repairs with recorded old/new mode values are actually undo-capable. DB-delete
+repairs are still not undoable through the tool.
 
 `backup files` now persists one snapshot manifest under
 `data/manifests/backup/snapshots/<snapshot_id>.json` for every successful run.
@@ -310,13 +322,20 @@ nullable DB artifact, verification flag, and optional `repair_run_id`.
 persisted snapshot manifest structure and coverage consistency. It does not yet
 claim full artifact-content verification or restore readiness.
 
+`backup restore simulate` now provides deterministic restore-readiness output,
+snapshot selection, blockers, and environment-aware manual steps. It does not
+execute destructive full restore operations in this phase.
+
 The API/UI surface for current repair and backup safety visibility now also includes:
 
 - `GET /api/runtime/metadata-failures/repair-readiness`
 - `GET /api/repair/runs`
 - `GET /api/repair/runs/{repair_run_id}`
+- `GET /api/repair/runs/{repair_run_id}/undo-plan`
+- `POST /api/repair/runs/{repair_run_id}/undo`
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
+- `GET /api/restore/simulate`
 
 ## Docker
 

@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from immich_doctor.api.routes.backup import backup_router
 from immich_doctor.api.routes.health import health_router
 from immich_doctor.api.routes.repair import repair_router
+from immich_doctor.api.routes.restore import restore_router
 from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
 
@@ -22,6 +23,7 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
     app.include_router(backup_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(repair_router, prefix="/api")
+    app.include_router(restore_router, prefix="/api")
     app.include_router(runtime_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
 

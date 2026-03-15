@@ -20,6 +20,12 @@ Status: active foundation
   - undo payload with old/new mode values for chmod-based permission repair
 - runtime metadata permission repair now requests one real files-only `pre_repair`
   snapshot before apply and aborts before mutation if snapshot creation fails
+- targeted undo now exists for the already integrated runtime permission repair:
+  - reads persisted old/new mode values from journal data
+  - plans undo eligibility per journal entry
+  - blocks automatic undo when file state drift or missing files make it unsafe
+  - executes permission restore only for journal-backed chmod repairs
+  - records undo execution in its own persisted `RepairRun`
 - GUI visibility now exposes:
   - repair history based on persisted `RepairRun` records
   - per-run journal entries
@@ -39,16 +45,17 @@ Status: active foundation
 
 ## Not implemented yet
 
-- full restore orchestration
-- automated rollback
+- generic undo for DB-delete repair flows
+- automated rollback across all repair domains
 - quarantine move/restore execution
 - migration of all existing DB-mutating repair flows onto `RepairRun` + pre-snapshot gating
 
 ## Current limitation
 
-The presence of a persisted repair journal does not yet mean the whole system can
-be rolled back automatically. This phase provides the mandatory persistence and
-drift-protection primitives so later repair migrations can become reversible.
+The presence of a persisted repair journal still does not mean the whole system can
+be rolled back automatically. This phase adds one real targeted undo path for
+runtime permission repair, but broader repair domains still require later migration
+or full restore handling.
 
 The GUI currently shows undo visibility and snapshot linkage, but it does not
 offer automated undo execution, quarantine moves, or restore actions yet.

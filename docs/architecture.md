@@ -27,6 +27,7 @@ Top-level domains:
 - `runtime`
 - `consistency`
 - `db`
+- `repair`
 - `remote`
 - `storage`
 - `backup`
@@ -45,10 +46,13 @@ immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup files
 immich-doctor backup verify
+immich-doctor backup restore simulate
 immich-doctor consistency validate
 immich-doctor consistency repair
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor repair undo plan
+immich-doctor repair undo apply
 immich-doctor remote sync validate
 immich-doctor remote sync repair
 ```
@@ -68,6 +72,8 @@ Placement rules:
 - storage.permissions: readability, writability, and mount safety
 - backup.files: versioned local file backup execution through the backup application layer
 - backup.verify: backup target readiness and required tool presence
+- backup.restore: deterministic full-restore simulation and readiness analysis
+- repair.undo: targeted undo planning and execution for currently supported journal-backed actions
 - remote.sync: older separate remote-scope diagnostics and repair flow; not the
   canonical consistency command family
 
@@ -125,14 +131,15 @@ Current responsibilities:
 - `RepairRun` as the persisted boundary for one repair execution
 - `RepairJournalEntry` as the persisted operation record
 - `PlanToken` and apply-guard helpers for live-state drift protection
+- targeted undo planning and execution for journal-backed runtime permission repairs
 - repair manifest storage under `data/manifests/repair/`
 - quarantine index persistence under `data/quarantine/`
 
 Current constraints:
 
-- no full restore orchestration yet
+- no broad automated full restore execution yet
 - no quarantine move/restore orchestration yet
-- existing mutating repair flows still require phased migration onto this shared foundation
+- DB-delete and other existing mutating repair flows still require phased migration onto this shared foundation
 
 ### `immich_doctor.adapters`
 
@@ -161,6 +168,7 @@ Current internal backup packages:
 - `immich_doctor.backup.orchestration`
 - `immich_doctor.backup.scheduler`
 - `immich_doctor.backup.remote`
+- `immich_doctor.backup.restore`
 
 Responsibilities:
 
@@ -172,6 +180,7 @@ Responsibilities:
 - `backup.orchestration`: future sequential backup planning, locking, and reporting
 - `backup.scheduler`: future scheduler integration boundary
 - `backup.remote`: future remote transport integration boundary
+- `backup.restore`: restore simulation, snapshot selection, and environment-aware instruction rendering
 
 This step is intentionally structural only:
 
@@ -263,8 +272,11 @@ Current API surface:
 - `GET /api/runtime/metadata-failures/repair-readiness`
 - `GET /api/repair/runs`
 - `GET /api/repair/runs/{repair_run_id}`
+- `GET /api/repair/runs/{repair_run_id}/undo-plan`
+- `POST /api/repair/runs/{repair_run_id}/undo`
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
+- `GET /api/restore/simulate`
 - `GET /api/settings`
 - `GET /api/settings/schema`
 - `PUT /api/settings`
@@ -283,6 +295,9 @@ Current API constraints:
 - repair and backup safety visibility endpoints must expose real persisted
   state only; they must not imply that automated undo, quarantine execution,
   or restore orchestration already exists
+- targeted undo may only execute for journal-backed actions with explicit safe
+  undo payloads; unsupported repair domains must surface blockers instead of
+  claiming reversibility
 - settings routes use `/api/settings` as the canonical global contract; nested
   domain-specific settings prefixes are not allowed
 - `PUT /api/settings` is reserved but remains non-persistent until a safe
@@ -308,8 +323,7 @@ Current safety visibility in the UI includes:
 
 Current exclusions remain explicit:
 
-- no restore automation
-- no automated undo execution
+- no broad restore automation
 - no quarantine move/restore workflow
 
 ## UI-to-backend contract rule

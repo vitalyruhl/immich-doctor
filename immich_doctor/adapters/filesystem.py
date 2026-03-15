@@ -24,6 +24,9 @@ class FilesystemAdapter:
         current_mode = path.stat().st_mode
         path.chmod(current_mode | stat.S_IRUSR | stat.S_IRGRP)
 
+    def set_permissions(self, path: Path, mode: int) -> None:
+        path.chmod(mode)
+
     def validate_directory(self, name: str, path: Path) -> CheckResult:
         directory_state = self._directory_state(name=name, path=path)
         if directory_state is not None:

@@ -4,10 +4,12 @@ from datetime import UTC, datetime
 from typer.testing import CliRunner
 
 from immich_doctor.backup.core.models import BackupContext, BackupResult, BackupTarget
+from immich_doctor.backup.restore import RestoreReadiness, RestoreSimulationResult
 from immich_doctor.cli import backup as backup_cli
 from immich_doctor.cli import consistency as consistency_cli
 from immich_doctor.cli import db as db_cli
 from immich_doctor.cli import remote as remote_cli
+from immich_doctor.cli import repair as repair_cli
 from immich_doctor.cli import runtime as runtime_cli
 from immich_doctor.cli.main import app
 from immich_doctor.consistency.models import (
@@ -29,6 +31,13 @@ from immich_doctor.core.models import (
     RepairReport,
     ValidationReport,
     ValidationSection,
+)
+from immich_doctor.repair import (
+    UndoEligibility,
+    UndoExecutionItem,
+    UndoExecutionResult,
+    UndoExecutionStatus,
+    UndoPlanResult,
 )
 from immich_doctor.runtime.integrity.models import (
     FileIntegrityFinding,
@@ -382,6 +391,41 @@ def test_backup_files_json_output(monkeypatch) -> None:
     assert payload["status"] == "SUCCESS"
 
 
+def test_backup_restore_simulate_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_simulate(self, settings, *, snapshot_id, repair_run_id):
+        return RestoreSimulationResult(
+            domain="backup.restore",
+            action="simulate",
+            summary="Full restore simulation generated deterministic manual steps.",
+            readiness=RestoreReadiness.SIMULATION_ONLY,
+            checks=[],
+            selected_snapshot={
+                "snapshot_id": "snapshot-1",
+                "coverage": "paired",
+                "selection_source": "manual",
+            },
+            metadata={"instruction_profile": "docker-unraid"},
+        )
+
+    monkeypatch.setattr(
+        backup_cli.BackupRestoreSimulationService,
+        "simulate",
+        fake_simulate,
+    )
+
+    result = runner.invoke(
+        app,
+        ["backup", "restore", "simulate", "--snapshot-id", "snapshot-1", "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "backup.restore"
+    assert payload["readiness"] == "simulation_only"
+
+
 def test_db_validate_indexes_json_output(monkeypatch) -> None:
     runner = CliRunner()
 
@@ -650,6 +694,71 @@ def test_remote_sync_validate_json_output(monkeypatch) -> None:
     assert payload["domain"] == "remote.sync"
     assert payload["action"] == "validate"
     assert payload["status"] == "PASS"
+
+
+def test_repair_undo_plan_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_plan(self, settings, *, repair_run_id, entry_ids):
+        return UndoPlanResult(
+            domain="repair.undo",
+            action="plan",
+            summary="Undo planning classified 1 journal entries as `reversible_now`.",
+            repair_run_id=repair_run_id,
+            target_repair_run_status="completed",
+            eligibility=UndoEligibility.REVERSIBLE_NOW,
+            apply_allowed=True,
+            checks=[],
+            metadata={"selected_entry_ids": ["entry-1"]},
+        )
+
+    monkeypatch.setattr(repair_cli.RepairUndoService, "plan", fake_plan)
+
+    result = runner.invoke(
+        app,
+        ["repair", "undo", "plan", "--repair-run-id", "repair-run-1", "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "repair.undo"
+    assert payload["eligibility"] == "reversible_now"
+
+
+def test_repair_undo_apply_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_execute(self, settings, *, repair_run_id, entry_ids, apply):
+        return UndoExecutionResult(
+            domain="repair.undo",
+            action="apply",
+            summary="Targeted undo restored 1 journal entries and failed 0.",
+            repair_run_id="undo-run-1",
+            target_repair_run_id=repair_run_id,
+            eligibility=UndoEligibility.REVERSIBLE_NOW,
+            checks=[],
+            execution_items=[
+                UndoExecutionItem(
+                    entry_id="entry-1",
+                    operation_type="fix_permissions",
+                    status=UndoExecutionStatus.APPLIED,
+                    message="Permission mode was restored from journal data.",
+                    original_path="/library/asset.jpg",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(repair_cli.RepairUndoService, "execute", fake_execute)
+
+    result = runner.invoke(
+        app,
+        ["repair", "undo", "apply", "--repair-run-id", "repair-run-1", "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "repair.undo"
+    assert payload["execution_items"][0]["status"] == "applied"
 
 
 def test_remote_sync_repair_json_output(monkeypatch) -> None:

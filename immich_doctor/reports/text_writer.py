@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 
+from immich_doctor.backup.restore.models import RestoreSimulationResult
 from immich_doctor.consistency.models import (
     ConsistencyRepairResult,
     ConsistencyValidationReport,
 )
 from immich_doctor.core.models import CheckResult, RepairReport, ValidationReport
+from immich_doctor.repair.undo_models import UndoExecutionResult, UndoPlanResult
 from immich_doctor.runtime.integrity.models import FileIntegrityInspectResult
 from immich_doctor.runtime.metadata_failures.models import (
     MetadataFailureInspectResult,
@@ -19,9 +21,12 @@ def render_text_report(
     | RepairReport
     | ConsistencyValidationReport
     | ConsistencyRepairResult
+    | RestoreSimulationResult
     | FileIntegrityInspectResult
     | MetadataFailureInspectResult
-    | MetadataFailureRepairResult,
+    | MetadataFailureRepairResult
+    | UndoPlanResult
+    | UndoExecutionResult,
     verbose: bool = False,
 ) -> str:
     if isinstance(report, ConsistencyValidationReport):
@@ -34,6 +39,12 @@ def render_text_report(
         return _render_metadata_failure_inspect_report(report, verbose)
     if isinstance(report, MetadataFailureRepairResult):
         return _render_metadata_failure_repair_report(report, verbose)
+    if isinstance(report, UndoPlanResult):
+        return _render_undo_plan_report(report, verbose)
+    if isinstance(report, UndoExecutionResult):
+        return _render_undo_execution_report(report, verbose)
+    if isinstance(report, RestoreSimulationResult):
+        return _render_restore_simulation_report(report, verbose)
 
     lines = [
         f"Domain: {report.domain}",
@@ -462,6 +473,115 @@ def _render_metadata_failure_repair_report(
         lines.append(f"- Summary: {report.post_validation.summary}")
         for item in report.post_validation.metadata_summary:
             lines.append(f"  - {item.root_cause.value}: {item.count}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_undo_plan_report(report: UndoPlanResult, verbose: bool) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+        f"Repair run: {report.repair_run_id}",
+        f"Target status: {report.target_repair_run_status}",
+        f"Eligibility: {report.eligibility.value}",
+        f"Apply allowed: {report.apply_allowed}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    if report.blockers:
+        lines.append("Blockers:")
+        for blocker in report.blockers:
+            lines.append(f"- [{blocker.severity.upper()}] {blocker.code}: {blocker.message}")
+    lines.append("Entry Assessments:")
+    for entry in report.entry_assessments:
+        lines.append(
+            f"- [{entry.eligibility.value}] {entry.operation_type}: "
+            f"entry_id={entry.entry_id}, path={entry.original_path}"
+        )
+        if verbose and entry.details:
+            lines.append(f"  - details={entry.details}")
+        for blocker in entry.blockers:
+            lines.append(f"  - blocker={blocker.code}: {blocker.message}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_undo_execution_report(report: UndoExecutionResult, verbose: bool) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+        f"Undo repair run: {report.repair_run_id or 'dry-run'}",
+        f"Target repair run: {report.target_repair_run_id}",
+        f"Eligibility: {report.eligibility.value}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    if report.blockers:
+        lines.append("Blockers:")
+        for blocker in report.blockers:
+            lines.append(f"- [{blocker.severity.upper()}] {blocker.code}: {blocker.message}")
+    lines.append("Execution Items:")
+    for item in report.execution_items:
+        lines.append(
+            f"- [{item.status.value.upper()}] {item.operation_type}: "
+            f"entry_id={item.entry_id}, path={item.original_path}"
+        )
+        lines.append(f"  - message={item.message}")
+        if verbose and item.details:
+            lines.append(f"  - details={item.details}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_restore_simulation_report(
+    report: RestoreSimulationResult,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+        f"Readiness: {report.readiness.value}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    if report.selected_snapshot:
+        lines.append(f"Selected Snapshot: {report.selected_snapshot}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    if report.blockers:
+        lines.append("Blockers:")
+        for blocker in report.blockers:
+            lines.append(f"- [{blocker.severity.upper()}] {blocker.code}: {blocker.message}")
+    lines.append("Instructions:")
+    for instruction in report.instructions:
+        lines.append(f"- {instruction.phase}/{instruction.step_id}: {instruction.description}")
+        if verbose and instruction.command:
+            lines.append(f"  - command={instruction.command}")
     if report.recommendations:
         lines.append("Recommendations:")
         for recommendation in report.recommendations:

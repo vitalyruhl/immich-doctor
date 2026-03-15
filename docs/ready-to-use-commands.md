@@ -32,6 +32,15 @@ docker exec -it immich-doctor python -m immich_doctor storage permissions check
 ```bash
 docker exec -it immich-doctor python -m immich_doctor backup files
 docker exec -it immich-doctor python -m immich_doctor backup verify
+docker exec -it immich-doctor python -m immich_doctor backup restore simulate --repair-run-id <repair-run-id>
+docker exec -it immich-doctor python -m immich_doctor backup restore simulate --snapshot-id <snapshot-id>
+```
+
+## Repair
+
+```bash
+docker exec -it immich-doctor python -m immich_doctor repair undo plan --repair-run-id <repair-run-id>
+docker exec -it immich-doctor python -m immich_doctor repair undo apply --repair-run-id <repair-run-id>
 ```
 
 ## Consistency

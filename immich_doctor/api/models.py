@@ -87,3 +87,21 @@ class BackupSnapshotsApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"
     mocked: bool = False
+
+
+class UndoPlanApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class UndoExecutionApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RestoreSimulationApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False

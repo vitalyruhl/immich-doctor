@@ -128,3 +128,87 @@ def test_quarantine_summary_route_returns_expected_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["foundationState"] == "ok"
     assert payload["data"]["workflowImplemented"] is False
+
+
+def test_repair_undo_plan_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        repair_routes.RepairUndoService,
+        "plan",
+        lambda self, settings, repair_run_id, entry_ids=(): {
+            "domain": "repair.undo",
+            "action": "plan",
+            "status": "PASS",
+            "summary": "Undo planning classified 1 journal entry as reversible_now.",
+            "generated_at": "2026-03-15T10:00:00+00:00",
+            "metadata": {"selected_entry_ids": ["entry-1"]},
+            "repair_run_id": repair_run_id,
+            "target_repair_run_status": "completed",
+            "eligibility": "reversible_now",
+            "apply_allowed": True,
+            "checks": [],
+            "blockers": [],
+            "entry_assessments": [
+                {
+                    "entry_id": "entry-1",
+                    "operation_type": "fix_permissions",
+                    "eligibility": "reversible_now",
+                    "asset_id": "asset-1",
+                    "original_path": "/library/asset.jpg",
+                    "undo_type": "restore_permissions",
+                    "blockers": [],
+                    "details": {"old_mode": 384, "new_mode": 416},
+                }
+            ],
+            "recommendations": [],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/repair/runs/repair-run-1/undo-plan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["eligibility"] == "reversible_now"
+    assert payload["data"]["entry_assessments"][0]["entry_id"] == "entry-1"
+
+
+def test_repair_undo_execute_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        repair_routes.RepairUndoService,
+        "execute",
+        lambda self, settings, repair_run_id, entry_ids=(), apply=False: {
+            "domain": "repair.undo",
+            "action": "apply",
+            "status": "PASS",
+            "summary": "Targeted undo restored 1 journal entries and failed 0.",
+            "generated_at": "2026-03-15T10:00:00+00:00",
+            "metadata": {"undo_repair_run_id": "undo-run-1"},
+            "repair_run_id": "undo-run-1",
+            "target_repair_run_id": repair_run_id,
+            "eligibility": "reversible_now",
+            "checks": [],
+            "blockers": [],
+            "execution_items": [
+                {
+                    "entry_id": "entry-1",
+                    "operation_type": "fix_permissions",
+                    "status": "applied",
+                    "message": "Permission mode was restored from journal data.",
+                    "original_path": "/library/asset.jpg",
+                    "details": {"restored_mode": 384},
+                }
+            ],
+            "recommendations": [],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post(
+        "/api/repair/runs/repair-run-1/undo",
+        json={"apply": True, "entry_ids": ["entry-1"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["repair_run_id"] == "undo-run-1"
+    assert payload["data"]["execution_items"][0]["status"] == "applied"

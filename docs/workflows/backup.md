@@ -26,6 +26,10 @@ Status: active
   `post_repair_snapshot_id` fields on persisted `RepairRun` records
 - integrated runtime repair apply now requests a real `pre_repair` snapshot and
   stores its `snapshot_id` on the `RepairRun`
+- `backup restore simulate`
+  - selects a repair-linked or manually requested snapshot deterministically
+  - reports restore blockers such as missing DB artifact or insufficient coverage
+  - generates environment-aware manual restore instructions
 - GUI visibility now exposes persisted snapshot manifests with:
   - `snapshot_id`
   - `created_at`
@@ -60,7 +64,7 @@ Status: active
 
 ## Still out of scope
 
-- restore orchestration is still not implemented, but remains a required later safety layer
+- broad automated full restore execution is still not implemented
 - destructive cleanup defaults
 - scheduler / cron
 
@@ -68,4 +72,4 @@ Current UI limitation:
 
 - snapshots are visible and linkable from repair history
 - current executable snapshot creation is still files-only
-- restore and targeted undo are not yet executable through GUI or API
+- restore is simulation-only and targeted undo is not yet exposed as a GUI action
