@@ -38,6 +38,9 @@ Current canonical command surface:
 ```text
 immich-doctor runtime validate
 immich-doctor runtime health check
+immich-doctor runtime integrity inspect
+immich-doctor runtime metadata-failures inspect
+immich-doctor runtime metadata-failures repair
 immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup files
@@ -55,6 +58,10 @@ Placement rules:
 - consistency: canonical category-first validation and repair planning/execution
   for supported server-side PostgreSQL and direct container-path consistency work
 - runtime: process-level readiness and execution-environment checks
+- runtime.integrity: physical source and derivative file integrity inspection for
+  the currently supported Immich PostgreSQL runtime schema
+- runtime.metadata-failures: metadata extraction diagnostics and repair planning
+  that consume physical file findings before classifying job-level failures
 - db.health: reachability, login, session creation, round-trip queries
 - db.performance.indexes: index existence, invalid indexes, usage, size, missing FK indexes
 - storage.paths: storage path existence and structural relationships
@@ -103,9 +110,11 @@ selection. It should never become the only place where workflow logic lives.
 Contains the application use cases. Services orchestrate adapters and build
 structured reports for CLI or future API responses.
 
-Current examples include runtime validation, storage checks, backup verification,
-database health checks, database index inspection, the consistency framework,
-remote-sync FK validation, and dashboard health aggregation for the API/UI layer.
+Current examples include runtime validation, runtime integrity inspection,
+runtime metadata failure diagnostics and repair planning, storage checks, backup
+verification, database health checks, database index inspection, the
+consistency framework, remote-sync FK validation, and dashboard health
+aggregation for the API/UI layer.
 
 ### `immich_doctor.adapters`
 
@@ -227,6 +236,9 @@ duplicating business rules.
 Current API surface:
 
 - `GET /api/health/overview`
+- `GET /api/runtime/integrity/inspect`
+- `GET /api/runtime/metadata-failures/inspect`
+- `POST /api/runtime/metadata-failures/repair`
 - `GET /api/settings`
 - `GET /api/settings/schema`
 - `PUT /api/settings`
@@ -236,6 +248,12 @@ Current API constraints:
 - dashboard health is aggregated conservatively from existing backend checks
 - unimplemented capabilities remain `unknown`
 - API routes stay orchestration-thin and defer logic to services
+- runtime integrity inspection must classify physical file defects before
+  metadata failure diagnostics consume those results
+- metadata failure diagnostics must treat proven file defects as root causes
+  instead of presenting them as unexplained job failures
+- metadata repair remains dry-run by default and may only apply actions with
+  explicit safe execution primitives
 - settings routes use `/api/settings` as the canonical global contract; nested
   domain-specific settings prefixes are not allowed
 - `PUT /api/settings` is reserved but remains non-persistent until a safe
@@ -263,6 +281,8 @@ Implications:
   read/write behavior
 - the UI must render capability state such as `READY`, `PARTIAL`, or
   `NOT_IMPLEMENTED` instead of exposing raw transport errors as the primary UX
+- runtime UI flows must distinguish physical file damage from secondary metadata
+  job symptoms and keep `UNKNOWN` and `SKIP` states visible
 - canonical API prefixes stay stable under `/api`
 
 ## Future background jobs
@@ -290,4 +310,7 @@ and so destructive behavior is not hidden inside temporary scripting.
 - quarantine before delete
 - dry-run before apply
 - no automatic destructive repair in the MVP
+- physical file integrity must be checked before metadata extraction failures are
+  classified
+- unknown runtime states remain unsafe until explicitly resolved
 - future repair actions must be traceable in reports and journals

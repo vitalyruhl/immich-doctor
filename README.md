@@ -27,6 +27,8 @@ Current MVP scope:
 - safe hierarchical CLI commands only
 - configuration loading from environment or `.env`
 - runtime environment validation
+- physical source and derivative file integrity inspection
+- metadata extraction failure diagnostics with root-cause classification
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
@@ -92,6 +94,9 @@ Current canonical commands:
 ```text
 immich-doctor runtime validate
 immich-doctor runtime health check
+immich-doctor runtime integrity inspect
+immich-doctor runtime metadata-failures inspect
+immich-doctor runtime metadata-failures repair
 immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup files
@@ -142,6 +147,10 @@ uv sync --dev
 ```bash
 uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
+uv run python -m immich_doctor runtime integrity inspect
+uv run python -m immich_doctor runtime metadata-failures inspect
+uv run python -m immich_doctor runtime metadata-failures repair
+uv run python -m immich_doctor runtime metadata-failures repair --diagnostic-id metadata_failure:asset-123 --fix-permissions --apply
 uv run python -m immich_doctor storage paths check
 uv run python -m immich_doctor storage permissions check
 uv run python -m immich_doctor backup files
@@ -184,6 +193,11 @@ Use `--verbose` to show full diagnostic details.
 Implemented now:
 
 - validation commands across runtime, storage, backup target, and DB health
+- runtime file integrity checks for missing, empty, unreadable, truncated,
+  corrupted, container-broken, type-mismatched, and unknown-problem files in
+  the supported schema
+- metadata extraction diagnostics that classify per-asset root cause after file
+  integrity inspection
 - DB index inspection with compact default output and verbose details
 - `backup files` as a thin local file backup flow on top of the backup foundation
 
@@ -243,6 +257,23 @@ Immich API configuration/reachability and scheduler-specific health remain
 The same runtime container now also serves the built Vue frontend over HTTP. The
 FastAPI app returns `index.html` on `/`, serves hashed static assets under
 `/assets`, and falls back to `index.html` for SPA routes such as `/dashboard`.
+
+`runtime integrity inspect` is the first physical-file inspection workflow for
+the currently supported Immich PostgreSQL runtime schema. It inspects source
+files first, optionally includes derivative `asset_file` rows, and classifies
+missing, empty, unreadable, truncated, corrupted, container-broken,
+type-mismatched, and unknown-problem files without mutating data.
+
+`runtime metadata-failures inspect` consumes those physical file results before
+classifying unresolved metadata extraction candidates. Proven file defects are
+reported as the root cause of the metadata symptom instead of vague failed-job
+counts.
+
+`runtime metadata-failures repair` is dry-run by default. It plans recovery
+actions from classified findings and only applies currently safe primitives. In
+this step, `fix_permissions` is the only apply-capable action; retry, requeue,
+quarantine, and mark-unrecoverable stay report/plan oriented until dedicated
+safe execution primitives exist.
 
 ## Docker
 

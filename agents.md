@@ -66,6 +66,11 @@ Stage, commit, and push only on explicit user request.
 Keep docs updated:
 - Update docs/ready-to-use-commands.md whenever a finished user-facing command is added, renamed, deprecated, or removed
 
+Runtime integrity rule:
+- physical file integrity inspection must happen before metadata failure classification or repair planning
+- proven file defects are root causes and must not be downgraded to vague job failures
+- unknown runtime states remain unsafe and visible until resolved
+
 ========================================
 4. GIT WORKFLOW
 ========================================
@@ -179,6 +184,10 @@ Repair steps must be:
 - reversible where possible
 - loggable
 - dry-run capable
+
+Runtime metadata repair rule:
+- never blindly retry metadata extraction when file integrity already proves missing, empty, truncated, corrupted, or permission-denied input
+- prefer reporting, quarantine planning, or permission repair over automation
 
 ========================================
 7. STORAGE SAFETY RULES

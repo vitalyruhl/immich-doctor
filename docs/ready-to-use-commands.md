@@ -14,6 +14,10 @@ Rule:
 ```bash
 docker exec -it immich-doctor python -m immich_doctor runtime health check
 docker exec -it immich-doctor python -m immich_doctor runtime validate
+docker exec -it immich-doctor python -m immich_doctor runtime integrity inspect
+docker exec -it immich-doctor python -m immich_doctor runtime metadata-failures inspect
+docker exec -it immich-doctor python -m immich_doctor runtime metadata-failures repair
+docker exec -it immich-doctor python -m immich_doctor runtime metadata-failures repair --diagnostic-id metadata_failure:asset-123 --fix-permissions --apply
 ```
 
 ## Storage

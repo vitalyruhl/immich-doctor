@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Res
 from fastapi.staticfiles import StaticFiles
 
 from immich_doctor.api.routes.health import health_router
+from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
 
 DEFAULT_UI_DIST_PATH = Path("/app/ui/dist")
@@ -17,6 +18,7 @@ REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "d
 def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
     app = FastAPI(title="immich-doctor API", version="0.1.0")
     app.include_router(health_router, prefix="/api")
+    app.include_router(runtime_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
 
     dist_path = _resolve_ui_dist_path(ui_dist_path)
