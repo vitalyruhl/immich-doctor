@@ -43,6 +43,7 @@ immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check
 immich-doctor remote sync validate
+immich-doctor remote sync repair
 ```
 
 Placement rules:
@@ -53,7 +54,7 @@ Placement rules:
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
 - backup.verify: backup target readiness and required tool presence
-- remote.sync: read-only scope diagnostics for client-side SQLite sync errors plus server-side PostgreSQL album/asset FK integrity checks
+- remote.sync: read-only scope diagnostics plus server-side PostgreSQL album/asset validation and explicit dry-run-first orphan link repair
 
 Forbidden patterns:
 

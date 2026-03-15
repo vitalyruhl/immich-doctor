@@ -59,6 +59,23 @@ def fetch_all_composed(
             return [dict(row) for row in cursor.fetchall()]
 
 
+def execute_returning_all_composed(
+    dsn: str,
+    timeout_seconds: int,
+    query: Composable,
+    params: tuple[object, ...] = (),
+) -> list[dict[str, object]]:
+    with psycopg.connect(
+        dsn,
+        connect_timeout=timeout_seconds,
+        autocommit=True,
+        row_factory=dict_row,
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+
 def can_resolve_host(host: str) -> tuple[bool, str]:
     try:
         socket.getaddrinfo(host, None)

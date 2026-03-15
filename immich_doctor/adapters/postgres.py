@@ -8,6 +8,7 @@ from immich_doctor.db.connection import (
     can_execute_query,
     can_reach_tcp,
     can_resolve_host,
+    execute_returning_all_composed,
     fetch_all,
     fetch_all_composed,
 )
@@ -152,6 +153,61 @@ class PostgresAdapter:
         )
 
         rows = fetch_all_composed(dsn, timeout_seconds, query, (sample_limit,))
+        if not rows:
+            return {"count": 0, "samples": []}
+
+        count = int(rows[0]["broken_reference_count"])
+        samples = [
+            {key: value for key, value in row.items() if key != "broken_reference_count"}
+            for row in rows
+        ]
+        return {"count": count, "samples": samples}
+
+    def delete_missing_foreign_key_rows(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        link_schema: str,
+        link_table: str,
+        reference_schema: str,
+        reference_table: str,
+        link_column: str,
+        reference_column: str,
+        sample_columns: tuple[str, ...],
+        sample_limit: int,
+    ) -> dict[str, object]:
+        sample_select = [
+            sql.SQL("{column}").format(column=sql.Identifier(column))
+            for column in sample_columns
+        ]
+        query = sql.SQL(
+            """
+            WITH deleted AS (
+                DELETE FROM {link_table} AS link
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM {reference_table} AS ref
+                    WHERE ref.{reference_column} = link.{link_column}
+                )
+                RETURNING {sample_select}
+            )
+            SELECT
+                *,
+                COUNT(*) OVER() AS broken_reference_count
+            FROM deleted
+            ORDER BY 1 ASC
+            LIMIT %s;
+            """
+        ).format(
+            link_table=sql.Identifier(link_schema, link_table),
+            reference_table=sql.Identifier(reference_schema, reference_table),
+            link_column=sql.Identifier(link_column),
+            reference_column=sql.Identifier(reference_column),
+            sample_select=sql.SQL(", ").join(sample_select),
+        )
+
+        rows = execute_returning_all_composed(dsn, timeout_seconds, query, (sample_limit,))
         if not rows:
             return {"count": 0, "samples": []}
 

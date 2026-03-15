@@ -5,7 +5,15 @@ from typer.testing import CliRunner
 from immich_doctor.cli import db as db_cli
 from immich_doctor.cli import remote as remote_cli
 from immich_doctor.cli.main import app
-from immich_doctor.core.models import CheckResult, CheckStatus, ValidationReport, ValidationSection
+from immich_doctor.core.models import (
+    CheckResult,
+    CheckStatus,
+    RepairItemStatus,
+    RepairPlanItem,
+    RepairReport,
+    ValidationReport,
+    ValidationSection,
+)
 
 
 def test_runtime_health_check_json_output() -> None:
@@ -380,3 +388,51 @@ def test_remote_sync_validate_json_output(monkeypatch) -> None:
     assert payload["domain"] == "remote.sync"
     assert payload["action"] == "validate"
     assert payload["status"] == "PASS"
+
+
+def test_remote_sync_repair_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings, *, apply):
+        return RepairReport(
+            domain="remote.sync",
+            action="repair",
+            summary="Remote sync repair dry-run planned deletion of 1 orphan album_asset row.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            plans=[
+                RepairPlanItem(
+                    action="delete",
+                    target_table="public.album_asset",
+                    reason="orphan album_asset rows with missing asset references",
+                    key_columns=("assetsId", "albumId"),
+                    row_count=1,
+                    sample_rows=[{"albumId": "album-1", "assetsId": "asset-missing-1"}],
+                    dry_run=True,
+                    applied=False,
+                    status=RepairItemStatus.PLANNED,
+                    backup_sql="CREATE TABLE backup AS SELECT * FROM public.album_asset;",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(remote_cli.RemoteSyncRepairService, "run", fake_run)
+
+    result = runner.invoke(app, ["remote", "sync", "repair", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "remote.sync"
+    assert payload["action"] == "repair"
+    assert payload["plans"][0]["status"] == "planned"

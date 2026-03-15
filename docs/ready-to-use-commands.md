@@ -40,4 +40,6 @@ docker exec -it immich-doctor python -m immich_doctor db performance indexes che
 
 ```bash
 docker exec -it immich-doctor python -m immich_doctor remote sync validate
+docker exec -it immich-doctor python -m immich_doctor remote sync repair
+docker exec -it immich-doctor python -m immich_doctor remote sync repair --apply
 ```

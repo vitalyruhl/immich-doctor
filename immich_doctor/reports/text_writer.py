@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
-from immich_doctor.core.models import CheckResult, ValidationReport
+from immich_doctor.core.models import CheckResult, RepairReport, ValidationReport
 
 
-def render_text_report(report: ValidationReport, verbose: bool = False) -> str:
+def render_text_report(report: ValidationReport | RepairReport, verbose: bool = False) -> str:
     lines = [
         f"Domain: {report.domain}",
         f"Action: {report.action}",
@@ -21,24 +21,47 @@ def render_text_report(report: ValidationReport, verbose: bool = False) -> str:
             lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
             if report.domain == "remote.sync":
                 lines.extend(_render_remote_sync_check_details(check, verbose))
-    if report.sections and not verbose and report.domain == "db.performance.indexes":
+    if isinstance(report, RepairReport) and report.plans:
+        lines.append("Plans:")
+        for plan in report.plans:
+            lines.append(
+                f"- [{plan.status.value.upper()}] {plan.action} {plan.target_table}: "
+                f"{plan.reason} ({plan.row_count} rows)"
+            )
+            lines.append(
+                f"  - dry_run={plan.dry_run}, applied={plan.applied}, "
+                f"key_columns={', '.join(plan.key_columns) if plan.key_columns else '[]'}"
+            )
+            if plan.sample_rows:
+                preview_limit = len(plan.sample_rows) if verbose else 3
+                preview, truncated = _preview_rows(plan.sample_rows, limit=preview_limit)
+                for item in preview:
+                    lines.append(f"  - sample: {item}")
+                if truncated:
+                    lines.append("  - sample: ...")
+            if plan.backup_sql:
+                lines.append(f"  - backup_sql: {plan.backup_sql}")
+    sections = getattr(report, "sections", [])
+    if sections and not verbose and report.domain == "db.performance.indexes":
         lines.extend(_render_compact_db_index_sections(report))
-    elif report.sections:
+    elif sections:
         lines.append("Sections:")
-        for section in report.sections:
+        for section in sections:
             lines.append(f"- [{section.status.value.upper()}] {section.name}")
             if section.rows:
                 for row in section.rows:
                     lines.append(f"  - {row}")
             else:
                 lines.append("  - []")
-    if report.metrics:
+    metrics = getattr(report, "metrics", [])
+    if metrics:
         lines.append("Metrics:")
-        for metric in report.metrics:
+        for metric in metrics:
             lines.append(f"- {metric}")
-    if report.recommendations:
+    recommendations = getattr(report, "recommendations", [])
+    if recommendations:
         lines.append("Recommendations:")
-        for recommendation in report.recommendations:
+        for recommendation in recommendations:
             lines.append(f"- {recommendation}")
     return "\n".join(lines)
 

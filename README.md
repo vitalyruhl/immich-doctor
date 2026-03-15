@@ -91,6 +91,7 @@ immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check
 immich-doctor remote sync validate
+immich-doctor remote sync repair
 ```
 
 Deprecated and removed command concepts:
@@ -151,6 +152,8 @@ uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
 uv run python -m immich_doctor db performance indexes check --verbose
 uv run python -m immich_doctor remote sync validate
+uv run python -m immich_doctor remote sync repair
+uv run python -m immich_doctor remote sync repair --apply
 ```
 
 Default text output is concise for interactive terminal use.
@@ -161,6 +164,12 @@ app SQLite sync errors from server-side PostgreSQL checks. On the server it only
 uses detected `album`, `asset`, and `album_asset` tables, resolves foreign keys
 from PostgreSQL metadata where possible, reports orphaned join rows when present,
 and never repairs or mutates DB content.
+
+`remote sync repair` is separate from validation and defaults to dry-run. It only
+targets confirmed orphan rows in `album_asset`, prints planned deletions plus
+backup SQL snippets, and writes to PostgreSQL only when `--apply` is set. It does
+not modify `asset`, `album`, storage files, thumbnails, or mobile app SQLite sync
+state.
 
 ## Docker
 
