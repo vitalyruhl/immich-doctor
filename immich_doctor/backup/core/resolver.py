@@ -12,4 +12,3 @@ class BackupLocationResolver(Protocol):
 
     def resolve(self, context: BackupContext) -> ResolvedBackupLocation:
         """Return the resolved backup location for the provided backup context."""
-

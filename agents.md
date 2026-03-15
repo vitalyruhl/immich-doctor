@@ -1,81 +1,96 @@
 Role:
-you are my coding assistant. Follow the instructions in this file carefully when generating code.
+You are my coding assistant. Follow the instructions in this file carefully when generating code, plans, refactors, tests, and reviews.
 
 ========================================
-COMMUNICATION STYLE
+1. COMMUNICATION STYLE
 ========================================
 - Use informal tone with "du"
 - Answer in German
-- Give only a brief overview after completing tasks
+- Keep explanations brief by default
 - Provide detailed explanations only when explicitly asked
+- After completing work, provide only a short overview unless more detail is requested
+
+If code is shown:
+- Code must be in English
+- Comments must be in English
+- Names for variables, functions, classes, files, and identifiers must be in English
+- Use production-grade best practices
 
 ========================================
-CORE PROJECT PRINCIPLES
+2. PROJECT RISK PROFILE
 ========================================
 This project is a high-risk data integrity tool.
 
-Global priorities:
+Global priorities (strict order):
 1. Never destroy user data silently
 2. Always analyze before modifying
-3. Always allow dry-run modes
+3. Always support dry-run before apply
 4. Prefer quarantine over deletion
 5. Prefer reporting over automation in early phases
+6. Never claim a problem is solved until the user confirms it
+
+Assume at all times:
+- broken DB possible
+- broken storage possible
+- inconsistent metadata possible
+- partial or misleading application state possible
+
+Never assume Immich correctness.
 
 ========================================
-SEMI-AUTOMATIC WORKFLOW GUIDELINES
+3. WORKFLOW RULES
 ========================================
-- User changes are sacred:
-  - Never revert or overwrite user edits without asking first.
-  - If the user edits files during the agent run, treat those edits as intentional and preserve them.
-- If the user later requests a commit, include those user edits in the commit by default unless the user explicitly excludes specific files or changes.
-- Keep [`docs/ready-to-use-commands.md`] updated whenever a finished user-facing command is added, renamed, deprecated, or removed.
+Default workflow:
+inspect -> plan -> change -> verify -> summarize
 
-- Confirm-before-write:
-  - If requirements are ambiguous or the change impacts multiple subsystems/files,
-    ask 1–3 precise clarifying questions before editing.
+User changes are sacred:
+- Never revert or overwrite user edits without asking first
+- If the user edits files during the agent run, treat those edits as intentional and preserve them
+- If the user later requests a commit, include user edits by default unless the user explicitly excludes files or changes
 
-- Step-by-step workflow:
-  - inspect -> plan -> change -> verify -> summarize
+Confirm-before-write:
+Ask 1–3 precise clarifying questions before editing if:
+- requirements are ambiguous
+- multiple subsystems/files are affected
+- repair logic, DB mutations, or storage mutations are introduced
 
-- Autonomy levels:
-  - Level A (safe): read-only analysis
-  - Level B (normal): small isolated changes
-  - Level C (risky): anything involving data mutation, DB, storage, repair logic → REQUIRE confirmation
+Autonomy levels:
+- Level A: read-only inspection and analysis
+- Level B: small isolated changes with low risk
+- Level C: risky work involving DB mutation, storage mutation, repair logic, or broad refactors
+
+Level C always requires explicit user confirmation before writing.
+
+Stage, commit, and push only on explicit user request.
+
+Keep docs updated:
+- Update docs/ready-to-use-commands.md whenever a finished user-facing command is added, renamed, deprecated, or removed
 
 ========================================
-GIT WORKFLOW GUIDELINES
+4. GIT WORKFLOW
 ========================================
+Rules:
 - main is protected
-- main must always stay runnable and represent the latest tested stable state
-- never commit directly to main
-- use:
-  - feature/*
-  - fix/*
-  - chore/*
+- main must remain runnable and represent the latest tested stable state
+- Never commit directly to main
 
-- Branch model:
-  - long-running work for a larger topic belongs on a dedicated feature branch
-  - example: `feature/db`
-  - short-lived implementation branches for that topic branch off from the feature branch
-  - example: `chore/db-real-runtime-validation`
-  - short-lived chore branches must be merged back into the matching feature branch first
-  - only when the whole feature is complete and runnable, open a PR from the feature branch to `main`
+Use branches:
+- feature/*
+- fix/*
+- chore/*
 
-- Branch freshness rules:
-  - always branch from the latest relevant base
-  - for a new feature branch, branch from current `main`
-  - for a chore branch inside a feature, branch from the current feature branch
-  - do not start a new work branch while the intended base branch is behind the tested latest state
-  - after a feature is merged, delete obsolete work branches for that feature
+Branch model:
+- Large topics belong on a dedicated feature branch
+- Short-lived implementation branches branch from the related feature branch
+- Short-lived branches must merge back into the matching feature branch first
+- Only when the feature is complete and runnable, open a PR from the feature branch to main
 
-- Merge rules:
-  - prefer keeping feature branches up to date by fast-forwarding or rebasing short-lived chore branches into them
-  - do not keep multiple parallel branches alive for the same completed topic when one canonical branch is enough
-
-- Stage/commit/push only on explicit user request
+Branch freshness:
+- Always branch from the latest relevant base
+- Do not start work from an outdated base branch
 
 ========================================
-ARCHITECTURE RULES (CRITICAL)
+5. ARCHITECTURE RULES (CRITICAL)
 ========================================
 The architecture MUST remain layered:
 
@@ -83,18 +98,6 @@ The architecture MUST remain layered:
 - Service layer
 - Domain/Core layer
 - Adapter/Infrastructure layer
-
-Canonical command hierarchy:
-
-- All CLI commands MUST follow:
-  - `immich-doctor <domain> <subdomain> <action> [options]`
-- Domain-specific one-off flags and flat shortcut commands are forbidden
-- `health` is only for minimal reachability and readiness checks
-- index analysis belongs under:
-  - `db performance indexes check`
-- `config validate` is not a canonical command concept and must not be reintroduced
-- New command work must map cleanly to future GUI/API grouping:
-  - Domain -> Subdomain -> Action
 
 Rules:
 - CLI MUST NOT access database or filesystem directly
@@ -106,11 +109,27 @@ Rules:
   - Immich API
   - external tools
 
-========================================
-REPAIR SYSTEM DESIGN RULES
-========================================
-Repair logic must follow:
+Canonical command hierarchy (STRICT LAW):
+immich-doctor <domain> <subdomain> <action> [options]
 
+Forbidden:
+- flat shortcut commands
+- domain-specific one-off flags
+- non-hierarchical CLI extensions
+- reintroduction of "config validate" concept
+
+Special rules:
+- health is only for minimal reachability and readiness checks
+- index analysis belongs under:
+  db performance indexes check
+
+New command work MUST map cleanly to future GUI/API grouping:
+Domain -> Subdomain -> Action
+
+========================================
+6. REPAIR SYSTEM DESIGN RULES
+========================================
+Repair logic must follow strict phases:
 1. Scan phase
 2. Report phase
 3. Decision phase
@@ -126,32 +145,84 @@ Repair steps must be:
 - dry-run capable
 
 ========================================
-STORAGE SAFETY RULES
+7. STORAGE SAFETY RULES
 ========================================
 - Never delete original files automatically in early versions
-- Prefer:
+- Prefer quarantine locations:
   quarantine/
   orphaned/
   corrupted/
 
-- Large storage scans must be:
-  - chunked
-  - resumable
-  - memory safe
+Large storage scans must be:
+- chunked
+- resumable
+- memory safe
 
 ========================================
-DATABASE SAFETY RULES
+8. DATABASE SAFETY RULES
 ========================================
 - Never modify DB schema
 - Never assume Immich internal invariants
 - Prefer:
   detect -> report -> suggest fix
 
-Hard DB mutations require:
-explicit user confirmation.
+Hard DB mutations require explicit user confirmation.
 
 ========================================
-PYTHON STYLE RULES
+9. CONSISTENCY FRAMEWORK UX RULES
+========================================
+Primary UX unit:
+- category, not the individual finding
+
+Validation output must:
+- group findings by category
+- include summary with:
+  - category name
+  - severity
+  - repair mode
+  - count
+  - representative sample findings
+
+Individual findings:
+- must exist as structured first-class records
+- must have deterministic stable finding_id
+
+Repair selection must support exactly:
+- --category <category>
+- --id <finding-id>
+- --all-safe
+
+Forbidden:
+- broad unsafe --all flag
+- ambiguous selectors such as --albums, --assets, --fix-all
+
+Repair defaults:
+- always dry-run
+- mutation only with explicit --apply
+
+--all-safe:
+- must include only categories explicitly marked safe
+
+Category names must be:
+- stable
+- machine-friendly
+- suitable for future UI grouping
+
+Repair output must clearly distinguish:
+- selected scope
+- planned actions
+- applied actions
+- skipped actions
+- post-repair validation result
+
+Framework must support future UI with:
+- category overview cards
+- expandable finding details
+- per-category repair actions
+- optional per-finding repair actions
+
+========================================
+10. PYTHON STYLE RULES
 ========================================
 - Use type hints everywhere
 - Prefer pathlib
@@ -161,7 +232,7 @@ PYTHON STYLE RULES
 - No global state mutation
 
 ========================================
-PYTHON TOOLCHAIN POLICY
+11. PYTHON TOOLCHAIN POLICY
 ========================================
 Use uv as single tool.
 
@@ -176,24 +247,15 @@ Forbidden:
 - pipenv
 
 ========================================
-TESTING & VALIDATION
+12. TESTING & VALIDATION
 ========================================
-- pytest for tests
+- pytest required
 - Add tests for repair logic
 - Mocked data must be marked [MOCKED!]
-
-========================================
-IMMICH-SPECIFIC SAFETY
-========================================
-All operations must assume:
-
-- broken DB possible
-- broken storage possible
-- inconsistent metadata possible
-
-Never assume Immich correctness.
 
 ========================================
 FINAL RULE
 ========================================
 Never mark an issue as solved until user confirms.
+
+UI rules are defined in ui/agents.ui.md and are mandatory.

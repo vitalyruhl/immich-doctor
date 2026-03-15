@@ -5,6 +5,9 @@ __pycache__/
 .mypy_cache/
 build/
 dist/
+node_modules/
+ui/frontend/dist/
+ui/frontend/node_modules/
 *.egg-info/
 .coverage
 .env

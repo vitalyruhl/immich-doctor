@@ -50,3 +50,66 @@ WHERE contype = 'f'
 AND conindid = 0
 ORDER BY conrelid::regclass::text, conname;
 """
+
+LIST_BASE_TABLES_QUERY = """
+SELECT
+    table_schema,
+    table_name
+FROM information_schema.tables
+WHERE table_type = 'BASE TABLE'
+AND table_schema NOT IN ('pg_catalog', 'information_schema')
+ORDER BY table_schema ASC, table_name ASC;
+"""
+
+LIST_TABLE_COLUMNS_QUERY = """
+SELECT
+    table_schema,
+    table_name,
+    column_name,
+    ordinal_position
+FROM information_schema.columns
+WHERE table_schema = %s
+AND table_name = %s
+ORDER BY ordinal_position ASC;
+"""
+
+LIST_TABLE_FOREIGN_KEYS_QUERY = """
+SELECT
+    source_ns.nspname AS table_schema,
+    source_cls.relname AS table_name,
+    constraint_def.conname AS constraint_name,
+    target_ns.nspname AS referenced_table_schema,
+    target_cls.relname AS referenced_table_name,
+    array_agg(source_att.attname ORDER BY key_map.ordinality) AS column_names,
+    array_agg(target_att.attname ORDER BY key_map.ordinality) AS referenced_column_names
+FROM pg_constraint AS constraint_def
+JOIN pg_class AS source_cls
+    ON source_cls.oid = constraint_def.conrelid
+JOIN pg_namespace AS source_ns
+    ON source_ns.oid = source_cls.relnamespace
+JOIN pg_class AS target_cls
+    ON target_cls.oid = constraint_def.confrelid
+JOIN pg_namespace AS target_ns
+    ON target_ns.oid = target_cls.relnamespace
+JOIN unnest(constraint_def.conkey, constraint_def.confkey) WITH ORDINALITY AS key_map(
+    source_attnum,
+    target_attnum,
+    ordinality
+) ON TRUE
+JOIN pg_attribute AS source_att
+    ON source_att.attrelid = source_cls.oid
+    AND source_att.attnum = key_map.source_attnum
+JOIN pg_attribute AS target_att
+    ON target_att.attrelid = target_cls.oid
+    AND target_att.attnum = key_map.target_attnum
+WHERE constraint_def.contype = 'f'
+AND source_ns.nspname = %s
+AND source_cls.relname = %s
+GROUP BY
+    source_ns.nspname,
+    source_cls.relname,
+    constraint_def.conname,
+    target_ns.nspname,
+    target_cls.relname
+ORDER BY constraint_def.conname ASC;
+"""
