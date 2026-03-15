@@ -31,6 +31,7 @@ Current MVP scope:
 - storage permission validation
 - file backup execution through a thin backup application flow
 - backup target verification
+- minimal API health endpoint for the dashboard
 - database health validation
 - database index inspection
 - category-based consistency validation and repair for the supported current PostgreSQL schema
@@ -43,7 +44,6 @@ Not in scope yet:
 - no destructive repair actions
 - no file modifications
 - no quarantine moves
-- no API or Web UI runtime yet
 - no DB backup
 - no metadata backup
 - no remote backup targets
@@ -119,6 +119,14 @@ The repository is split into clear layers:
 This keeps the CLI as the first interface while ensuring later API or Web UI
 implementations can call the same services without duplicating logic.
 
+The first backend-to-UI integration is now available through:
+
+```text
+GET /api/health/overview
+```
+
+It powers the dashboard health cards with conservative backend-derived states.
+
 ## Quick start
 
 1. Create a virtual environment.
@@ -147,6 +155,27 @@ uv run python -m immich_doctor db performance indexes check --verbose
 uv run python -m immich_doctor remote sync validate
 uv run python -m immich_doctor remote sync repair
 uv run python -m immich_doctor remote sync repair --apply
+```
+
+For local dashboard development, start the API runtime and the frontend:
+
+```bash
+uv run uvicorn immich_doctor.api.app:create_api_app --factory --reload --host 127.0.0.1 --port 8000
+cd ui/frontend
+npm install
+npm run dev
+```
+
+For containerized UI testing, the runtime image now serves both API and UI on:
+
+```text
+http://<host>:8000/
+```
+
+API example:
+
+```text
+http://<host>:8000/api/health/overview
 ```
 
 Default text output is concise for interactive terminal use.
@@ -199,6 +228,22 @@ backup SQL snippets, and writes to PostgreSQL only when `--apply` is set. It doe
 not modify `asset`, `album`, storage files, thumbnails, or mobile app SQLite sync
 state.
 
+`GET /api/health/overview` now provides the first real UI health contract. It
+already reports backend-driven states for:
+
+- DB reachability
+- storage reachability
+- path readiness
+- backup readiness
+- runtime readiness
+
+Immich API configuration/reachability and scheduler-specific health remain
+`unknown` until dedicated backend adapters exist.
+
+The same runtime container now also serves the built Vue frontend over HTTP. The
+FastAPI app returns `index.html` on `/`, serves hashed static assets under
+`/assets`, and falls back to `index.html` for SPA routes such as `/dashboard`.
+
 ## Docker
 
 Docker and Compose files live in [`docker/`](./docker).
@@ -226,10 +271,16 @@ ghcr.io/vitalyruhl/immich-doctor:latest
 
 Unraid users should prefer the published GHCR image over a local Docker build.
 
-The default container command remains safe and non-destructive:
+The default container command now starts the HTTP server for both API and UI:
 
 ```bash
-python -m immich_doctor runtime validate
+uvicorn immich_doctor.api:app --host 0.0.0.0 --port 8000
+```
+
+Set the Unraid Web UI field to:
+
+```text
+http://[IP]:[PORT]/
 ```
 
 ## License recommendation

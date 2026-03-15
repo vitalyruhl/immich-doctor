@@ -64,7 +64,7 @@ const routes: RouteRecordRaw[] = [
     path: "/settings",
     name: "settings",
     component: SettingsView,
-    meta: { title: "Settings", section: "Settings", risk: "mixed" },
+    meta: { title: "Settings", section: "Settings", risk: "read-only" },
   },
 ];
 

@@ -3,7 +3,8 @@
 ## Purpose
 
 The Docker setup is intentionally safe by default.
-The default container command runs the initial runtime validation and then stays idle for later `docker exec` usage.
+The runtime image now starts a single HTTP server that serves both the FastAPI
+backend and the built Vue frontend from the same container.
 
 ## Files
 
@@ -22,6 +23,18 @@ docker build -f docker/Dockerfile -t immich-doctor:local .
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build
+```
+
+This publishes:
+
+```text
+http://localhost:8000/
+```
+
+API example:
+
+```text
+http://localhost:8000/api/health/overview
 ```
 
 To run a one-off command:
@@ -61,6 +74,12 @@ docker compose -f docker/docker-compose.dev.yml run --rm immich-doctor uv run py
 docker compose --env-file .env -f docker/docker-compose.unraid.yml up -d
 ```
 
+For Unraid, set the Web UI field to:
+
+```text
+http://[IP]:[PORT]/
+```
+
 Recommended Unraid mount pattern:
 
 - Immich source storage: read-only
@@ -78,9 +97,22 @@ Example host path styles:
 
 See `docs/unraid.md` for the Unraid-specific setup flow and `.env.unraid.example` for recommended environment values.
 
-## Runtime validation behavior
+## Runtime and HTTP behavior
 
-`runtime validate` checks:
+The container HTTP entrypoint is:
+
+```bash
+uvicorn immich_doctor.api:app --host 0.0.0.0 --port 8000
+```
+
+The backend serves:
+
+- the Vue app on `/`
+- hashed frontend assets on `/assets`
+- SPA fallback for deep links such as `/dashboard`
+- API endpoints under `/api`
+
+`runtime validate` still checks:
 
 - package startup
 - effective UID, GID, username, group, working directory, and umask
@@ -117,4 +149,4 @@ Fallback:
 - keep reports and quarantine on writable persistent storage
 - use runtime, storage, backup, and db validation before any future backup or repair workflow
 - the current container flow does not perform destructive actions
-- the runtime container now stays idle after the initial startup check via `tail -f /dev/null` so operator commands can be executed with `docker exec`
+- the container keeps all CLI commands available via `docker exec`

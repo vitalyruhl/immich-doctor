@@ -3,7 +3,7 @@
 ## Purpose
 
 `immich-doctor` is designed as a CLI-first maintenance tool that can grow into an
-API-backed and UI-driven system later without rewriting core logic.
+API-backed and UI-driven system without rewriting core logic.
 
 ## Architectural principles
 
@@ -104,8 +104,8 @@ Contains the application use cases. Services orchestrate adapters and build
 structured reports for CLI or future API responses.
 
 Current examples include runtime validation, storage checks, backup verification,
-database health checks, database index inspection, the consistency framework, and
-remote-sync FK validation.
+database health checks, database index inspection, the consistency framework,
+remote-sync FK validation, and dashboard health aggregation for the API/UI layer.
 
 ### `immich_doctor.adapters`
 
@@ -221,8 +221,25 @@ artifacts.
 
 ### `immich_doctor.api`
 
-Reserved integration boundary for future API routes. The API must call the same
-services as the CLI instead of duplicating business rules.
+Contains thin API routes that call the same services as the CLI instead of
+duplicating business rules.
+
+Current API surface:
+
+- `GET /api/health/overview`
+- `GET /api/settings`
+- `GET /api/settings/schema`
+- `PUT /api/settings`
+
+Current API constraints:
+
+- dashboard health is aggregated conservatively from existing backend checks
+- unimplemented capabilities remain `unknown`
+- API routes stay orchestration-thin and defer logic to services
+- settings routes use `/api/settings` as the canonical global contract; nested
+  domain-specific settings prefixes are not allowed
+- `PUT /api/settings` is reserved but remains non-persistent until a safe
+  settings write workflow exists
 
 ## CLI, API, and UI relationship
 
@@ -234,6 +251,19 @@ The intended long-term flow is:
 4. Web UI calls the API and renders reports, status, and workflow controls
 
 This keeps the Web UI as an orchestration layer instead of a second source of truth.
+
+## UI-to-backend contract rule
+
+UI routes must never imply backend capability.
+
+Implications:
+
+- navigation to a page must not depend on the backend route already existing
+- a route such as `/settings` may exist before the backend supports full settings
+  read/write behavior
+- the UI must render capability state such as `READY`, `PARTIAL`, or
+  `NOT_IMPLEMENTED` instead of exposing raw transport errors as the primary UX
+- canonical API prefixes stay stable under `/api`
 
 ## Future background jobs
 
