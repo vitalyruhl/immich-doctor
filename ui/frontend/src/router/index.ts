@@ -1,0 +1,76 @@
+import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
+import BackupView from "@/views/backup/BackupView.vue";
+import ConsistencyView from "@/views/consistency/ConsistencyView.vue";
+import DashboardView from "@/views/dashboard/DashboardView.vue";
+import DatabaseView from "@/views/database/DatabaseView.vue";
+import ReportsView from "@/views/reports/ReportsView.vue";
+import RuntimeView from "@/views/runtime/RuntimeView.vue";
+import SettingsView from "@/views/settings/SettingsView.vue";
+import StorageView from "@/views/storage/StorageView.vue";
+
+declare module "vue-router" {
+  interface RouteMeta {
+    title: string;
+    section: string;
+    risk?: "read-only" | "mixed" | "mutation";
+  }
+}
+
+const routes: RouteRecordRaw[] = [
+  { path: "/", redirect: { name: "dashboard" } },
+  {
+    path: "/dashboard",
+    name: "dashboard",
+    component: DashboardView,
+    meta: { title: "Dashboard", section: "Overview", risk: "read-only" },
+  },
+  {
+    path: "/runtime",
+    name: "runtime",
+    component: RuntimeView,
+    meta: { title: "Runtime / Health", section: "Runtime", risk: "read-only" },
+  },
+  {
+    path: "/consistency",
+    name: "consistency",
+    component: ConsistencyView,
+    meta: { title: "Consistency", section: "Consistency", risk: "mixed" },
+  },
+  {
+    path: "/database",
+    name: "database",
+    component: DatabaseView,
+    meta: { title: "Database", section: "Database", risk: "read-only" },
+  },
+  {
+    path: "/storage",
+    name: "storage",
+    component: StorageView,
+    meta: { title: "Storage", section: "Storage", risk: "mixed" },
+  },
+  {
+    path: "/backup",
+    name: "backup",
+    component: BackupView,
+    meta: { title: "Backup", section: "Backup", risk: "mixed" },
+  },
+  {
+    path: "/reports",
+    name: "reports",
+    component: ReportsView,
+    meta: { title: "Reports / Logs", section: "Reports", risk: "read-only" },
+  },
+  {
+    path: "/settings",
+    name: "settings",
+    component: SettingsView,
+    meta: { title: "Settings", section: "Settings", risk: "mixed" },
+  },
+];
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+});
+
+export default router;
