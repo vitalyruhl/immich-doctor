@@ -2,9 +2,21 @@ import json
 
 from typer.testing import CliRunner
 
+from immich_doctor.cli import consistency as consistency_cli
 from immich_doctor.cli import db as db_cli
 from immich_doctor.cli import remote as remote_cli
 from immich_doctor.cli.main import app
+from immich_doctor.consistency.models import (
+    ConsistencyCategory,
+    ConsistencyRepairAction,
+    ConsistencyRepairMode,
+    ConsistencyRepairPlan,
+    ConsistencyRepairResult,
+    ConsistencyRepairStatus,
+    ConsistencySeverity,
+    ConsistencySummary,
+    ConsistencyValidationReport,
+)
 from immich_doctor.core.models import (
     CheckResult,
     CheckStatus,
@@ -436,3 +448,123 @@ def test_remote_sync_repair_json_output(monkeypatch) -> None:
     assert payload["domain"] == "remote.sync"
     assert payload["action"] == "repair"
     assert payload["plans"][0]["status"] == "planned"
+
+
+def test_consistency_validate_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings):
+        return ConsistencyValidationReport(
+            domain="consistency",
+            action="validate",
+            summary="Consistency validation found no issues in the supported schema categories.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            categories=[
+                ConsistencyCategory(
+                    name="db.orphan.album_asset.missing_asset",
+                    severity=ConsistencySeverity.FAIL,
+                    repair_mode=ConsistencyRepairMode.SAFE_DELETE,
+                    status=CheckStatus.PASS,
+                    count=0,
+                    repairable=True,
+                    message="No findings in category `db.orphan.album_asset.missing_asset`.",
+                )
+            ],
+            findings=[],
+            consistency_summary=ConsistencySummary(
+                profile_name="immich_current_postgres_profile",
+                profile_supported=True,
+                executed_categories=("db.orphan.album_asset.missing_asset",),
+            ),
+        )
+
+    monkeypatch.setattr(consistency_cli.ConsistencyValidationService, "run", fake_run)
+
+    result = runner.invoke(app, ["consistency", "validate", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "consistency"
+    assert payload["action"] == "validate"
+    assert payload["categories"][0]["name"] == "db.orphan.album_asset.missing_asset"
+
+
+def test_consistency_repair_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings, *, categories, finding_ids, all_safe, apply):
+        return ConsistencyRepairResult(
+            domain="consistency",
+            action="repair",
+            summary="Consistency repair dry-run planned changes for 1 selected repairable rows.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            repair_plan=ConsistencyRepairPlan(
+                selected_categories=categories,
+                selected_ids=finding_ids,
+                all_safe=all_safe,
+                actions=(
+                    ConsistencyRepairAction(
+                        category="db.orphan.album_asset.missing_asset",
+                        repair_mode=ConsistencyRepairMode.SAFE_DELETE,
+                        status=ConsistencyRepairStatus.WOULD_REPAIR,
+                        message=(
+                            "Dry-run would repair category "
+                            "`db.orphan.album_asset.missing_asset`."
+                        ),
+                        target_table="public.album_asset",
+                        finding_ids=("album_asset:missing_asset:album-1:asset-missing-1",),
+                        row_count=1,
+                        dry_run=True,
+                        applied=False,
+                    ),
+                ),
+            ),
+            consistency_summary=ConsistencySummary(
+                profile_name="immich_current_postgres_profile",
+                profile_supported=True,
+            ),
+        )
+
+    monkeypatch.setattr(consistency_cli.ConsistencyRepairService, "run", fake_run)
+
+    result = runner.invoke(
+        app,
+        [
+            "consistency",
+            "repair",
+            "--category",
+            "db.orphan.album_asset.missing_asset",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "consistency"
+    assert payload["action"] == "repair"
+    assert payload["repair_plan"]["actions"][0]["status"] == "would_repair"

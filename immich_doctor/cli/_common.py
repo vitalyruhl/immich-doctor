@@ -4,13 +4,14 @@ import json
 
 import typer
 
+from immich_doctor.consistency.models import ConsistencyRepairResult, ConsistencyValidationReport
 from immich_doctor.core.models import RepairReport, ValidationReport
 from immich_doctor.reports.json_writer import render_json_report
 from immich_doctor.reports.text_writer import render_text_report
 
 
 def emit_report(
-    report: ValidationReport | RepairReport,
+    report: ValidationReport | RepairReport | ConsistencyValidationReport | ConsistencyRepairResult,
     output_format: str,
     verbose: bool = False,
 ) -> None:

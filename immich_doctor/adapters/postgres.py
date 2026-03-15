@@ -217,3 +217,94 @@ class PostgresAdapter:
             for row in rows
         ]
         return {"count": count, "samples": samples}
+
+    def list_grouped_album_asset_orphans(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        missing_target_table: str,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(
+            """
+            SELECT
+                link."albumId" AS "albumId",
+                link."assetsId" AS "assetsId",
+                COUNT(*) AS row_count
+            FROM {album_asset_table} AS link
+            LEFT JOIN {target_table} AS target
+                ON target.id = link.{target_column}
+            WHERE target.id IS NULL
+            GROUP BY link."albumId", link."assetsId"
+            ORDER BY link."albumId" ASC, link."assetsId" ASC;
+            """
+        ).format(
+            album_asset_table=sql.Identifier("public", "album_asset"),
+            target_table=sql.Identifier("public", missing_target_table),
+            target_column=sql.Identifier(
+                "assetsId" if missing_target_table == "asset" else "albumId"
+            ),
+        )
+        return fetch_all_composed(dsn, timeout_seconds, query)
+
+    def list_asset_files_by_type(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        file_type: str,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(
+            """
+            SELECT
+                id,
+                "assetId" AS "assetId",
+                type,
+                path
+            FROM {asset_file_table}
+            WHERE type = %s
+            ORDER BY id ASC;
+            """
+        ).format(asset_file_table=sql.Identifier("public", "asset_file"))
+        return fetch_all_composed(dsn, timeout_seconds, query, (file_type,))
+
+    def delete_album_asset_rows_by_keys(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        album_id: str,
+        asset_id: str,
+        missing_target_table: str,
+    ) -> int:
+        target_column = "assetsId" if missing_target_table == "asset" else "albumId"
+        query = sql.SQL(
+            """
+            WITH deleted AS (
+                DELETE FROM {album_asset_table} AS link
+                WHERE link."albumId" = %s
+                AND link."assetsId" = %s
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {target_table} AS target
+                    WHERE target.id = link.{target_column}
+                )
+                RETURNING 1
+            )
+            SELECT COUNT(*) AS deleted_count
+            FROM deleted;
+            """
+        ).format(
+            album_asset_table=sql.Identifier("public", "album_asset"),
+            target_table=sql.Identifier("public", missing_target_table),
+            target_column=sql.Identifier(target_column),
+        )
+        rows = execute_returning_all_composed(
+            dsn,
+            timeout_seconds,
+            query,
+            (album_id, asset_id),
+        )
+        if not rows:
+            return 0
+        return int(rows[0]["deleted_count"])

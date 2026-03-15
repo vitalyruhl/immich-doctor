@@ -2,10 +2,22 @@ from __future__ import annotations
 
 import json
 
+from immich_doctor.consistency.models import (
+    ConsistencyRepairResult,
+    ConsistencyValidationReport,
+)
 from immich_doctor.core.models import CheckResult, RepairReport, ValidationReport
 
 
-def render_text_report(report: ValidationReport | RepairReport, verbose: bool = False) -> str:
+def render_text_report(
+    report: ValidationReport | RepairReport | ConsistencyValidationReport | ConsistencyRepairResult,
+    verbose: bool = False,
+) -> str:
+    if isinstance(report, ConsistencyValidationReport):
+        return _render_consistency_validation_report(report, verbose)
+    if isinstance(report, ConsistencyRepairResult):
+        return _render_consistency_repair_report(report, verbose)
+
     lines = [
         f"Domain: {report.domain}",
         f"Action: {report.action}",
@@ -62,6 +74,94 @@ def render_text_report(report: ValidationReport | RepairReport, verbose: bool = 
     if recommendations:
         lines.append("Recommendations:")
         for recommendation in recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_consistency_validation_report(
+    report: ConsistencyValidationReport,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Categories:")
+    for category in report.categories:
+        repairability = "REPAIRABLE" if category.repairable else "INSPECT_ONLY"
+        lines.append(
+            f"- [{category.status.value.upper()}] {category.name}: "
+            f"count={category.count}, severity={category.severity.value}, "
+            f"repair_mode={category.repair_mode.value}, {repairability}"
+        )
+        lines.append(f"  - {category.message}")
+        preview = category.sample_findings if verbose else category.sample_findings[:3]
+        for finding in preview:
+            lines.append(
+                f"  - finding: id={finding.finding_id}, rows={finding.row_count}, "
+                f"message={finding.message}"
+            )
+        if not preview:
+            lines.append("  - finding: []")
+    lines.append(f"Consistency Summary: {report.consistency_summary.to_dict()}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_consistency_repair_report(
+    report: ConsistencyRepairResult,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Repair Plan:")
+    lines.append(
+        f"- selected_categories={list(report.repair_plan.selected_categories)}, "
+        f"selected_ids={list(report.repair_plan.selected_ids)}, "
+        f"all_safe={report.repair_plan.all_safe}"
+    )
+    for action in report.repair_plan.actions:
+        lines.append(
+            f"- [{action.status.value.upper()}] {action.category}: "
+            f"{action.message} ({action.row_count} rows)"
+        )
+        lines.append(
+            f"  - repair_mode={action.repair_mode.value}, dry_run={action.dry_run}, "
+            f"applied={action.applied}, target_table={action.target_table}"
+        )
+        preview = action.sample_findings if verbose else action.sample_findings[:3]
+        for finding in preview:
+            lines.append(
+                f"  - finding: id={finding.finding_id}, rows={finding.row_count}, "
+                f"message={finding.message}"
+            )
+        if action.backup_sql:
+            lines.append(f"  - backup_sql: {action.backup_sql}")
+    lines.append(f"Consistency Summary: {report.consistency_summary.to_dict()}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
             lines.append(f"- {recommendation}")
     return "\n".join(lines)
 
