@@ -9,8 +9,11 @@ from immich_doctor.backup.core import (
     BackupJob,
     BackupManifest,
     BackupResult,
+    BackupSnapshot,
     BackupTarget,
     ResolvedBackupLocation,
+    SnapshotCoverage,
+    SnapshotKind,
 )
 from immich_doctor.backup.core.placeholder import __doc__ as core_placeholder_doc
 from immich_doctor.backup.db.placeholder import __doc__ as db_placeholder_doc
@@ -36,10 +39,23 @@ def test_backup_foundation_models_can_be_instantiated() -> None:
         target=target,
         relative_path=Path("database.sql"),
     )
+    snapshot = BackupSnapshot(
+        snapshot_id="snapshot-1",
+        kind=SnapshotKind.PRE_REPAIR,
+        created_at=datetime(2026, 3, 14, 12, 5, tzinfo=UTC),
+        source_fingerprint="fingerprint",
+        coverage=SnapshotCoverage.PAIRED,
+        file_artifacts=(artifact,),
+        db_artifact=artifact,
+        manifest_path=Path("data/manifests/backup/snapshots/snapshot-1.json"),
+        verified=False,
+        repair_run_id="repair-1",
+    )
     manifest = BackupManifest(
         timestamp=datetime(2026, 3, 14, 12, 5, tzinfo=UTC),
         included_components=("database", "files"),
         artifacts=(artifact,),
+        snapshot=snapshot,
     )
     job = BackupJob(
         name="database-dump",
@@ -59,6 +75,7 @@ def test_backup_foundation_models_can_be_instantiated() -> None:
     assert resolved.root_path == Path("/backups/immich")
     assert artifact.target is target
     assert manifest.artifacts == (artifact,)
+    assert manifest.snapshot is snapshot
     assert job.component == "database"
     assert result.status == "pending"
 

@@ -6,6 +6,8 @@ from stat import S_IMODE
 from uuid import uuid4
 
 from immich_doctor.adapters.filesystem import FilesystemAdapter
+from immich_doctor.backup.core.models import SnapshotKind
+from immich_doctor.backup.orchestration import BackupFilesService
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.repair import (
@@ -39,6 +41,7 @@ class RuntimeMetadataFailuresRepairService:
     )
     filesystem: FilesystemAdapter = field(default_factory=FilesystemAdapter)
     repair_store: RepairJournalStore = field(default_factory=RepairJournalStore)
+    backup_files_service: BackupFilesService = field(default_factory=BackupFilesService)
 
     def run(
         self,
@@ -144,6 +147,78 @@ class RuntimeMetadataFailuresRepairService:
                     ),
                 )
 
+            snapshot_result = self.backup_files_service.run(
+                settings,
+                snapshot_kind=SnapshotKind.PRE_REPAIR,
+                repair_run_id=repair_run.repair_run_id,
+                source_fingerprint=repair_run.live_state_fingerprint,
+            )
+            if snapshot_result.status != "success" or snapshot_result.snapshot is None:
+                repair_run.finish(RepairRunStatus.FAILED)
+                self.repair_store.update_run(settings, repair_run)
+                snapshot_check = CheckResult(
+                    name="pre_repair_snapshot",
+                    status=CheckStatus.FAIL,
+                    message=(
+                        "Pre-repair snapshot creation failed. Apply stopped before mutating files."
+                    ),
+                    details={
+                        "summary": snapshot_result.summary,
+                        "warnings": list(snapshot_result.warnings),
+                        "details": snapshot_result.details,
+                    },
+                )
+                return MetadataFailureRepairResult(
+                    domain="runtime.metadata_failures",
+                    action="repair",
+                    summary=(
+                        "Metadata failure repair stopped because the pre-repair snapshot could "
+                        "not be created."
+                    ),
+                    checks=[
+                        *inspect_result.checks,
+                        self._journal_check(settings, repair_run),
+                        guard_check,
+                        snapshot_check,
+                    ],
+                    diagnostics=diagnostics,
+                    repair_actions=[],
+                    recommendations=[
+                        (
+                            "Configure and verify backup files so a pre-repair snapshot can be "
+                            "created."
+                        ),
+                    ],
+                    metadata=self._result_metadata(
+                        settings,
+                        repair_run,
+                        plan_token,
+                        apply=apply,
+                        diagnostic_ids=diagnostic_ids,
+                        selected_actions=selected_actions,
+                    ),
+                )
+
+            repair_run.pre_repair_snapshot_id = snapshot_result.snapshot.snapshot_id
+            self.repair_store.update_run(settings, repair_run)
+            snapshot_check = CheckResult(
+                name="pre_repair_snapshot",
+                status=CheckStatus.PASS,
+                message="Pre-repair snapshot metadata was created before apply.",
+                details={
+                    "snapshot_id": snapshot_result.snapshot.snapshot_id,
+                    "snapshot_kind": snapshot_result.snapshot.kind.value,
+                    "snapshot_manifest_path": snapshot_result.snapshot.manifest_path.as_posix(),
+                    "coverage": snapshot_result.snapshot.coverage.value,
+                },
+            )
+        else:
+            snapshot_check = CheckResult(
+                name="pre_repair_snapshot",
+                status=CheckStatus.SKIP,
+                message="Pre-repair snapshot creation is only attempted during apply.",
+            )
+
         repair_actions = [
             self._plan_or_apply_action(
                 diagnostic=diagnostic,
@@ -165,6 +240,7 @@ class RuntimeMetadataFailuresRepairService:
         checks.append(self._journal_check(settings, repair_run))
         if guard_check is not None:
             checks.append(guard_check)
+        checks.append(snapshot_check)
         checks.append(
             CheckResult(
                 name="repair_scope",
@@ -547,4 +623,5 @@ class RuntimeMetadataFailuresRepairService:
             "repair_run_id": repair_run.repair_run_id,
             "repair_run_path": str(repair_run_directory(settings, repair_run.repair_run_id)),
             "plan_token_id": plan_token.token_id,
+            "pre_repair_snapshot_id": repair_run.pre_repair_snapshot_id,
         }

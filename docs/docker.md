@@ -128,8 +128,8 @@ Additional canonical commands:
 
 Current backup status in Docker:
 
-- implemented: `backup files` for one local, versioned rsync-based file backup
-- implemented: `backup verify` for backup target readiness checks
+- implemented: `backup files` for one local, versioned rsync-based file backup plus persisted snapshot metadata
+- implemented: `backup verify` for backup target readiness checks plus snapshot manifest structure checks
 - not implemented yet: DB backup, metadata backup, remote targets, retention, restore, backup-all orchestration
 
 ## Non-root vs root

@@ -165,7 +165,7 @@ Current internal backup packages:
 Responsibilities:
 
 - `backup.core`: shared backup data contracts such as context, jobs, targets,
-  artifacts, manifests, results, and location resolution
+  artifacts, snapshot manifests, results, stores, and location resolution
 - `backup.db`: future PostgreSQL backup coordination
 - `backup.files`: future filesystem artifact collection
 - `backup.metadata`: future metadata and manifest enrichment
@@ -233,13 +233,16 @@ Implemented now:
 - versioned destination generation from one authoritative backup context timestamp
 - target resolution through `BackupLocationResolver`
 - structured `BackupResult` and traceable `BackupArtifact` metadata
+- persisted `BackupSnapshot` manifests under `data/manifests/backup/snapshots/`
+- explicit snapshot kinds: `manual`, `pre_repair`, `post_repair`, `periodic`
+- explicit snapshot coverage: `files_only`, `db_only`, `paired`
 
 Planned next:
 
-- manifest persistence
 - DB backup integration
 - metadata backup integration
 - higher-level backup orchestration across multiple artifacts
+- restore orchestration
 
 ### `immich_doctor.reports`
 
@@ -314,6 +317,8 @@ The repository already reserves runtime-oriented paths under `data/`:
 
 - `data/reports/`
 - `data/manifests/`
+- `data/manifests/backup/`
+- `data/manifests/backup/snapshots/`
 - `data/manifests/repair/`
 - `data/quarantine/`
 - `data/logs/`
@@ -331,6 +336,7 @@ and so destructive behavior is not hidden inside temporary scripting.
 - no automatic destructive repair in the MVP
 - mutating repairs must persist a `RepairRun` and journal entries before broader rollout
 - inspect -> plan -> apply must remain bound to one live-state token before mutation
+- integrated mutating repair flows must create a real `pre_repair` snapshot reference before apply
 - physical file integrity must be checked before metadata extraction failures are
   classified
 - unknown runtime states remain unsafe until explicitly resolved

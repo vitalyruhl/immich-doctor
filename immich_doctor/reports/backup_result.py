@@ -28,6 +28,14 @@ def render_backup_result_text(result: BackupResult) -> str:
                 f"(root={artifact.target.reference})"
             )
 
+    if result.snapshot is not None:
+        lines.append("Snapshot:")
+        lines.append(
+            f"- id={result.snapshot.snapshot_id}, kind={result.snapshot.kind.value}, "
+            f"coverage={result.snapshot.coverage.value}, "
+            f"manifest={result.snapshot.manifest_path.as_posix()}"
+        )
+
     if result.warnings:
         lines.append("Warnings:")
         for warning in result.warnings:

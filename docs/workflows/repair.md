@@ -15,8 +15,11 @@ Status: active foundation
 - runtime metadata permission repair now records:
   - repair run identity
   - live-state plan token
+  - `pre_repair_snapshot_id` once the pre-snapshot succeeds
   - journal entries for planned/applied/failed actions
   - undo payload with old/new mode values for chmod-based permission repair
+- runtime metadata permission repair now requests one real files-only `pre_repair`
+  snapshot before apply and aborts before mutation if snapshot creation fails
 
 ## Safety rules
 
@@ -32,8 +35,7 @@ Status: active foundation
 - full restore orchestration
 - automated rollback
 - quarantine move/restore execution
-- backup snapshot orchestration for pre-repair and post-repair states
-- migration of all existing DB-mutating repair flows onto `RepairRun`
+- migration of all existing DB-mutating repair flows onto `RepairRun` + pre-snapshot gating
 
 ## Current limitation
 

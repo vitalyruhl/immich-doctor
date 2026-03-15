@@ -189,6 +189,7 @@ Mutating repair foundation rules:
 - future mutating repair flows must execute inside a persisted `RepairRun`
 - future mutating repair flows must write persisted journal entries
 - inspect -> plan -> apply must be protected by a live-state guard or plan token
+- integrated mutating repair flows must create and reference a real `pre_repair` snapshot
 - file-destructive behavior must remain quarantine-first
 
 Runtime metadata repair rule:

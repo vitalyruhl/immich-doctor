@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: validation + early backup foundation + repair safety foundation
+Project phase: validation + backup snapshot foundation + repair safety foundation
 
 Current MVP scope:
 
@@ -32,6 +32,8 @@ Current MVP scope:
 - persisted repair-run and repair-journal foundation for later reversible repair flows
 - drift-protected plan tokens for inspect -> plan -> apply binding
 - quarantine index foundation for later quarantine-first file handling
+- persisted backup snapshot manifests with explicit files-only vs paired coverage modeling
+- pre-repair snapshot creation for integrated mutating repair flows
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
@@ -71,6 +73,7 @@ full restore orchestration.
 - quarantine before delete
 - dry-run before apply
 - no automatic destructive repair in the MVP
+- integrated mutating repairs must prepare a real pre-repair snapshot before apply
 - future repair actions must be traceable through reports and journals
 
 ## Planned modules
@@ -202,13 +205,14 @@ Implemented now:
 - metadata extraction diagnostics that classify per-asset root cause after file
   integrity inspection
 - DB index inspection with compact default output and verbose details
-- `backup files` as a thin local file backup flow on top of the backup foundation
+- `backup files` as a thin local file backup flow on top of the backup foundation,
+  now with persisted snapshot metadata
 
 Planned next:
 
-- backup manifests
 - DB backup inclusion
 - metadata capture
+- paired DB + file snapshots
 - backup-all orchestration
 
 `consistency validate` is the canonical server-side consistency overview. It
@@ -280,8 +284,19 @@ safe execution primitives exist.
 
 Applied runtime metadata permission repair now persists a `RepairRun`,
 `plan-token.json`, and `journal.jsonl` under `data/manifests/repair/`. The
-journal records old/new mode values for later undo design, but full restore and
+journal records old/new mode values for later undo design. Before apply, the
+integrated runtime repair flow now also creates a real files-only `pre_repair`
+snapshot and stores its `snapshot_id` on the `RepairRun`. Full restore and
 quarantine move orchestration still remain later phases.
+
+`backup files` now persists one snapshot manifest under
+`data/manifests/backup/snapshots/<snapshot_id>.json` for every successful run.
+Snapshot metadata includes kind, coverage, source fingerprint, file artifacts,
+nullable DB artifact, verification flag, and optional `repair_run_id`.
+
+`backup verify` still checks backup target readiness and now also validates
+persisted snapshot manifest structure and coverage consistency. It does not yet
+claim full artifact-content verification or restore readiness.
 
 ## Docker
 

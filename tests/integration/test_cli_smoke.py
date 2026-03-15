@@ -332,8 +332,14 @@ def test_backup_verify_json_output(tmp_path, monkeypatch) -> None:
     runner = CliRunner()
 
     backup = tmp_path / "backup"
+    manifests = tmp_path / "manifests"
+    quarantine = tmp_path / "quarantine"
     backup.mkdir(parents=True, exist_ok=True)
+    manifests.mkdir(parents=True, exist_ok=True)
+    quarantine.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("BACKUP_TARGET_PATH", str(backup))
+    monkeypatch.setenv("MANIFESTS_PATH", str(manifests))
+    monkeypatch.setenv("QUARANTINE_PATH", str(quarantine))
 
     result = runner.invoke(app, ["backup", "verify", "--output", "json"])
 
