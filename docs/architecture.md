@@ -53,7 +53,7 @@ Placement rules:
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
 - backup.verify: backup target readiness and required tool presence
-- remote.sync: read-only validation of remote-sync foreign key consistency for remote album asset links
+- remote.sync: read-only scope diagnostics for client-side SQLite sync errors plus server-side PostgreSQL album/asset FK integrity checks
 
 Forbidden patterns:
 

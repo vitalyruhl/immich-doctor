@@ -139,6 +139,8 @@ def _render_remote_sync_check_details(check: CheckResult, verbose: bool) -> list
     severity = details.get("severity")
     impacted_tables = details.get("impacted_tables")
     candidates = details.get("candidates")
+    detected_columns = details.get("detected_columns")
+    expected_table = details.get("expected_table")
     remediation_hint = details.get("remediation_hint")
     samples = details.get("samples", [])
 
@@ -152,6 +154,14 @@ def _render_remote_sync_check_details(check: CheckResult, verbose: bool) -> list
 
     if impacted_tables:
         lines.append(f"  - impacted_tables={', '.join(str(table) for table in impacted_tables)}")
+
+    if expected_table:
+        lines.append(f"  - expected_table={expected_table}")
+
+    if detected_columns:
+        lines.append(
+            f"  - detected_columns={', '.join(str(column) for column in detected_columns)}"
+        )
 
     if candidates and verbose:
         lines.append(f"  - candidates={', '.join(str(candidate) for candidate in candidates)}")
@@ -171,6 +181,8 @@ def _render_remote_sync_check_details(check: CheckResult, verbose: bool) -> list
 
 def _format_row(row: dict[str, object]) -> str:
     preferred_keys = [
+        "albumId",
+        "assetsId",
         "asset_id",
         "album_id",
         "index_name",

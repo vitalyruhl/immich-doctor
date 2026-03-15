@@ -18,6 +18,8 @@ from immich_doctor.db.queries import (
     LIST_INDEX_USAGE_STATS_QUERY,
     LIST_INVALID_INDEXES_QUERY,
     LIST_MISSING_FK_INDEXES_QUERY,
+    LIST_TABLE_COLUMNS_QUERY,
+    LIST_TABLE_FOREIGN_KEYS_QUERY,
 )
 
 
@@ -74,6 +76,38 @@ class PostgresAdapter:
     def list_tables(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_BASE_TABLES_QUERY)
 
+    def list_columns(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(LIST_TABLE_COLUMNS_QUERY)
+        return fetch_all_composed(
+            dsn,
+            timeout_seconds,
+            query,
+            (table_schema, table_name),
+        )
+
+    def list_foreign_keys(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(LIST_TABLE_FOREIGN_KEYS_QUERY)
+        return fetch_all_composed(
+            dsn,
+            timeout_seconds,
+            query,
+            (table_schema, table_name),
+        )
+
     def find_missing_foreign_key_rows(
         self,
         dsn: str,
@@ -84,31 +118,37 @@ class PostgresAdapter:
         reference_schema: str,
         reference_table: str,
         link_column: str,
+        reference_column: str,
+        sample_columns: tuple[str, ...],
         sample_limit: int,
     ) -> dict[str, object]:
+        sample_select = [
+            sql.SQL("link.{column}").format(column=sql.Identifier(column))
+            for column in sample_columns
+        ]
         query = sql.SQL(
             """
             WITH missing AS (
                 SELECT
-                    link.asset_id,
-                    link.album_id
+                    {sample_select}
                 FROM {link_table} AS link
                 LEFT JOIN {reference_table} AS ref
-                    ON ref.id = link.{link_column}
-                WHERE ref.id IS NULL
+                    ON ref.{reference_column} = link.{link_column}
+                WHERE ref.{reference_column} IS NULL
             )
             SELECT
-                asset_id,
-                album_id,
+                *,
                 COUNT(*) OVER() AS broken_reference_count
             FROM missing
-            ORDER BY album_id ASC, asset_id ASC
+            ORDER BY 1 ASC
             LIMIT %s;
             """
         ).format(
+            sample_select=sql.SQL(", ").join(sample_select),
             link_table=sql.Identifier(link_schema, link_table),
             reference_table=sql.Identifier(reference_schema, reference_table),
             link_column=sql.Identifier(link_column),
+            reference_column=sql.Identifier(reference_column),
         )
 
         rows = fetch_all_composed(dsn, timeout_seconds, query, (sample_limit,))

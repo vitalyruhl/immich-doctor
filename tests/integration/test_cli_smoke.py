@@ -337,7 +337,10 @@ def test_remote_sync_validate_json_output(monkeypatch) -> None:
         return ValidationReport(
             domain="remote.sync",
             action="validate",
-            summary="Remote sync validation completed with no foreign key inconsistencies.",
+            summary=(
+                "Remote sync validation found no server-side PostgreSQL "
+                "album/asset link issues."
+            ),
             checks=[
                 CheckResult(
                     name="postgres_connection",
@@ -345,16 +348,23 @@ def test_remote_sync_validate_json_output(monkeypatch) -> None:
                     message="PostgreSQL connection established.",
                 ),
                 CheckResult(
-                    name="remote_album_asset_missing_assets",
+                    name="remote_sync_scope_boundary",
                     status=CheckStatus.PASS,
-                    message="No missing asset references found.",
+                    message="The reported signature matches a likely client-side SQLite issue.",
+                    details={
+                        "severity": "info",
+                    },
+                ),
+                CheckResult(
+                    name="album_asset_missing_assets",
+                    status=CheckStatus.PASS,
+                    message="No missing asset references found in server PostgreSQL tables.",
                     details={
                         "severity": "info",
                         "count": 0,
-                        "samples": [],
                         "impacted_tables": [
-                            "public.remote_album_asset_entity",
-                            "public.asset_entity",
+                            "public.album_asset",
+                            "public.asset",
                         ],
                     },
                 ),

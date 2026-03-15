@@ -32,7 +32,7 @@ Current MVP scope:
 - backup target verification
 - database health validation
 - database index inspection
-- remote-sync foreign key validation for remote album asset links
+- remote-sync diagnostics with server-side PostgreSQL album/asset link checks
 - validation of required external tools when configured
 - structured text or JSON reports
 
@@ -156,9 +156,11 @@ uv run python -m immich_doctor remote sync validate
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
 
-`remote sync validate` is read-only. It detects orphaned references in
-`remote_album_asset_entity` against the detected asset and remote album tables,
-reports samples and counts, and never repairs or mutates DB content.
+`remote sync validate` is read-only. It distinguishes likely client-side mobile
+app SQLite sync errors from server-side PostgreSQL checks. On the server it only
+uses detected `album`, `asset`, and `album_asset` tables, resolves foreign keys
+from PostgreSQL metadata where possible, reports orphaned join rows when present,
+and never repairs or mutates DB content.
 
 ## Docker
 
