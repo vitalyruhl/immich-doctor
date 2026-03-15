@@ -31,6 +31,7 @@ Current MVP scope:
 - storage permission validation
 - file backup execution through a thin backup application flow
 - backup target verification
+- minimal API health endpoint for the dashboard
 - database health validation
 - database index inspection
 - category-based consistency validation and repair for the supported current PostgreSQL schema
@@ -43,7 +44,6 @@ Not in scope yet:
 - no destructive repair actions
 - no file modifications
 - no quarantine moves
-- no API or Web UI runtime yet
 - no DB backup
 - no metadata backup
 - no remote backup targets
@@ -119,6 +119,14 @@ The repository is split into clear layers:
 This keeps the CLI as the first interface while ensuring later API or Web UI
 implementations can call the same services without duplicating logic.
 
+The first backend-to-UI integration is now available through:
+
+```text
+GET /api/health/overview
+```
+
+It powers the dashboard health cards with conservative backend-derived states.
+
 ## Quick start
 
 1. Create a virtual environment.
@@ -147,6 +155,15 @@ uv run python -m immich_doctor db performance indexes check --verbose
 uv run python -m immich_doctor remote sync validate
 uv run python -m immich_doctor remote sync repair
 uv run python -m immich_doctor remote sync repair --apply
+```
+
+For local dashboard development, start the API runtime and the frontend:
+
+```bash
+uv run uvicorn immich_doctor.api.app:create_api_app --factory --reload --host 127.0.0.1 --port 8000
+cd ui/frontend
+npm install
+npm run dev
 ```
 
 Default text output is concise for interactive terminal use.
@@ -198,6 +215,18 @@ targets confirmed orphan rows in `album_asset`, prints planned deletions plus
 backup SQL snippets, and writes to PostgreSQL only when `--apply` is set. It does
 not modify `asset`, `album`, storage files, thumbnails, or mobile app SQLite sync
 state.
+
+`GET /api/health/overview` now provides the first real UI health contract. It
+already reports backend-driven states for:
+
+- DB reachability
+- storage reachability
+- path readiness
+- backup readiness
+- runtime readiness
+
+Immich API configuration/reachability and scheduler-specific health remain
+`unknown` until dedicated backend adapters exist.
 
 ## Docker
 

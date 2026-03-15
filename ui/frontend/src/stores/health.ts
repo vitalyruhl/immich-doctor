@@ -7,8 +7,18 @@ import type { HealthItem } from "@/api/types/health";
 function createUnknownItems(): HealthItem[] {
   return [
     {
-      id: "immich-connectivity",
-      title: "Immich connectivity",
+      id: "immich-configured",
+      title: "Immich configured",
+      status: "unknown",
+      summary: "Backend state not loaded yet.",
+      details: "No request has completed yet.",
+      updatedAt: new Date(0).toISOString(),
+      blocking: true,
+      source: "ui/unloaded",
+    },
+    {
+      id: "immich-reachable",
+      title: "Immich reachable",
       status: "unknown",
       summary: "Backend state not loaded yet.",
       details: "No request has completed yet.",
@@ -18,7 +28,7 @@ function createUnknownItems(): HealthItem[] {
     },
     {
       id: "db-reachability",
-      title: "DB reachability",
+      title: "DB reachable",
       status: "unknown",
       summary: "Backend state not loaded yet.",
       details: "No request has completed yet.",
@@ -28,7 +38,7 @@ function createUnknownItems(): HealthItem[] {
     },
     {
       id: "storage-reachability",
-      title: "Storage reachability",
+      title: "Storage reachable",
       status: "unknown",
       summary: "Backend state not loaded yet.",
       details: "No request has completed yet.",
@@ -37,8 +47,8 @@ function createUnknownItems(): HealthItem[] {
       source: "ui/unloaded",
     },
     {
-      id: "path-consistency-readiness",
-      title: "Path consistency readiness",
+      id: "path-readiness",
+      title: "Path readiness",
       status: "unknown",
       summary: "Backend state not loaded yet.",
       details: "No request has completed yet.",
@@ -47,8 +57,8 @@ function createUnknownItems(): HealthItem[] {
       source: "ui/unloaded",
     },
     {
-      id: "backup-target-readiness",
-      title: "Backup target readiness",
+      id: "backup-readiness",
+      title: "Backup readiness",
       status: "unknown",
       summary: "Backend state not loaded yet.",
       details: "No request has completed yet.",
@@ -58,7 +68,7 @@ function createUnknownItems(): HealthItem[] {
     },
     {
       id: "scheduler-runtime-readiness",
-      title: "Scheduler/runtime readiness",
+      title: "Scheduler / runtime readiness",
       status: "unknown",
       summary: "Backend state not loaded yet.",
       details: "No request has completed yet.",
@@ -74,6 +84,9 @@ export const useHealthStore = defineStore("health", () => {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const mocked = ref(false);
+  const hasLoaded = ref(false);
+  const generatedAt = ref<string | null>(null);
+  const overallStatus = ref<HealthItem["status"]>("unknown");
 
   async function load(): Promise<void> {
     isLoading.value = true;
@@ -81,10 +94,15 @@ export const useHealthStore = defineStore("health", () => {
     try {
       const response = await fetchHealthOverview();
       items.value = response.data.items;
+      generatedAt.value = response.data.generatedAt;
+      overallStatus.value = response.data.overallStatus;
       mocked.value = response.mocked;
+      hasLoaded.value = true;
     } catch (caughtError) {
       error.value =
         caughtError instanceof ApiClientError ? caughtError.payload.message : "Unknown error.";
+      mocked.value = false;
+      overallStatus.value = "unknown";
     } finally {
       isLoading.value = false;
     }
@@ -95,9 +113,12 @@ export const useHealthStore = defineStore("health", () => {
   return {
     blockingItems,
     error,
+    generatedAt,
+    hasLoaded,
     isLoading,
     items,
     load,
     mocked,
+    overallStatus,
   };
 });

@@ -1,5 +1,7 @@
 import type { HealthState } from "./common";
 
+export type HealthSource = "immich" | "db" | "storage" | "backup" | "runtime";
+
 export interface HealthItem {
   id: string;
   title: string;
@@ -8,10 +10,11 @@ export interface HealthItem {
   details: string;
   updatedAt: string;
   blocking: boolean;
-  source: string;
+  source: HealthSource | string;
 }
 
 export interface HealthOverviewResponse {
+  generatedAt: string;
+  overallStatus: HealthState;
   items: HealthItem[];
-  mocked: boolean;
 }
