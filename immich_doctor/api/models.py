@@ -4,6 +4,11 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from immich_doctor.runtime.integrity.models import FileIntegrityInspectResult
+from immich_doctor.runtime.metadata_failures.models import (
+    MetadataFailureInspectResult,
+    MetadataFailureRepairResult,
+)
 from immich_doctor.services.dashboard_health import DashboardHealthOverview
 from immich_doctor.services.settings_service import (
     SettingsOverview,
@@ -32,5 +37,23 @@ class SettingsSchemaApiResponse(BaseModel):
 
 class SettingsUpdateApiResponse(BaseModel):
     data: SettingsUpdateResult
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RuntimeIntegrityApiResponse(BaseModel):
+    data: FileIntegrityInspectResult
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RuntimeMetadataFailuresInspectApiResponse(BaseModel):
+    data: MetadataFailureInspectResult
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RuntimeMetadataFailuresRepairApiResponse(BaseModel):
+    data: MetadataFailureRepairResult
     source: Literal["backend"] = "backend"
     mocked: bool = False

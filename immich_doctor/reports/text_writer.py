@@ -7,16 +7,33 @@ from immich_doctor.consistency.models import (
     ConsistencyValidationReport,
 )
 from immich_doctor.core.models import CheckResult, RepairReport, ValidationReport
+from immich_doctor.runtime.integrity.models import FileIntegrityInspectResult
+from immich_doctor.runtime.metadata_failures.models import (
+    MetadataFailureInspectResult,
+    MetadataFailureRepairResult,
+)
 
 
 def render_text_report(
-    report: ValidationReport | RepairReport | ConsistencyValidationReport | ConsistencyRepairResult,
+    report: ValidationReport
+    | RepairReport
+    | ConsistencyValidationReport
+    | ConsistencyRepairResult
+    | FileIntegrityInspectResult
+    | MetadataFailureInspectResult
+    | MetadataFailureRepairResult,
     verbose: bool = False,
 ) -> str:
     if isinstance(report, ConsistencyValidationReport):
         return _render_consistency_validation_report(report, verbose)
     if isinstance(report, ConsistencyRepairResult):
         return _render_consistency_repair_report(report, verbose)
+    if isinstance(report, FileIntegrityInspectResult):
+        return _render_file_integrity_report(report, verbose)
+    if isinstance(report, MetadataFailureInspectResult):
+        return _render_metadata_failure_inspect_report(report, verbose)
+    if isinstance(report, MetadataFailureRepairResult):
+        return _render_metadata_failure_repair_report(report, verbose)
 
     lines = [
         f"Domain: {report.domain}",
@@ -321,3 +338,132 @@ def _format_row(row: dict[str, object]) -> str:
     if parts:
         return ", ".join(parts)
     return json.dumps(row, ensure_ascii=True, sort_keys=True)
+
+
+def _render_file_integrity_report(report: FileIntegrityInspectResult, verbose: bool) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Integrity Summary:")
+    for item in report.summary_items:
+        lines.append(f"- {item.status.value}: {item.count}")
+    lines.append("Findings:")
+    preview = report.findings if verbose else report.findings[:10]
+    for finding in preview:
+        lines.append(
+            f"- [{finding.status.value}] asset_id={finding.asset_id}, "
+            f"role={finding.file_role.value}, path={finding.path}"
+        )
+        lines.append(f"  - message={finding.message}")
+        lines.append(
+            f"  - detected_format={finding.detected_format}, size_bytes={finding.size_bytes}, "
+            f"media_kind={finding.media_kind.value}"
+        )
+    if len(report.findings) > len(preview):
+        lines.append("- ...")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_metadata_failure_inspect_report(
+    report: MetadataFailureInspectResult,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Integrity Summary:")
+    for item in report.integrity_summary:
+        lines.append(f"- {item['status']}: {item['count']}")
+    lines.append("Metadata Failure Summary:")
+    for item in report.metadata_summary:
+        lines.append(f"- {item.root_cause.value}: {item.count}")
+    lines.append("Diagnostics:")
+    preview = report.diagnostics if verbose else report.diagnostics[:10]
+    for diagnostic in preview:
+        lines.append(
+            f"- asset_id={diagnostic.asset_id}, root_cause={diagnostic.root_cause.value}, "
+            f"level={diagnostic.failure_level.value}, confidence={diagnostic.confidence.value}"
+        )
+        lines.append(
+            f"  - path={diagnostic.source_path}, file_status={diagnostic.source_file_status}"
+        )
+        lines.append(f"  - message={diagnostic.source_message}")
+        lines.append(
+            f"  - suggested_action={diagnostic.suggested_action.value}, "
+            f"available_actions={[action.value for action in diagnostic.available_actions]}"
+        )
+    if len(report.diagnostics) > len(preview):
+        lines.append("- ...")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_metadata_failure_repair_report(
+    report: MetadataFailureRepairResult,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Repair Actions:")
+    for action in report.repair_actions:
+        lines.append(
+            f"- [{action.status.value.upper()}] {action.action.value}: "
+            f"diagnostic={action.diagnostic_id}, path={action.path}"
+        )
+        lines.append(
+            f"  - supports_apply={action.supports_apply}, dry_run={action.dry_run}, "
+            f"applied={action.applied}"
+        )
+        lines.append(f"  - reason={action.reason}")
+    if verbose:
+        lines.append("Diagnostics:")
+        for diagnostic in report.diagnostics:
+            lines.append(
+                f"- asset_id={diagnostic.asset_id}, root_cause={diagnostic.root_cause.value}, "
+                f"suggested_action={diagnostic.suggested_action.value}"
+            )
+    if report.post_validation:
+        lines.append("Post Validation:")
+        lines.append(f"- Summary: {report.post_validation.summary}")
+        for item in report.post_validation.metadata_summary:
+            lines.append(f"  - {item.root_cause.value}: {item.count}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)

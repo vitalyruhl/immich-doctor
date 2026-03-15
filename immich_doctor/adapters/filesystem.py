@@ -13,6 +13,17 @@ class FilesystemAdapter:
     def path_exists(self, path: Path) -> bool:
         return path.exists()
 
+    def stat_path(self, path: Path) -> os.stat_result:
+        return path.stat()
+
+    def read_probe(self, path: Path, size: int = 8192) -> bytes:
+        with path.open("rb") as handle:
+            return handle.read(size)
+
+    def add_read_permissions(self, path: Path) -> None:
+        current_mode = path.stat().st_mode
+        path.chmod(current_mode | stat.S_IRUSR | stat.S_IRGRP)
+
     def validate_directory(self, name: str, path: Path) -> CheckResult:
         directory_state = self._directory_state(name=name, path=path)
         if directory_state is not None:

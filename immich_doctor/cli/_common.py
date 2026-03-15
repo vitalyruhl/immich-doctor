@@ -10,10 +10,21 @@ from immich_doctor.core.models import RepairReport, ValidationReport
 from immich_doctor.reports.backup_result import render_backup_result_json, render_backup_result_text
 from immich_doctor.reports.json_writer import render_json_report
 from immich_doctor.reports.text_writer import render_text_report
+from immich_doctor.runtime.integrity.models import FileIntegrityInspectResult
+from immich_doctor.runtime.metadata_failures.models import (
+    MetadataFailureInspectResult,
+    MetadataFailureRepairResult,
+)
 
 
 def emit_report(
-    report: ValidationReport | RepairReport | ConsistencyValidationReport | ConsistencyRepairResult,
+    report: ValidationReport
+    | RepairReport
+    | ConsistencyValidationReport
+    | ConsistencyRepairResult
+    | FileIntegrityInspectResult
+    | MetadataFailureInspectResult
+    | MetadataFailureRepairResult,
     output_format: str,
     verbose: bool = False,
 ) -> None:

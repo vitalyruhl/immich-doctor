@@ -198,6 +198,18 @@ NO FAKE STATE
 UI must use backend as source of truth.
 Unknown must be UNKNOWN, never OK.
 
+RUNTIME INTEGRITY ORDER
+========================================
+For runtime metadata diagnostics, the UI must present:
+
+- physical file integrity first
+- metadata failure diagnosis second
+- remediation planning third
+
+If file corruption, truncation, missing files, or permission errors are already
+proven, the UI must present them as the root cause and must not frame the issue
+as a generic processing failure.
+
 ========================================
 TERMINOLOGY CONSISTENCY
 ========================================

@@ -267,6 +267,79 @@ class PostgresAdapter:
         ).format(asset_file_table=sql.Identifier("public", "asset_file"))
         return fetch_all_composed(dsn, timeout_seconds, query, (file_type,))
 
+    def list_assets_for_runtime_integrity(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(
+            """
+            SELECT
+                id,
+                type,
+                "originalPath" AS "originalPath"
+            FROM {asset_table}
+            ORDER BY id ASC
+            LIMIT %s OFFSET %s;
+            """
+        ).format(asset_table=sql.Identifier("public", "asset"))
+        return fetch_all_composed(dsn, timeout_seconds, query, (limit, offset))
+
+    def list_asset_files_for_assets(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        asset_ids: tuple[str, ...],
+    ) -> list[dict[str, object]]:
+        if not asset_ids:
+            return []
+
+        query = sql.SQL(
+            """
+            SELECT
+                id,
+                "assetId" AS "assetId",
+                type,
+                path
+            FROM {asset_file_table}
+            WHERE "assetId" = ANY(%s)
+            ORDER BY "assetId" ASC, id ASC;
+            """
+        ).format(asset_file_table=sql.Identifier("public", "asset_file"))
+        return fetch_all_composed(dsn, timeout_seconds, query, (list(asset_ids),))
+
+    def list_metadata_failure_candidates(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(
+            """
+            SELECT
+                asset.id,
+                asset.type,
+                asset."originalPath" AS "originalPath",
+                status."metadataExtractedAt" AS "metadataExtractedAt"
+            FROM {asset_job_status_table} AS status
+            JOIN {asset_table} AS asset
+                ON asset.id = status."assetId"
+            WHERE status."metadataExtractedAt" IS NULL
+            ORDER BY asset.id ASC
+            LIMIT %s OFFSET %s;
+            """
+        ).format(
+            asset_job_status_table=sql.Identifier("public", "asset_job_status"),
+            asset_table=sql.Identifier("public", "asset"),
+        )
+        return fetch_all_composed(dsn, timeout_seconds, query, (limit, offset))
+
     def delete_album_asset_rows_by_keys(
         self,
         dsn: str,

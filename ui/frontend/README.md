@@ -56,6 +56,21 @@ Without mock mode, the dashboard now requests the real backend endpoint:
 GET /api/health/overview
 ```
 
+The Runtime page also consumes:
+
+```text
+GET /api/runtime/integrity/inspect
+GET /api/runtime/metadata-failures/inspect
+POST /api/runtime/metadata-failures/repair
+```
+
+Runtime safety rules in the UI:
+
+- physical file integrity is shown before metadata job diagnostics
+- metadata failures may be secondary symptoms
+- dry-run remains the default for repair planning
+- apply is only exposed for backend actions that are explicitly safe
+
 ## Container runtime
 
 The production Docker image now serves:
