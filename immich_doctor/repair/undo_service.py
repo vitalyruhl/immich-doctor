@@ -230,9 +230,7 @@ class RepairUndoService:
             metadata={
                 **plan.metadata,
                 "undo_repair_run_id": undo_run.repair_run_id,
-                "undo_repair_run_path": str(
-                    repair_run_directory(settings, undo_run.repair_run_id)
-                ),
+                "undo_repair_run_path": str(repair_run_directory(settings, undo_run.repair_run_id)),
             },
             recommendations=[
                 "Inspect the new undo repair run journal for exact restored mode values.",
@@ -449,8 +447,7 @@ class RepairUndoService:
         assessments: list[UndoEntryAssessment],
     ) -> str:
         return (
-            f"Undo planning classified {len(assessments)} journal entries as "
-            f"`{eligibility.value}`."
+            f"Undo planning classified {len(assessments)} journal entries as `{eligibility.value}`."
         )
 
     def _plan_recommendations(self, eligibility: UndoEligibility) -> list[str]:

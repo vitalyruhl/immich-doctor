@@ -61,8 +61,7 @@ def build_restore_instructions(
                 step_id="restore-db",
                 phase="restore",
                 description=(
-                    "Restore the PostgreSQL artifact if the selected snapshot "
-                    "includes one."
+                    "Restore the PostgreSQL artifact if the selected snapshot includes one."
                 ),
             ),
             RestoreInstruction(
@@ -105,8 +104,7 @@ def build_restore_instructions(
             step_id="restore-files",
             phase="restore",
             description=(
-                "Restore file artifacts from the selected snapshot to the live "
-                "storage path."
+                "Restore file artifacts from the selected snapshot to the live storage path."
             ),
         ),
         RestoreInstruction(

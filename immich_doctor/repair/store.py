@@ -63,9 +63,7 @@ class RepairJournalStore:
         return RepairRun.from_dict(self._read_json(repair_run_file(settings, repair_run_id)))
 
     def load_plan_token(self, settings: AppSettings, repair_run_id: str) -> PlanToken:
-        return PlanToken.from_dict(
-            self._read_json(repair_plan_token_file(settings, repair_run_id))
-        )
+        return PlanToken.from_dict(self._read_json(repair_plan_token_file(settings, repair_run_id)))
 
     def load_journal_entries(
         self,

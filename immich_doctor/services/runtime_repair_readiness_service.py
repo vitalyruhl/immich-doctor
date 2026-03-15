@@ -123,9 +123,7 @@ class RuntimeRepairReadinessService:
                     "quarantine_foundation",
                     settings.quarantine_path,
                 ).status,
-                message=(
-                    "Quarantine foundation path is available for future move workflows."
-                ),
+                message=("Quarantine foundation path is available for future move workflows."),
                 details={"blocking": False, "path": str(settings.quarantine_path)},
             )
         )
