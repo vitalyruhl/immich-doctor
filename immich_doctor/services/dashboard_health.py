@@ -232,8 +232,7 @@ class DashboardHealthService:
                 status=DashboardHealthStatus.UNKNOWN,
                 summary="No Immich path configuration is present.",
                 details=(
-                    "All configured-path checks remain unknown until Immich storage "
-                    "paths are set."
+                    "All configured-path checks remain unknown until Immich storage paths are set."
                 ),
                 updatedAt=timestamp,
                 blocking=False,
@@ -300,8 +299,7 @@ class DashboardHealthService:
             status=DashboardHealthStatus.OK,
             summary="Expected Immich path settings are configured and structurally valid.",
             details=(
-                "Library root and child path relationships passed the current "
-                "readiness checks."
+                "Library root and child path relationships passed the current readiness checks."
             ),
             updatedAt=timestamp,
             blocking=False,
