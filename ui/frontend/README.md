@@ -31,6 +31,12 @@ npm run dev
 npm run build
 ```
 
+### 5. Run frontend tests
+
+```bash
+npm run test
+```
+
 ## Environment
 
 Optional Vite environment values:
@@ -62,6 +68,11 @@ The Runtime page also consumes:
 GET /api/runtime/integrity/inspect
 GET /api/runtime/metadata-failures/inspect
 POST /api/runtime/metadata-failures/repair
+GET /api/runtime/metadata-failures/repair-readiness
+GET /api/repair/runs
+GET /api/repair/runs/{repair_run_id}
+GET /api/repair/quarantine/summary
+GET /api/backup/snapshots
 ```
 
 Runtime safety rules in the UI:
@@ -70,6 +81,8 @@ Runtime safety rules in the UI:
 - metadata failures may be secondary symptoms
 - dry-run remains the default for repair planning
 - apply is only exposed for backend actions that are explicitly safe
+- apply readiness, snapshot coverage, journal visibility, and restore limitations are shown explicitly
+- snapshots shown in the UI are currently files-only unless a later paired snapshot phase is added
 
 ## Container runtime
 

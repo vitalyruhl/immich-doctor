@@ -5,8 +5,10 @@ import json
 import typer
 
 from immich_doctor.backup.core.models import BackupResult
+from immich_doctor.backup.restore.models import RestoreSimulationResult
 from immich_doctor.consistency.models import ConsistencyRepairResult, ConsistencyValidationReport
 from immich_doctor.core.models import RepairReport, ValidationReport
+from immich_doctor.repair.undo_models import UndoExecutionResult, UndoPlanResult
 from immich_doctor.reports.backup_result import render_backup_result_json, render_backup_result_text
 from immich_doctor.reports.json_writer import render_json_report
 from immich_doctor.reports.text_writer import render_text_report
@@ -22,9 +24,12 @@ def emit_report(
     | RepairReport
     | ConsistencyValidationReport
     | ConsistencyRepairResult
+    | RestoreSimulationResult
     | FileIntegrityInspectResult
     | MetadataFailureInspectResult
-    | MetadataFailureRepairResult,
+    | MetadataFailureRepairResult
+    | UndoPlanResult
+    | UndoExecutionResult,
     output_format: str,
     verbose: bool = False,
 ) -> None:

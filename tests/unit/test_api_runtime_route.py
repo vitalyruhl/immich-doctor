@@ -187,3 +187,52 @@ def test_runtime_metadata_failures_repair_route_returns_expected_shape(monkeypat
     payload = response.json()
     assert payload["data"]["domain"] == "runtime.metadata_failures"
     assert payload["data"]["repair_actions"][0]["status"] == "planned"
+
+
+def test_runtime_metadata_failures_repair_readiness_route_returns_expected_shape(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_routes.RuntimeRepairReadinessService,
+        "run",
+        lambda self, settings: {
+            "generatedAt": "2026-03-15T10:00:00+00:00",
+            "action": "fix_permissions",
+            "applyAllowed": False,
+            "blockingReasons": ["Backup target path is not writable."],
+            "preconditions": [
+                {
+                    "id": "backup_target_path_writable",
+                    "label": "backup target path writable",
+                    "status": "error",
+                    "blocking": True,
+                    "summary": "Backup target path is not writable.",
+                    "details": {},
+                }
+            ],
+            "snapshotPlan": {
+                "kind": "pre_repair",
+                "coverage": "files_only",
+                "willCreate": True,
+                "note": "Integrated runtime apply creates a files-only pre-repair snapshot first.",
+            },
+            "undoVisibility": {
+                "journalUndoAvailable": True,
+                "automatedUndo": False,
+                "note": "Undo is visible through journal data, but not automated yet.",
+            },
+            "restoreImplemented": False,
+            "limitations": [
+                "Snapshots are currently files-only.",
+                "Full restore orchestration is not implemented yet.",
+            ],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/runtime/metadata-failures/repair-readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["applyAllowed"] is False
+    assert payload["data"]["snapshotPlan"]["coverage"] == "files_only"

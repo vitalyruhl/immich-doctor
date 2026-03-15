@@ -41,7 +41,12 @@
       <HealthStatusGrid :items="healthStore.items" />
     </template>
 
-    <ConfirmOperationDialog />
+    <ConfirmOperationDialog
+      :visible="false"
+      title="Operation confirmation"
+      summary="Confirmation dialogs are reserved for mutating workflows."
+      :items="[]"
+    />
   </section>
 </template>
 

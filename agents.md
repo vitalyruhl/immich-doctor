@@ -185,6 +185,16 @@ Repair steps must be:
 - loggable
 - dry-run capable
 
+Mutating repair foundation rules:
+- future mutating repair flows must execute inside a persisted `RepairRun`
+- future mutating repair flows must write persisted journal entries
+- inspect -> plan -> apply must be protected by a live-state guard or plan token
+- integrated mutating repair flows must create and reference a real `pre_repair` snapshot
+- file-destructive behavior must remain quarantine-first
+- targeted undo may only be claimed when the journal contains enough reversible data
+- currently supported real targeted undo is limited to journal-backed runtime permission repair
+- broader repair domains must report restore/undo blockers explicitly instead of pretending reversibility
+
 Runtime metadata repair rule:
 - never blindly retry metadata extraction when file integrity already proves missing, empty, truncated, corrupted, or permission-denied input
 - prefer reporting, quarantine planning, or permission repair over automation

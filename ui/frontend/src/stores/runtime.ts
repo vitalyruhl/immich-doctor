@@ -4,20 +4,26 @@ import { ApiClientError } from "@/api/client";
 import {
   fetchRuntimeIntegrityInspect,
   fetchRuntimeMetadataFailuresInspect,
+  fetchRuntimeRepairReadiness,
   repairRuntimeMetadataFailures,
 } from "@/api/runtime";
+import { fetchRepairRunDetail } from "@/api/repair";
 import type {
   MetadataFailureDiagnostic,
   RuntimeIntegrityInspectResponse,
   RuntimeMetadataFailuresInspectResponse,
   RuntimeMetadataFailuresRepairResponse,
+  RuntimeRepairReadinessResponse,
   SuggestedAction,
 } from "@/api/types/runtime";
+import type { RepairRunDetailResponse } from "@/api/types/repair";
 
 export const useRuntimeStore = defineStore("runtime", () => {
   const integrity = ref<RuntimeIntegrityInspectResponse | null>(null);
   const metadataFailures = ref<RuntimeMetadataFailuresInspectResponse | null>(null);
   const repairResult = ref<RuntimeMetadataFailuresRepairResponse | null>(null);
+  const readiness = ref<RuntimeRepairReadinessResponse | null>(null);
+  const repairRunDetail = ref<RepairRunDetailResponse | null>(null);
   const isLoading = ref(false);
   const isPlanning = ref(false);
   const error = ref<string | null>(null);
@@ -27,12 +33,14 @@ export const useRuntimeStore = defineStore("runtime", () => {
     isLoading.value = true;
     error.value = null;
     try {
-      const [integrityResponse, metadataResponse] = await Promise.all([
+      const [integrityResponse, metadataResponse, readinessResponse] = await Promise.all([
         fetchRuntimeIntegrityInspect(),
         fetchRuntimeMetadataFailuresInspect(),
+        fetchRuntimeRepairReadiness(),
       ]);
       integrity.value = integrityResponse.data;
       metadataFailures.value = metadataResponse.data;
+      readiness.value = readinessResponse.data;
     } catch (caughtError) {
       error.value =
         caughtError instanceof ApiClientError ? caughtError.payload.message : "Unknown error.";
@@ -47,6 +55,10 @@ export const useRuntimeStore = defineStore("runtime", () => {
     try {
       const response = await repairRuntimeMetadataFailures(diagnosticId, action, apply);
       repairResult.value = response.data;
+      const repairRunId = String(response.data.metadata.repair_run_id ?? "");
+      if (repairRunId) {
+        repairRunDetail.value = (await fetchRepairRunDetail(repairRunId)).data;
+      }
       if (apply) {
         await load();
       }
@@ -72,6 +84,8 @@ export const useRuntimeStore = defineStore("runtime", () => {
     metadataFailures,
     planError,
     planRepair,
+    readiness,
     repairResult,
+    repairRunDetail,
   };
 });

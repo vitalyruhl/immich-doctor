@@ -7,6 +7,7 @@ from immich_doctor.api.models import (
     RuntimeIntegrityApiResponse,
     RuntimeMetadataFailuresInspectApiResponse,
     RuntimeMetadataFailuresRepairApiResponse,
+    RuntimeRepairReadinessApiResponse,
 )
 from immich_doctor.core.config import load_settings
 from immich_doctor.runtime.integrity.service import RuntimeIntegrityInspectService
@@ -15,6 +16,9 @@ from immich_doctor.runtime.metadata_failures.repair_service import (
 )
 from immich_doctor.runtime.metadata_failures.service import (
     RuntimeMetadataFailuresInspectService,
+)
+from immich_doctor.services.runtime_repair_readiness_service import (
+    RuntimeRepairReadinessService,
 )
 
 runtime_router = APIRouter(prefix="/runtime", tags=["runtime"])
@@ -83,3 +87,12 @@ def repair_runtime_metadata_failures(
         mark_unrecoverable=payload.mark_unrecoverable,
     )
     return RuntimeMetadataFailuresRepairApiResponse(data=result)
+
+
+@runtime_router.get(
+    "/metadata-failures/repair-readiness",
+    response_model=RuntimeRepairReadinessApiResponse,
+)
+def runtime_metadata_failures_repair_readiness() -> RuntimeRepairReadinessApiResponse:
+    data = RuntimeRepairReadinessService().run(load_settings())
+    return RuntimeRepairReadinessApiResponse(data=data)

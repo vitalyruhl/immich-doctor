@@ -6,10 +6,14 @@ from immich_doctor.backup.core.models import (
     BackupJob,
     BackupManifest,
     BackupResult,
+    BackupSnapshot,
     BackupTarget,
     ResolvedBackupLocation,
+    SnapshotCoverage,
+    SnapshotKind,
 )
 from immich_doctor.backup.core.resolver import BackupLocationResolver
+from immich_doctor.backup.core.store import BackupSnapshotStore
 
 __all__ = [
     "BackupArtifact",
@@ -18,6 +22,10 @@ __all__ = [
     "BackupLocationResolver",
     "BackupManifest",
     "BackupResult",
+    "BackupSnapshot",
+    "BackupSnapshotStore",
     "ResolvedBackupLocation",
+    "SnapshotCoverage",
+    "SnapshotKind",
     "BackupTarget",
 ]

@@ -1,8 +1,19 @@
 # Backup Roadmap V1 — immich-doctor
 
 Status: DRAFT  
-Scope: Backup only (NO restore in V1)  
+Scope: Backup-first safety architecture with minimal restore simulation  
 Branch root: `feature/backup`
+
+Current repo note:
+- Repair Phase 1 already introduced persisted `RepairRun`, repair-journal, and
+  plan-token primitives.
+- Repair Phase 2 now also introduces persisted `BackupSnapshot` manifests and a
+  real `pre_repair` snapshot path for integrated mutating repair flows.
+- Backup V1 planning must therefore be read together with the repair safety
+  architecture, not as a standalone periodic-copy feature.
+- Targeted undo now exists for journal-backed runtime permission repairs.
+- Full restore is now modeled as deterministic simulation/instruction output,
+  but broad automated restore execution is still not implemented.
 
 ---
 
@@ -16,7 +27,8 @@ Backup must include:
 - Metadata & runtime context
 - Manifest describing backup state
 
-Backup V1 is not responsible for restore.
+Backup V1 is no longer restore-blind. It must at least provide the snapshot and
+manifest basis required for safe restore simulation and later rollback.
 
 ---
 
@@ -117,11 +129,11 @@ backup files
 Features:
 - rsync based
 - versioned output
-- manifest generation
+- snapshot manifest persistence
 
 Validation gate:
 - Reproducible backup
-- Manifest exists
+- Snapshot manifest exists
 - Output understandable
 
 ---
@@ -253,7 +265,7 @@ Validation gate:
 
 # Out of Scope (V1)
 
-- Restore
+- Broad automated restore execution against production
 - Encryption
 - Incremental DB backup
 - Advanced retention

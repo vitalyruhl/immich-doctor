@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -55,5 +55,59 @@ class RuntimeMetadataFailuresInspectApiResponse(BaseModel):
 
 class RuntimeMetadataFailuresRepairApiResponse(BaseModel):
     data: MetadataFailureRepairResult
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RuntimeRepairReadinessApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RepairRunsApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RepairRunDetailApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class QuarantineSummaryApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class BackupSnapshotsApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class BackupExecutionApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class UndoPlanApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class UndoExecutionApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class RestoreSimulationApiResponse(BaseModel):
+    data: dict[str, Any]
     source: Literal["backend"] = "backend"
     mocked: bool = False

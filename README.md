@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: validation + early backup foundation
+Project phase: validation + backup snapshot foundation + repair safety foundation + GUI safety visibility + minimal restore/undo orchestration
 
 Current MVP scope:
 
@@ -29,6 +29,14 @@ Current MVP scope:
 - runtime environment validation
 - physical source and derivative file integrity inspection
 - metadata extraction failure diagnostics with root-cause classification
+- persisted repair-run and repair-journal foundation for later reversible repair flows
+- drift-protected plan tokens for inspect -> plan -> apply binding
+- quarantine index foundation for later quarantine-first file handling
+- persisted backup snapshot manifests with explicit files-only vs paired coverage modeling
+- pre-repair snapshot creation for integrated mutating repair flows
+- GUI visibility for repair runs, journal entries, backup snapshots, and quarantine foundation
+- targeted undo for journal-backed runtime permission repairs
+- structured full-restore simulation with restore readiness and blockers
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
@@ -43,23 +51,23 @@ Current MVP scope:
 
 Not in scope yet:
 
-- no destructive repair actions
-- no file modifications
-- no quarantine moves
+- no destructive cleanup phase
+- no quarantine moves yet
 - no DB backup
 - no metadata backup
 - no remote backup targets
 - no retention
-- no restore
+- no broad full restore execution yet
 - no backup-all orchestration
 
 ## Safety warning
 
 This repository is not production-safe yet.
 
-Do not treat the current scaffold as a proven repair tool. The MVP only provides
-safe validation flows and report generation. Any future repair capability must be
-introduced carefully, documented, reviewed, and validated before real-world use.
+Do not treat the current scaffold as a proven one-click rollback tool. The current
+phase adds targeted undo for journal-backed runtime permission repairs and
+deterministic full-restore simulation, but it still does not provide broad
+automated restore execution across all repair domains.
 
 ## Development philosophy
 
@@ -68,6 +76,7 @@ introduced carefully, documented, reviewed, and validated before real-world use.
 - quarantine before delete
 - dry-run before apply
 - no automatic destructive repair in the MVP
+- integrated mutating repairs must prepare a real pre-repair snapshot before apply
 - future repair actions must be traceable through reports and journals
 
 ## Planned modules
@@ -101,10 +110,13 @@ immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup files
 immich-doctor backup verify
+immich-doctor backup restore simulate
 immich-doctor consistency validate
 immich-doctor consistency repair
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor repair undo plan
+immich-doctor repair undo apply
 immich-doctor remote sync validate
 immich-doctor remote sync repair
 ```
@@ -155,12 +167,15 @@ uv run python -m immich_doctor storage paths check
 uv run python -m immich_doctor storage permissions check
 uv run python -m immich_doctor backup files
 uv run python -m immich_doctor backup verify
+uv run python -m immich_doctor backup restore simulate --repair-run-id <repair-run-id>
 uv run python -m immich_doctor consistency validate
 uv run python -m immich_doctor consistency repair --category db.orphan.album_asset.missing_asset
 uv run python -m immich_doctor consistency repair --all-safe --apply
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
 uv run python -m immich_doctor db performance indexes check --verbose
+uv run python -m immich_doctor repair undo plan --repair-run-id <repair-run-id>
+uv run python -m immich_doctor repair undo apply --repair-run-id <repair-run-id>
 uv run python -m immich_doctor remote sync validate
 uv run python -m immich_doctor remote sync repair
 uv run python -m immich_doctor remote sync repair --apply
@@ -199,13 +214,14 @@ Implemented now:
 - metadata extraction diagnostics that classify per-asset root cause after file
   integrity inspection
 - DB index inspection with compact default output and verbose details
-- `backup files` as a thin local file backup flow on top of the backup foundation
+- `backup files` as a thin local file backup flow on top of the backup foundation,
+  now with persisted snapshot metadata
 
 Planned next:
 
-- backup manifests
 - DB backup inclusion
 - metadata capture
+- paired DB + file snapshots
 - backup-all orchestration
 
 `consistency validate` is the canonical server-side consistency overview. It
@@ -258,6 +274,20 @@ The same runtime container now also serves the built Vue frontend over HTTP. The
 FastAPI app returns `index.html` on `/`, serves hashed static assets under
 `/assets`, and falls back to `index.html` for SPA routes such as `/dashboard`.
 
+The GUI now exposes real safety context before broader repair rollout:
+
+- runtime apply readiness and blocking preconditions
+- pre-repair snapshot visibility for integrated runtime apply
+- persisted `RepairRun` and journal visibility
+- backup snapshot visibility with explicit files-only coverage labeling
+- real backup execution actions for:
+  - `Perform Backup`
+  - `Create Pre-Repair Snapshot`
+- quarantine foundation visibility without pretending move/restore is already implemented
+
+Undo visibility now exists in the GUI through persisted journal data. Automated
+undo and restore orchestration are still not implemented.
+
 `runtime integrity inspect` is the first physical-file inspection workflow for
 the currently supported Immich PostgreSQL runtime schema. It inspects source
 files first, optionally includes derivative `asset_file` rows, and classifies
@@ -274,6 +304,41 @@ actions from classified findings and only applies currently safe primitives. In
 this step, `fix_permissions` is the only apply-capable action; retry, requeue,
 quarantine, and mark-unrecoverable stay report/plan oriented until dedicated
 safe execution primitives exist.
+
+Applied runtime metadata permission repair now persists a `RepairRun`,
+`plan-token.json`, and `journal.jsonl` under `data/manifests/repair/`. The
+journal records old/new mode values for later undo design. Before apply, the
+integrated runtime repair flow now also creates a real files-only `pre_repair`
+snapshot and stores its `snapshot_id` on the `RepairRun`.
+
+`repair undo plan` and `repair undo apply` now use that persisted journal data
+for the first real targeted undo path. In this phase, only runtime permission
+repairs with recorded old/new mode values are actually undo-capable. DB-delete
+repairs are still not undoable through the tool.
+
+`backup files` now persists one snapshot manifest under
+`data/manifests/backup/snapshots/<snapshot_id>.json` for every successful run.
+Snapshot metadata includes kind, coverage, source fingerprint, file artifacts,
+nullable DB artifact, verification flag, and optional `repair_run_id`.
+
+`backup verify` still checks backup target readiness and now also validates
+persisted snapshot manifest structure and coverage consistency. It does not yet
+claim full artifact-content verification or restore readiness.
+
+`backup restore simulate` now provides deterministic restore-readiness output,
+snapshot selection, blockers, and environment-aware manual steps. It does not
+execute destructive full restore operations in this phase.
+
+The API/UI surface for current repair and backup safety visibility now also includes:
+
+- `GET /api/runtime/metadata-failures/repair-readiness`
+- `GET /api/repair/runs`
+- `GET /api/repair/runs/{repair_run_id}`
+- `GET /api/repair/runs/{repair_run_id}/undo-plan`
+- `POST /api/repair/runs/{repair_run_id}/undo`
+- `GET /api/repair/quarantine/summary`
+- `GET /api/backup/snapshots`
+- `GET /api/restore/simulate`
 
 ## Docker
 

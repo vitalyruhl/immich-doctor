@@ -27,6 +27,7 @@ Top-level domains:
 - `runtime`
 - `consistency`
 - `db`
+- `repair`
 - `remote`
 - `storage`
 - `backup`
@@ -45,10 +46,13 @@ immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup files
 immich-doctor backup verify
+immich-doctor backup restore simulate
 immich-doctor consistency validate
 immich-doctor consistency repair
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor repair undo plan
+immich-doctor repair undo apply
 immich-doctor remote sync validate
 immich-doctor remote sync repair
 ```
@@ -68,6 +72,8 @@ Placement rules:
 - storage.permissions: readability, writability, and mount safety
 - backup.files: versioned local file backup execution through the backup application layer
 - backup.verify: backup target readiness and required tool presence
+- backup.restore: deterministic full-restore simulation and readiness analysis
+- repair.undo: targeted undo planning and execution for currently supported journal-backed actions
 - remote.sync: older separate remote-scope diagnostics and repair flow; not the
   canonical consistency command family
 
@@ -116,6 +122,25 @@ verification, database health checks, database index inspection, the
 consistency framework, remote-sync FK validation, and dashboard health
 aggregation for the API/UI layer.
 
+### `immich_doctor.repair`
+
+Contains the repair safety foundation shared by future mutating workflows.
+
+Current responsibilities:
+
+- `RepairRun` as the persisted boundary for one repair execution
+- `RepairJournalEntry` as the persisted operation record
+- `PlanToken` and apply-guard helpers for live-state drift protection
+- targeted undo planning and execution for journal-backed runtime permission repairs
+- repair manifest storage under `data/manifests/repair/`
+- quarantine index persistence under `data/quarantine/`
+
+Current constraints:
+
+- no broad automated full restore execution yet
+- no quarantine move/restore orchestration yet
+- DB-delete and other existing mutating repair flows still require phased migration onto this shared foundation
+
 ### `immich_doctor.adapters`
 
 Contains infrastructure-facing code such as:
@@ -143,17 +168,19 @@ Current internal backup packages:
 - `immich_doctor.backup.orchestration`
 - `immich_doctor.backup.scheduler`
 - `immich_doctor.backup.remote`
+- `immich_doctor.backup.restore`
 
 Responsibilities:
 
 - `backup.core`: shared backup data contracts such as context, jobs, targets,
-  artifacts, manifests, results, and location resolution
+  artifacts, snapshot manifests, results, stores, and location resolution
 - `backup.db`: future PostgreSQL backup coordination
 - `backup.files`: future filesystem artifact collection
 - `backup.metadata`: future metadata and manifest enrichment
 - `backup.orchestration`: future sequential backup planning, locking, and reporting
 - `backup.scheduler`: future scheduler integration boundary
 - `backup.remote`: future remote transport integration boundary
+- `backup.restore`: restore simulation, snapshot selection, and environment-aware instruction rendering
 
 This step is intentionally structural only:
 
@@ -215,13 +242,16 @@ Implemented now:
 - versioned destination generation from one authoritative backup context timestamp
 - target resolution through `BackupLocationResolver`
 - structured `BackupResult` and traceable `BackupArtifact` metadata
+- persisted `BackupSnapshot` manifests under `data/manifests/backup/snapshots/`
+- explicit snapshot kinds: `manual`, `pre_repair`, `post_repair`, `periodic`
+- explicit snapshot coverage: `files_only`, `db_only`, `paired`
 
 Planned next:
 
-- manifest persistence
 - DB backup integration
 - metadata backup integration
 - higher-level backup orchestration across multiple artifacts
+- restore orchestration
 
 ### `immich_doctor.reports`
 
@@ -239,6 +269,15 @@ Current API surface:
 - `GET /api/runtime/integrity/inspect`
 - `GET /api/runtime/metadata-failures/inspect`
 - `POST /api/runtime/metadata-failures/repair`
+- `GET /api/runtime/metadata-failures/repair-readiness`
+- `GET /api/repair/runs`
+- `GET /api/repair/runs/{repair_run_id}`
+- `GET /api/repair/runs/{repair_run_id}/undo-plan`
+- `POST /api/repair/runs/{repair_run_id}/undo`
+- `GET /api/repair/quarantine/summary`
+- `GET /api/backup/snapshots`
+- `POST /api/backup/files`
+- `GET /api/restore/simulate`
 - `GET /api/settings`
 - `GET /api/settings/schema`
 - `PUT /api/settings`
@@ -254,6 +293,12 @@ Current API constraints:
   instead of presenting them as unexplained job failures
 - metadata repair remains dry-run by default and may only apply actions with
   explicit safe execution primitives
+- repair and backup safety visibility endpoints must expose real persisted
+  state only; they must not imply that automated undo, quarantine execution,
+  or restore orchestration already exists
+- targeted undo may only execute for journal-backed actions with explicit safe
+  undo payloads; unsupported repair domains must surface blockers instead of
+  claiming reversibility
 - settings routes use `/api/settings` as the canonical global contract; nested
   domain-specific settings prefixes are not allowed
 - `PUT /api/settings` is reserved but remains non-persistent until a safe
@@ -269,6 +314,19 @@ The intended long-term flow is:
 4. Web UI calls the API and renders reports, status, and workflow controls
 
 This keeps the Web UI as an orchestration layer instead of a second source of truth.
+
+Current safety visibility in the UI includes:
+
+- runtime apply readiness and blocking preconditions
+- persisted repair run history and journal entries
+- persisted backup snapshot manifests
+- real files-backup execution and standalone `pre_repair` snapshot creation
+- quarantine foundation state
+
+Current exclusions remain explicit:
+
+- no broad restore automation
+- no quarantine move/restore workflow
 
 ## UI-to-backend contract rule
 
@@ -296,6 +354,9 @@ The repository already reserves runtime-oriented paths under `data/`:
 
 - `data/reports/`
 - `data/manifests/`
+- `data/manifests/backup/`
+- `data/manifests/backup/snapshots/`
+- `data/manifests/repair/`
 - `data/quarantine/`
 - `data/logs/`
 - `data/tmp/`
@@ -310,6 +371,9 @@ and so destructive behavior is not hidden inside temporary scripting.
 - quarantine before delete
 - dry-run before apply
 - no automatic destructive repair in the MVP
+- mutating repairs must persist a `RepairRun` and journal entries before broader rollout
+- inspect -> plan -> apply must remain bound to one live-state token before mutation
+- integrated mutating repair flows must create a real `pre_repair` snapshot reference before apply
 - physical file integrity must be checked before metadata extraction failures are
   classified
 - unknown runtime states remain unsafe until explicitly resolved

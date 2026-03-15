@@ -4,6 +4,7 @@ import type {
   RuntimeIntegrityInspectResponse,
   RuntimeMetadataFailuresInspectResponse,
   RuntimeMetadataFailuresRepairResponse,
+  RuntimeRepairReadinessResponse,
   SuggestedAction,
 } from "./types/runtime";
 
@@ -40,4 +41,10 @@ export async function repairRuntimeMetadataFailures(
       mark_unrecoverable: action === "mark_unrecoverable",
     }),
   });
+}
+
+export async function fetchRuntimeRepairReadiness(): Promise<
+  ApiResponse<RuntimeRepairReadinessResponse>
+> {
+  return request<RuntimeRepairReadinessResponse>("/runtime/metadata-failures/repair-readiness");
 }

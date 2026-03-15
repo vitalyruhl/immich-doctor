@@ -8,7 +8,9 @@ from immich_doctor.backup.core.models import (
     BackupResult,
     BackupTarget,
     ResolvedBackupLocation,
+    SnapshotKind,
 )
+from immich_doctor.backup.core.store import BackupSnapshotStore
 from immich_doctor.backup.files.executor import FileBackupExecutionError
 from immich_doctor.backup.orchestration.files_service import BackupFilesService
 from immich_doctor.core.config import AppSettings
@@ -54,6 +56,7 @@ def test_backup_files_service_uses_context_started_at_for_versioning(tmp_path: P
     result = service.run(settings)
 
     assert result.status == "success"
+    assert result.snapshot is not None
     assert captured["started_at"] == started_at
     assert captured["target_reference"] == str(target_path)
     assert captured["backup_root_path"] == target_path / "20260314T213000Z"
@@ -107,6 +110,8 @@ def test_backup_files_service_uses_traceable_artifact_metadata(tmp_path: Path) -
 
     assert result.artifacts[0].relative_path == Path("files/immich-library")
     assert result.artifacts[0].target.reference == str(target_path / "20260314T213000Z")
+    assert result.snapshot is not None
+    assert result.snapshot.coverage.value == "files_only"
 
 
 def test_backup_files_service_returns_structured_failure_details(tmp_path: Path) -> None:
@@ -156,3 +161,66 @@ def test_backup_files_service_fails_when_required_paths_are_missing() -> None:
     assert result.status == "fail"
     assert result.summary == "File backup configuration is invalid."
     assert len(result.details["issues"]) == 2
+
+
+def test_backup_files_service_persists_snapshot_manifest(tmp_path: Path) -> None:
+    source_path = tmp_path / "library"
+    target_path = tmp_path / "backup"
+    manifests_path = tmp_path / "manifests"
+    source_path.mkdir()
+    target_path.mkdir()
+
+    class Resolver:
+        def resolve(self, context):
+            return ResolvedBackupLocation(target=context.target, root_path=target_path)
+
+    class Executor:
+        def execute(self, plan):
+            artifact_target = BackupTarget(
+                kind="local",
+                reference=str(plan.backup_root_path),
+                display_name=plan.backup_root_path.name,
+            )
+            return BackupResult(
+                domain="backup.files",
+                action="run",
+                status="success",
+                summary="ok",
+                context=plan.request.context,
+                artifacts=(
+                    BackupArtifact(
+                        name=plan.request.source_label,
+                        kind="file_archive",
+                        target=artifact_target,
+                        relative_path=plan.artifact_relative_path,
+                    ),
+                ),
+            )
+
+    service = BackupFilesService(
+        location_resolver=Resolver(),
+        executor=Executor(),
+        clock=lambda: datetime(2026, 3, 14, 21, 30, tzinfo=UTC),
+    )
+    settings = AppSettings(
+        _env_file=None,
+        immich_library_root=source_path,
+        backup_target_path=target_path,
+        manifests_path=manifests_path,
+    )
+
+    result = service.run(
+        settings,
+        snapshot_kind=SnapshotKind.PRE_REPAIR,
+        repair_run_id="repair-1",
+        source_fingerprint="live-state-1",
+    )
+
+    assert result.snapshot is not None
+    assert result.snapshot.kind == SnapshotKind.PRE_REPAIR
+    assert result.snapshot.repair_run_id == "repair-1"
+    assert result.snapshot.manifest_path.exists()
+
+    persisted = BackupSnapshotStore().load_snapshot(settings, result.snapshot.snapshot_id)
+    assert persisted.source_fingerprint == "live-state-1"
+    assert persisted.coverage.value == "files_only"
