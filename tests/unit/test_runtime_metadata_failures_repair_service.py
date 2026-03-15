@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus
+from immich_doctor.repair.models import RepairJournalEntryStatus, RepairRunStatus
+from immich_doctor.repair.store import RepairJournalStore
 from immich_doctor.runtime.integrity.models import (
     FileIntegrityFinding,
     FileIntegrityStatus,
@@ -62,6 +66,7 @@ def _diagnostic(
 class _FakeInspectService:
     result: MetadataFailureInspectResult
     call_count: int = 0
+    drift_result: MetadataFailureInspectResult | None = None
 
     def run(
         self,
@@ -71,15 +76,24 @@ class _FakeInspectService:
         offset: int = 0,
     ) -> MetadataFailureInspectResult:
         self.call_count += 1
+        if self.drift_result is not None and self.call_count == 2:
+            return self.drift_result
         return self.result
 
 
 @dataclass(slots=True)
 class _FakeFilesystem:
     repaired_paths: list[str]
+    modes: dict[str, int]
+
+    def stat_path(self, path) -> SimpleNamespace:  # type: ignore[no-untyped-def]
+        normalized = str(path).replace("\\", "/")
+        return SimpleNamespace(st_mode=self.modes[normalized])
 
     def add_read_permissions(self, path) -> None:  # type: ignore[no-untyped-def]
-        self.repaired_paths.append(str(path).replace("\\", "/"))
+        normalized = str(path).replace("\\", "/")
+        self.repaired_paths.append(normalized)
+        self.modes[normalized] = self.modes[normalized] | 0o440
 
 
 def _inspect_result(
@@ -102,7 +116,7 @@ def _inspect_result(
     )
 
 
-def test_metadata_failures_repair_dry_run_filters_by_diagnostic_id() -> None:
+def test_metadata_failures_repair_dry_run_filters_by_diagnostic_id(tmp_path: Path) -> None:
     diagnostics = [
         _diagnostic(
             "asset-a",
@@ -120,14 +134,18 @@ def test_metadata_failures_repair_dry_run_filters_by_diagnostic_id() -> None:
         ),
     ]
     inspect_service = _FakeInspectService(result=_inspect_result(diagnostics))
-    filesystem = _FakeFilesystem(repaired_paths=[])
+    filesystem = _FakeFilesystem(repaired_paths=[], modes={"/library/a.jpg": 0o200})
     service = RuntimeMetadataFailuresRepairService(
         inspect_service=inspect_service,
         filesystem=filesystem,
     )
+    settings = AppSettings(
+        manifests_path=tmp_path / "manifests",
+        quarantine_path=tmp_path / "quarantine",
+    )
 
     result = service.run(
-        AppSettings(),
+        settings,
         apply=False,
         limit=100,
         offset=0,
@@ -144,27 +162,37 @@ def test_metadata_failures_repair_dry_run_filters_by_diagnostic_id() -> None:
     assert len(result.repair_actions) == 1
     assert result.repair_actions[0].status == MetadataRepairStatus.PLANNED
     assert result.repair_actions[0].diagnostic_id == "metadata_failure:asset-a"
+    store = RepairJournalStore()
+    loaded_run = store.load_run(settings, result.metadata["repair_run_id"])
+    loaded_entries = store.load_journal_entries(settings, result.metadata["repair_run_id"])
+    assert loaded_run.status == RepairRunStatus.COMPLETED
+    assert loaded_entries[0].status == RepairJournalEntryStatus.PLANNED
 
 
-def test_metadata_failures_repair_apply_fixes_permissions_and_revalidates() -> None:
+def test_metadata_failures_repair_apply_fixes_permissions_and_revalidates(tmp_path: Path) -> None:
+    source_path = str((tmp_path / "runtime-repair-a.jpg").resolve()).replace("\\", "/")
     diagnostics = [
         _diagnostic(
             "asset-a",
             root_cause=MetadataFailureCause.CAUSED_BY_PERMISSION_ERROR,
             suggested_action=SuggestedAction.FIX_PERMISSIONS,
             available_actions=(SuggestedAction.FIX_PERMISSIONS, SuggestedAction.REPORT_ONLY),
-            source_path="/library/a.jpg",
+            source_path=source_path,
         )
     ]
     inspect_service = _FakeInspectService(result=_inspect_result(diagnostics))
-    filesystem = _FakeFilesystem(repaired_paths=[])
+    filesystem = _FakeFilesystem(repaired_paths=[], modes={source_path: 0o200})
     service = RuntimeMetadataFailuresRepairService(
         inspect_service=inspect_service,
         filesystem=filesystem,
     )
+    settings = AppSettings(
+        manifests_path=tmp_path / "manifests",
+        quarantine_path=tmp_path / "quarantine",
+    )
 
     result = service.run(
-        AppSettings(),
+        settings,
         apply=True,
         limit=100,
         offset=0,
@@ -176,7 +204,60 @@ def test_metadata_failures_repair_apply_fixes_permissions_and_revalidates() -> N
         mark_unrecoverable=False,
     )
 
-    assert filesystem.repaired_paths == ["/library/a.jpg"]
-    assert inspect_service.call_count == 2
+    assert filesystem.repaired_paths == [source_path]
+    assert inspect_service.call_count == 3
     assert result.repair_actions[0].status == MetadataRepairStatus.REPAIRED
     assert result.post_validation is not None
+    store = RepairJournalStore()
+    loaded_run = store.load_run(settings, result.metadata["repair_run_id"])
+    loaded_entries = store.load_journal_entries(settings, result.metadata["repair_run_id"])
+    assert loaded_run.status == RepairRunStatus.COMPLETED
+    assert loaded_entries[0].status == RepairJournalEntryStatus.APPLIED
+    assert loaded_entries[0].undo_payload["old_mode"] == 0o200
+    assert loaded_entries[0].undo_payload["new_mode"] == 0o640
+
+
+def test_metadata_failures_repair_apply_stops_on_drift(tmp_path: Path) -> None:
+    source_path = str((tmp_path / "library" / "a.jpg").resolve()).replace("\\", "/")
+    diagnostics = [
+        _diagnostic(
+            "asset-a",
+            root_cause=MetadataFailureCause.CAUSED_BY_PERMISSION_ERROR,
+            suggested_action=SuggestedAction.FIX_PERMISSIONS,
+            available_actions=(SuggestedAction.FIX_PERMISSIONS, SuggestedAction.REPORT_ONLY),
+            source_path=source_path,
+        )
+    ]
+    inspect_service = _FakeInspectService(
+        result=_inspect_result(diagnostics),
+        drift_result=_inspect_result([]),
+    )
+    filesystem = _FakeFilesystem(repaired_paths=[], modes={source_path: 0o200})
+    service = RuntimeMetadataFailuresRepairService(
+        inspect_service=inspect_service,
+        filesystem=filesystem,
+    )
+    settings = AppSettings(
+        manifests_path=tmp_path / "manifests",
+        quarantine_path=tmp_path / "quarantine",
+    )
+
+    result = service.run(
+        settings,
+        apply=True,
+        limit=100,
+        offset=0,
+        diagnostic_ids=("metadata_failure:asset-a",),
+        retry_jobs=False,
+        requeue=False,
+        fix_permissions=True,
+        quarantine_corrupt=False,
+        mark_unrecoverable=False,
+    )
+
+    assert filesystem.repaired_paths == []
+    assert result.repair_actions == []
+    assert result.overall_status == CheckStatus.FAIL
+    store = RepairJournalStore()
+    loaded_run = store.load_run(settings, result.metadata["repair_run_id"])
+    assert loaded_run.status == RepairRunStatus.FAILED

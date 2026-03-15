@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: validation + early backup foundation
+Project phase: validation + early backup foundation + repair safety foundation
 
 Current MVP scope:
 
@@ -29,6 +29,9 @@ Current MVP scope:
 - runtime environment validation
 - physical source and derivative file integrity inspection
 - metadata extraction failure diagnostics with root-cause classification
+- persisted repair-run and repair-journal foundation for later reversible repair flows
+- drift-protected plan tokens for inspect -> plan -> apply binding
+- quarantine index foundation for later quarantine-first file handling
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
@@ -43,23 +46,23 @@ Current MVP scope:
 
 Not in scope yet:
 
-- no destructive repair actions
-- no file modifications
-- no quarantine moves
+- no destructive cleanup phase
+- no quarantine moves yet
 - no DB backup
 - no metadata backup
 - no remote backup targets
 - no retention
-- no restore
+- no restore orchestration yet
 - no backup-all orchestration
 
 ## Safety warning
 
 This repository is not production-safe yet.
 
-Do not treat the current scaffold as a proven repair tool. The MVP only provides
-safe validation flows and report generation. Any future repair capability must be
-introduced carefully, documented, reviewed, and validated before real-world use.
+Do not treat the current scaffold as a proven full rollback tool. The current
+phase adds mandatory repair safety primitives such as persisted repair runs,
+journals, plan tokens, and quarantine indexing, but it does not yet provide
+full restore orchestration.
 
 ## Development philosophy
 
@@ -274,6 +277,11 @@ actions from classified findings and only applies currently safe primitives. In
 this step, `fix_permissions` is the only apply-capable action; retry, requeue,
 quarantine, and mark-unrecoverable stay report/plan oriented until dedicated
 safe execution primitives exist.
+
+Applied runtime metadata permission repair now persists a `RepairRun`,
+`plan-token.json`, and `journal.jsonl` under `data/manifests/repair/`. The
+journal records old/new mode values for later undo design, but full restore and
+quarantine move orchestration still remain later phases.
 
 ## Docker
 

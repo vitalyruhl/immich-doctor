@@ -4,6 +4,14 @@ Status: DRAFT
 Scope: Backup only (NO restore in V1)  
 Branch root: `feature/backup`
 
+Current repo note:
+- Repair Phase 1 already introduced persisted `RepairRun`, repair-journal, and
+  plan-token primitives.
+- Backup V1 planning must therefore be read together with the repair safety
+  architecture, not as a standalone periodic-copy feature.
+- Restore orchestration is still not implemented, but later roadmap phases must
+  resolve that gap before broad mutating repair rollout.
+
 ---
 
 # Vision

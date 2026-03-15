@@ -116,6 +116,24 @@ verification, database health checks, database index inspection, the
 consistency framework, remote-sync FK validation, and dashboard health
 aggregation for the API/UI layer.
 
+### `immich_doctor.repair`
+
+Contains the repair safety foundation shared by future mutating workflows.
+
+Current responsibilities:
+
+- `RepairRun` as the persisted boundary for one repair execution
+- `RepairJournalEntry` as the persisted operation record
+- `PlanToken` and apply-guard helpers for live-state drift protection
+- repair manifest storage under `data/manifests/repair/`
+- quarantine index persistence under `data/quarantine/`
+
+Current constraints:
+
+- no full restore orchestration yet
+- no quarantine move/restore orchestration yet
+- existing mutating repair flows still require phased migration onto this shared foundation
+
 ### `immich_doctor.adapters`
 
 Contains infrastructure-facing code such as:
@@ -296,6 +314,7 @@ The repository already reserves runtime-oriented paths under `data/`:
 
 - `data/reports/`
 - `data/manifests/`
+- `data/manifests/repair/`
 - `data/quarantine/`
 - `data/logs/`
 - `data/tmp/`
@@ -310,6 +329,8 @@ and so destructive behavior is not hidden inside temporary scripting.
 - quarantine before delete
 - dry-run before apply
 - no automatic destructive repair in the MVP
+- mutating repairs must persist a `RepairRun` and journal entries before broader rollout
+- inspect -> plan -> apply must remain bound to one live-state token before mutation
 - physical file integrity must be checked before metadata extraction failures are
   classified
 - unknown runtime states remain unsafe until explicitly resolved
