@@ -88,6 +88,42 @@ Branch model:
 Branch freshness:
 - Always branch from the latest relevant base
 - Do not start work from an outdated base branch
+- Before starting any implementation, verify that the current branch matches the task scope
+- If the current branch does not match the task scope, stop and state:
+  - which branch is active
+  - why it does not fit the task
+  - which branch should be used instead
+- Before starting work, verify the relevant base branch is current against local and remote state
+- If the relevant base is outdated, stop and state exactly what is behind:
+  - current branch vs expected base
+  - local branch vs remote branch
+  - missing merges or PR state if visible
+- Never start a new task on top of unrelated feature work without explicitly calling out the dependency
+- When a task depends on another open feature branch, provide a short decision aid before changing code:
+  - merge the other feature first
+  - branch intentionally from that feature
+  - split the work to avoid the dependency
+- Never do implementation work directly on main
+- Before commit, push, or PR, verify:
+  - current branch name
+  - clean or intentionally changed working tree
+  - correct target/base branch
+  - no unrelated local changes are being dragged along
+- After finishing work on a short-lived branch, return the topic to its canonical branch state:
+  - all related chore/fix branches merged back cleanly
+  - temporary integration branches deleted
+  - no stale work branch left behind
+- When switching from one feature to another, verify:
+  - whether the destination branch is current
+  - whether other feature work needed by the task is already in main
+  - whether changes should be merged, rebased, or kept isolated
+  - then state the recommended path with brief tradeoff guidance
+- Before claiming that work is already in main, verify:
+  - local branches
+  - remote branches
+  - merged vs non-merged branch state
+  - open PRs
+  - squash/rebase merge cases where ancestry alone may be misleading
 
 ========================================
 5. ARCHITECTURE RULES (CRITICAL)

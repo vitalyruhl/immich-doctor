@@ -8,9 +8,20 @@ dist/
 node_modules/
 ui/frontend/dist/
 ui/frontend/node_modules/
+ui/frontend/.vite/
+ui/frontend/coverage/
+ui/frontend/*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 *.egg-info/
 .coverage
 .env
+.env.local
+.env.*.local
+ui/frontend/.env.local
+ui/frontend/.env.*.local
 config/*
 !config/.gitkeep
 
