@@ -257,3 +257,5 @@ Forbidden:
 FINAL RULE
 ========================================
 Never mark an issue as solved until user confirms.
+
+UI rules are defined in ui/agents.ui.md and are mandatory.
