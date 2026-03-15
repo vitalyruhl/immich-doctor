@@ -35,3 +35,9 @@ docker exec -it immich-doctor python -m immich_doctor backup verify
 docker exec -it immich-doctor python -m immich_doctor db health check
 docker exec -it immich-doctor python -m immich_doctor db performance indexes check
 ```
+
+## Remote Sync
+
+```bash
+docker exec -it immich-doctor python -m immich_doctor remote sync validate
+```

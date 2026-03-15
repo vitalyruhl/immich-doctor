@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from psycopg import sql
+
 from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.db.connection import (
     can_connect,
@@ -7,9 +9,11 @@ from immich_doctor.db.connection import (
     can_reach_tcp,
     can_resolve_host,
     fetch_all,
+    fetch_all_composed,
 )
 from immich_doctor.db.queries import (
     LIST_ALL_INDEXES_QUERY,
+    LIST_BASE_TABLES_QUERY,
     LIST_INDEX_SIZES_QUERY,
     LIST_INDEX_USAGE_STATS_QUERY,
     LIST_INVALID_INDEXES_QUERY,
@@ -66,3 +70,54 @@ class PostgresAdapter:
 
     def list_missing_fk_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_MISSING_FK_INDEXES_QUERY)
+
+    def list_tables(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
+        return fetch_all(dsn, timeout_seconds, LIST_BASE_TABLES_QUERY)
+
+    def find_missing_foreign_key_rows(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        link_schema: str,
+        link_table: str,
+        reference_schema: str,
+        reference_table: str,
+        link_column: str,
+        sample_limit: int,
+    ) -> dict[str, object]:
+        query = sql.SQL(
+            """
+            WITH missing AS (
+                SELECT
+                    link.asset_id,
+                    link.album_id
+                FROM {link_table} AS link
+                LEFT JOIN {reference_table} AS ref
+                    ON ref.id = link.{link_column}
+                WHERE ref.id IS NULL
+            )
+            SELECT
+                asset_id,
+                album_id,
+                COUNT(*) OVER() AS broken_reference_count
+            FROM missing
+            ORDER BY album_id ASC, asset_id ASC
+            LIMIT %s;
+            """
+        ).format(
+            link_table=sql.Identifier(link_schema, link_table),
+            reference_table=sql.Identifier(reference_schema, reference_table),
+            link_column=sql.Identifier(link_column),
+        )
+
+        rows = fetch_all_composed(dsn, timeout_seconds, query, (sample_limit,))
+        if not rows:
+            return {"count": 0, "samples": []}
+
+        count = int(rows[0]["broken_reference_count"])
+        samples = [
+            {key: value for key, value in row.items() if key != "broken_reference_count"}
+            for row in rows
+        ]
+        return {"count": count, "samples": samples}

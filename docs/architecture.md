@@ -26,6 +26,7 @@ Top-level domains:
 
 - `runtime`
 - `db`
+- `remote`
 - `storage`
 - `backup`
 - `diagnostics`
@@ -41,6 +42,7 @@ immich-doctor storage permissions check
 immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor remote sync validate
 ```
 
 Placement rules:
@@ -51,6 +53,7 @@ Placement rules:
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
 - backup.verify: backup target readiness and required tool presence
+- remote.sync: read-only validation of remote-sync foreign key consistency for remote album asset links
 
 Forbidden patterns:
 
@@ -92,7 +95,7 @@ Contains the application use cases. Services orchestrate adapters and build
 structured reports for CLI or future API responses.
 
 Current examples include runtime validation, storage checks, backup verification,
-database health checks, and database index inspection.
+database health checks, database index inspection, and remote-sync FK validation.
 
 ### `immich_doctor.adapters`
 

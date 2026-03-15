@@ -3,6 +3,7 @@ import json
 from typer.testing import CliRunner
 
 from immich_doctor.cli import db as db_cli
+from immich_doctor.cli import remote as remote_cli
 from immich_doctor.cli.main import app
 from immich_doctor.core.models import CheckResult, CheckStatus, ValidationReport, ValidationSection
 
@@ -321,3 +322,51 @@ def test_db_health_check_json_output(monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert payload["domain"] == "db.health"
     assert payload["action"] == "check"
+
+
+def test_remote_sync_validate_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings):
+        return ValidationReport(
+            domain="remote.sync",
+            action="validate",
+            summary="Remote sync validation completed with no foreign key inconsistencies.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                ),
+                CheckResult(
+                    name="remote_album_asset_missing_assets",
+                    status=CheckStatus.PASS,
+                    message="No missing asset references found.",
+                    details={
+                        "severity": "info",
+                        "count": 0,
+                        "samples": [],
+                        "impacted_tables": [
+                            "public.remote_album_asset_entity",
+                            "public.asset_entity",
+                        ],
+                    },
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(remote_cli.RemoteSyncValidationService, "run", fake_run)
+
+    result = runner.invoke(app, ["remote", "sync", "validate", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "remote.sync"
+    assert payload["action"] == "validate"
+    assert payload["status"] == "PASS"

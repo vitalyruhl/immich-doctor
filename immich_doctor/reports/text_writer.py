@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from immich_doctor.core.models import ValidationReport
+from immich_doctor.core.models import CheckResult, ValidationReport
 
 
 def render_text_report(report: ValidationReport, verbose: bool = False) -> str:
@@ -19,6 +19,8 @@ def render_text_report(report: ValidationReport, verbose: bool = False) -> str:
         lines.append("Checks:")
         for check in report.checks:
             lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+            if report.domain == "remote.sync":
+                lines.extend(_render_remote_sync_check_details(check, verbose))
     if report.sections and not verbose and report.domain == "db.performance.indexes":
         lines.extend(_render_compact_db_index_sections(report))
     elif report.sections:
@@ -127,8 +129,50 @@ def _preview_rows(rows: list[dict[str, object]], limit: int) -> tuple[list[str],
     return preview, len(rows) > limit
 
 
+def _render_remote_sync_check_details(check: CheckResult, verbose: bool) -> list[str]:
+    details = check.details
+    if not details:
+        return []
+
+    lines: list[str] = []
+    count = details.get("count")
+    severity = details.get("severity")
+    impacted_tables = details.get("impacted_tables")
+    candidates = details.get("candidates")
+    remediation_hint = details.get("remediation_hint")
+    samples = details.get("samples", [])
+
+    if severity or count is not None:
+        summary_parts: list[str] = []
+        if severity:
+            summary_parts.append(f"severity={severity}")
+        if count is not None:
+            summary_parts.append(f"count={count}")
+        lines.append(f"  - {', '.join(summary_parts)}")
+
+    if impacted_tables:
+        lines.append(f"  - impacted_tables={', '.join(str(table) for table in impacted_tables)}")
+
+    if candidates and verbose:
+        lines.append(f"  - candidates={', '.join(str(candidate) for candidate in candidates)}")
+
+    preview_limit = len(samples) if verbose else 3
+    preview, truncated = _preview_rows(list(samples), limit=preview_limit)
+    for item in preview:
+        lines.append(f"  - sample: {item}")
+    if truncated:
+        lines.append("  - sample: ...")
+
+    if remediation_hint:
+        lines.append(f"  - hint: {remediation_hint}")
+
+    return lines
+
+
 def _format_row(row: dict[str, object]) -> str:
     preferred_keys = [
+        "asset_id",
+        "album_id",
         "index_name",
         "table_name",
         "conname",

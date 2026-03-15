@@ -32,6 +32,7 @@ Current MVP scope:
 - backup target verification
 - database health validation
 - database index inspection
+- remote-sync foreign key validation for remote album asset links
 - validation of required external tools when configured
 - structured text or JSON reports
 
@@ -89,6 +90,7 @@ immich-doctor storage permissions check
 immich-doctor backup verify
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor remote sync validate
 ```
 
 Deprecated and removed command concepts:
@@ -148,10 +150,15 @@ uv run python -m immich_doctor backup verify
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
 uv run python -m immich_doctor db performance indexes check --verbose
+uv run python -m immich_doctor remote sync validate
 ```
 
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
+
+`remote sync validate` is read-only. It detects orphaned references in
+`remote_album_asset_entity` against the detected asset and remote album tables,
+reports samples and counts, and never repairs or mutates DB content.
 
 ## Docker
 

@@ -5,6 +5,7 @@ from contextlib import closing
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.sql import Composable
 
 
 def can_connect(dsn: str, timeout_seconds: int) -> tuple[bool, str]:
@@ -37,6 +38,24 @@ def fetch_all(dsn: str, timeout_seconds: int, query: str) -> list[dict[str, obje
         with connection.cursor() as cursor:
             cursor.execute("SET default_transaction_read_only = on")
             cursor.execute(query)
+            return [dict(row) for row in cursor.fetchall()]
+
+
+def fetch_all_composed(
+    dsn: str,
+    timeout_seconds: int,
+    query: Composable,
+    params: tuple[object, ...] = (),
+) -> list[dict[str, object]]:
+    with psycopg.connect(
+        dsn,
+        connect_timeout=timeout_seconds,
+        autocommit=True,
+        row_factory=dict_row,
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SET default_transaction_read_only = on")
+            cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
 
