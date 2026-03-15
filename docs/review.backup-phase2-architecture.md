@@ -1,5 +1,9 @@
 # Backup Architecture Review after Phase 2
 
+Note: This document reflects the repository state after Phase 2 only. Phase 3
+(`backup files`) was implemented later and should be read together with the
+current `README.md`, `docs/architecture.md`, and `docs/roadmap.backup-v1.md`.
+
 ## Scope reviewed
 
 Reviewed sources:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from immich_doctor.backup.core.models import BackupContext, BackupTarget
+from immich_doctor.backup.core.models import BackupContext, BackupTarget, ResolvedBackupLocation
 from immich_doctor.backup.files import (
     FileBackupExecutionError,
     FileBackupRequest,
@@ -26,10 +26,9 @@ def build_request(tmp_path: Path) -> FileBackupRequest:
     )
     return FileBackupRequest(
         context=context,
+        location=ResolvedBackupLocation(target=target, root_path=tmp_path / "backups"),
         source_path=tmp_path / "source",
-        target_root=tmp_path / "backups",
         source_label="Immich Uploads",
-        timestamp=datetime(2026, 3, 14, 20, 5, tzinfo=UTC),
     )
 
 
@@ -39,8 +38,10 @@ def test_versioned_destination_builder_creates_deterministic_structure(tmp_path:
     plan = VersionedDestinationBuilder().build(request)
 
     assert plan.destination_path == (
-        tmp_path / "backups" / "20260314T200500Z" / "files" / "immich-uploads"
+        tmp_path / "backups" / "20260314T200000Z" / "files" / "immich-uploads"
     )
+    assert plan.backup_root_path == tmp_path / "backups" / "20260314T200000Z"
+    assert plan.artifact_relative_path == Path("files/immich-uploads")
 
 
 def test_rsync_builder_uses_safe_default_flags(tmp_path: Path) -> None:
@@ -90,8 +91,10 @@ def test_local_executor_returns_structural_backup_result(tmp_path: Path, monkeyp
     result = executor.execute(plan)
 
     assert captured["argv"][0] == "rsync"
+    assert result.domain == "backup.files"
     assert result.status == "success"
-    assert result.artifacts[0].relative_path == Path(plan.destination_path.name)
+    assert result.artifacts[0].relative_path == Path("files/immich-uploads")
+    assert result.artifacts[0].target.reference == str(plan.backup_root_path)
     assert (plan.destination_path / "asset.jpg").exists()
 
 

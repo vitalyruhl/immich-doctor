@@ -20,6 +20,7 @@ uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
 uv run python -m immich_doctor storage paths check --output json
 uv run python -m immich_doctor storage permissions check
+uv run python -m immich_doctor backup files
 uv run python -m immich_doctor backup verify
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
@@ -35,6 +36,7 @@ docker compose -f docker/docker-compose.yml up --build
 - keep service boundaries clean
 - add tests with behavior changes
 - update docs when scope or configuration changes
+- keep docs explicit about what is already implemented vs. still planned
 
 Container-oriented work should additionally validate:
 

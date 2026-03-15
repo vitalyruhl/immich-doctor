@@ -83,9 +83,17 @@ Current command behavior:
 - `runtime validate` validates runtime identity and process-level environment facts
 - `storage paths check` validates configured source and runtime storage paths
 - `storage permissions check` validates source readability, mount safety, and runtime path writability
+- `backup files` performs one versioned local file backup from the configured Immich library root into the configured backup target
 - `backup verify` validates backup target readiness and configured required tools
 - `db health check` validates host resolution, TCP reachability, login, and round-trip query execution
 - `db performance indexes check` validates index inventory and index health facts
+
+Current backup-related configuration expectations:
+
+- `backup files` currently uses `IMMICH_STORAGE_PATH` or `IMMICH_DOCTOR_IMMICH_LIBRARY_ROOT` as the source path
+- `backup files` currently uses `BACKUP_TARGET_PATH` or `IMMICH_DOCTOR_BACKUP_TARGET_PATH` as the backup root
+- `backup files` currently supports local source to local target only
+- later backup phases may add DB artifacts, metadata capture, remote targets, and manifest persistence
 
 ## Notes for Docker and Unraid usage
 

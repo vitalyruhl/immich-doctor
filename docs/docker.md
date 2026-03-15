@@ -36,6 +36,7 @@ To use the long-running container and then execute checks manually:
 docker exec -it immich-doctor python -m immich_doctor runtime validate
 docker exec -it immich-doctor python -m immich_doctor storage paths check
 docker exec -it immich-doctor python -m immich_doctor storage permissions check
+docker exec -it immich-doctor python -m immich_doctor backup files
 docker exec -it immich-doctor python -m immich_doctor backup verify
 docker exec -it immich-doctor python -m immich_doctor db health check
 docker exec -it immich-doctor python -m immich_doctor db performance indexes check
@@ -86,11 +87,18 @@ See `docs/unraid.md` for the Unraid-specific setup flow and `.env.unraid.example
 
 Additional canonical commands:
 
+- `backup files`
 - `storage paths check`
 - `storage permissions check`
 - `backup verify`
 - `db health check`
 - `db performance indexes check`
+
+Current backup status in Docker:
+
+- implemented: `backup files` for one local, versioned rsync-based file backup
+- implemented: `backup verify` for backup target readiness checks
+- not implemented yet: DB backup, metadata backup, remote targets, retention, restore, backup-all orchestration
 
 ## Non-root vs root
 

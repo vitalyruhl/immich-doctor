@@ -20,7 +20,7 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: initial scaffold / MVP skeleton
+Project phase: validation + early backup foundation
 
 Current MVP scope:
 
@@ -29,6 +29,7 @@ Current MVP scope:
 - runtime environment validation
 - storage path validation
 - storage permission validation
+- file backup execution through a thin backup application flow
 - backup target verification
 - database health validation
 - database index inspection
@@ -42,8 +43,13 @@ Not in scope yet:
 - no destructive repair actions
 - no file modifications
 - no quarantine moves
-- no backup execution
 - no API or Web UI runtime yet
+- no DB backup
+- no metadata backup
+- no remote backup targets
+- no retention
+- no restore
+- no backup-all orchestration
 
 ## Safety warning
 
@@ -88,6 +94,7 @@ immich-doctor runtime validate
 immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
+immich-doctor backup files
 immich-doctor backup verify
 immich-doctor consistency validate
 immich-doctor consistency repair
@@ -95,27 +102,6 @@ immich-doctor db health check
 immich-doctor db performance indexes check
 immich-doctor remote sync validate
 immich-doctor remote sync repair
-```
-
-Deprecated and removed command concepts:
-
-```text
-health ping
-config validate
-backup validate
-db validate-indexes
-```
-
-Old-to-new command mapping:
-
-```text
-health ping                -> runtime health check
-config validate            -> runtime validate
-config validate            -> storage paths check
-config validate            -> storage permissions check
-config validate            -> db health check
-backup validate            -> backup verify
-db validate-indexes        -> db performance indexes check
 ```
 
 No legacy aliases are kept.
@@ -150,6 +136,7 @@ uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
 uv run python -m immich_doctor storage paths check
 uv run python -m immich_doctor storage permissions check
+uv run python -m immich_doctor backup files
 uv run python -m immich_doctor backup verify
 uv run python -m immich_doctor consistency validate
 uv run python -m immich_doctor consistency repair --category db.orphan.album_asset.missing_asset
@@ -164,6 +151,19 @@ uv run python -m immich_doctor remote sync repair --apply
 
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
+
+Implemented now:
+
+- validation commands across runtime, storage, backup target, and DB health
+- DB index inspection with compact default output and verbose details
+- `backup files` as a thin local file backup flow on top of the backup foundation
+
+Planned next:
+
+- backup manifests
+- DB backup inclusion
+- metadata capture
+- backup-all orchestration
 
 `consistency validate` is the canonical server-side consistency overview. It
 groups findings by stable categories, supports only
@@ -236,10 +236,6 @@ python -m immich_doctor runtime validate
 
 This repository currently uses the MIT license.
 
-The choice is pragmatic for an operational helper tool that may need easy reuse in
-private homelab setups, internal automation, and downstream wrappers. If you later
-want stronger copyleft guarantees for hosted derivatives or community governance,
-re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 
 ## Documentation
 
@@ -257,5 +253,3 @@ re-evaluating AGPL-3.0-or-later before wider adoption would be reasonable.
 - Pull requests are required for changes to `main`
 - CI and lint checks are intended to be required before merge
 
-Changes that could become destructive in future repair workflows require explicit
-review and must not bypass the safety principles documented in this repository.
