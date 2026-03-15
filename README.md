@@ -32,6 +32,8 @@ Current MVP scope:
 - backup target verification
 - database health validation
 - database index inspection
+- category-based consistency validation and repair for the supported current PostgreSQL schema
+- remote-sync diagnostics with server-side PostgreSQL album/asset link checks
 - validation of required external tools when configured
 - structured text or JSON reports
 
@@ -87,8 +89,12 @@ immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup verify
+immich-doctor consistency validate
+immich-doctor consistency repair
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor remote sync validate
+immich-doctor remote sync repair
 ```
 
 Deprecated and removed command concepts:
@@ -145,13 +151,53 @@ uv run python -m immich_doctor runtime validate
 uv run python -m immich_doctor storage paths check
 uv run python -m immich_doctor storage permissions check
 uv run python -m immich_doctor backup verify
+uv run python -m immich_doctor consistency validate
+uv run python -m immich_doctor consistency repair --category db.orphan.album_asset.missing_asset
+uv run python -m immich_doctor consistency repair --all-safe --apply
 uv run python -m immich_doctor db health check
 uv run python -m immich_doctor db performance indexes check
 uv run python -m immich_doctor db performance indexes check --verbose
+uv run python -m immich_doctor remote sync validate
+uv run python -m immich_doctor remote sync repair
+uv run python -m immich_doctor remote sync repair --apply
 ```
 
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
+
+`consistency validate` is the canonical server-side consistency overview. It
+groups findings by stable categories, supports only
+`immich_current_postgres_profile` for now, and reports unsupported schemas
+explicitly instead of guessing other Immich variants.
+
+`consistency repair` is dry-run by default and supports selection via
+`--category`, `--id`, and `--all-safe`. Only `safe_delete` categories are
+eligible for mutation, and only when `--apply` is set. `inspect_only`
+categories remain visible under repair but are reported as `SKIPPED`, not as
+errors.
+
+Current consistency categories:
+
+- `db.orphan.album_asset.missing_asset`
+- `db.orphan.album_asset.missing_album`
+- `db.asset_file.path_missing.preview`
+- `db.asset_file.path_missing.thumbnail`
+
+For `asset_file.path_missing.*`, the check uses the exact `asset_file.path`
+value from PostgreSQL as the container/runtime path. No path rewriting or
+library-root inference is applied in this step.
+
+`remote sync validate` is read-only. It distinguishes likely client-side mobile
+app SQLite sync errors from server-side PostgreSQL checks. On the server it only
+uses detected `album`, `asset`, and `album_asset` tables, resolves foreign keys
+from PostgreSQL metadata where possible, reports orphaned join rows when present,
+and never repairs or mutates DB content.
+
+`remote sync repair` is separate from validation and defaults to dry-run. It only
+targets confirmed orphan rows in `album_asset`, prints planned deletions plus
+backup SQL snippets, and writes to PostgreSQL only when `--apply` is set. It does
+not modify `asset`, `album`, storage files, thumbnails, or mobile app SQLite sync
+state.
 
 ## Docker
 

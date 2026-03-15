@@ -29,9 +29,25 @@ docker exec -it immich-doctor python -m immich_doctor storage permissions check
 docker exec -it immich-doctor python -m immich_doctor backup verify
 ```
 
+## Consistency
+
+```bash
+docker exec -it immich-doctor python -m immich_doctor consistency validate
+docker exec -it immich-doctor python -m immich_doctor consistency repair --category db.orphan.album_asset.missing_asset
+docker exec -it immich-doctor python -m immich_doctor consistency repair --all-safe --apply
+```
+
 ## Database
 
 ```bash
 docker exec -it immich-doctor python -m immich_doctor db health check
 docker exec -it immich-doctor python -m immich_doctor db performance indexes check
+```
+
+## Remote Sync
+
+```bash
+docker exec -it immich-doctor python -m immich_doctor remote sync validate
+docker exec -it immich-doctor python -m immich_doctor remote sync repair
+docker exec -it immich-doctor python -m immich_doctor remote sync repair --apply
 ```

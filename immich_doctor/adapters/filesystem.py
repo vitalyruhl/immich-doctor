@@ -10,6 +10,9 @@ from immich_doctor.core.models import CheckResult, CheckStatus
 
 
 class FilesystemAdapter:
+    def path_exists(self, path: Path) -> bool:
+        return path.exists()
+
     def validate_directory(self, name: str, path: Path) -> CheckResult:
         directory_state = self._directory_state(name=name, path=path)
         if directory_state is not None:

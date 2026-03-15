@@ -25,7 +25,9 @@ immich-doctor <domain> <subdomain> <action> [options]
 Top-level domains:
 
 - `runtime`
+- `consistency`
 - `db`
+- `remote`
 - `storage`
 - `backup`
 - `diagnostics`
@@ -39,18 +41,26 @@ immich-doctor runtime health check
 immich-doctor storage paths check
 immich-doctor storage permissions check
 immich-doctor backup verify
+immich-doctor consistency validate
+immich-doctor consistency repair
 immich-doctor db health check
 immich-doctor db performance indexes check
+immich-doctor remote sync validate
+immich-doctor remote sync repair
 ```
 
 Placement rules:
 
+- consistency: canonical category-first validation and repair planning/execution
+  for supported server-side PostgreSQL and direct container-path consistency work
 - runtime: process-level readiness and execution-environment checks
 - db.health: reachability, login, session creation, round-trip queries
 - db.performance.indexes: index existence, invalid indexes, usage, size, missing FK indexes
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
 - backup.verify: backup target readiness and required tool presence
+- remote.sync: older separate remote-scope diagnostics and repair flow; not the
+  canonical consistency command family
 
 Forbidden patterns:
 
@@ -92,7 +102,8 @@ Contains the application use cases. Services orchestrate adapters and build
 structured reports for CLI or future API responses.
 
 Current examples include runtime validation, storage checks, backup verification,
-database health checks, and database index inspection.
+database health checks, database index inspection, the consistency framework, and
+remote-sync FK validation.
 
 ### `immich_doctor.adapters`
 

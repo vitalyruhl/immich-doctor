@@ -2,10 +2,22 @@ from __future__ import annotations
 
 import json
 
-from immich_doctor.core.models import ValidationReport
+from immich_doctor.consistency.models import (
+    ConsistencyRepairResult,
+    ConsistencyValidationReport,
+)
+from immich_doctor.core.models import CheckResult, RepairReport, ValidationReport
 
 
-def render_text_report(report: ValidationReport, verbose: bool = False) -> str:
+def render_text_report(
+    report: ValidationReport | RepairReport | ConsistencyValidationReport | ConsistencyRepairResult,
+    verbose: bool = False,
+) -> str:
+    if isinstance(report, ConsistencyValidationReport):
+        return _render_consistency_validation_report(report, verbose)
+    if isinstance(report, ConsistencyRepairResult):
+        return _render_consistency_repair_report(report, verbose)
+
     lines = [
         f"Domain: {report.domain}",
         f"Action: {report.action}",
@@ -19,21 +31,134 @@ def render_text_report(report: ValidationReport, verbose: bool = False) -> str:
         lines.append("Checks:")
         for check in report.checks:
             lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
-    if report.sections and not verbose and report.domain == "db.performance.indexes":
+            if report.domain == "remote.sync":
+                lines.extend(_render_remote_sync_check_details(check, verbose))
+    if isinstance(report, RepairReport) and report.plans:
+        lines.append("Plans:")
+        for plan in report.plans:
+            lines.append(
+                f"- [{plan.status.value.upper()}] {plan.action} {plan.target_table}: "
+                f"{plan.reason} ({plan.row_count} rows)"
+            )
+            lines.append(
+                f"  - dry_run={plan.dry_run}, applied={plan.applied}, "
+                f"key_columns={', '.join(plan.key_columns) if plan.key_columns else '[]'}"
+            )
+            if plan.sample_rows:
+                preview_limit = len(plan.sample_rows) if verbose else 3
+                preview, truncated = _preview_rows(plan.sample_rows, limit=preview_limit)
+                for item in preview:
+                    lines.append(f"  - sample: {item}")
+                if truncated:
+                    lines.append("  - sample: ...")
+            if plan.backup_sql:
+                lines.append(f"  - backup_sql: {plan.backup_sql}")
+    sections = getattr(report, "sections", [])
+    if sections and not verbose and report.domain == "db.performance.indexes":
         lines.extend(_render_compact_db_index_sections(report))
-    elif report.sections:
+    elif sections:
         lines.append("Sections:")
-        for section in report.sections:
+        for section in sections:
             lines.append(f"- [{section.status.value.upper()}] {section.name}")
             if section.rows:
                 for row in section.rows:
                     lines.append(f"  - {row}")
             else:
                 lines.append("  - []")
-    if report.metrics:
+    metrics = getattr(report, "metrics", [])
+    if metrics:
         lines.append("Metrics:")
-        for metric in report.metrics:
+        for metric in metrics:
             lines.append(f"- {metric}")
+    recommendations = getattr(report, "recommendations", [])
+    if recommendations:
+        lines.append("Recommendations:")
+        for recommendation in recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_consistency_validation_report(
+    report: ConsistencyValidationReport,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Categories:")
+    for category in report.categories:
+        repairability = "REPAIRABLE" if category.repairable else "INSPECT_ONLY"
+        lines.append(
+            f"- [{category.status.value.upper()}] {category.name}: "
+            f"count={category.count}, severity={category.severity.value}, "
+            f"repair_mode={category.repair_mode.value}, {repairability}"
+        )
+        lines.append(f"  - {category.message}")
+        preview = category.sample_findings if verbose else category.sample_findings[:3]
+        for finding in preview:
+            lines.append(
+                f"  - finding: id={finding.finding_id}, rows={finding.row_count}, "
+                f"message={finding.message}"
+            )
+        if not preview:
+            lines.append("  - finding: []")
+    lines.append(f"Consistency Summary: {report.consistency_summary.to_dict()}")
+    if report.recommendations:
+        lines.append("Recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines)
+
+
+def _render_consistency_repair_report(
+    report: ConsistencyRepairResult,
+    verbose: bool,
+) -> str:
+    lines = [
+        f"Domain: {report.domain}",
+        f"Action: {report.action}",
+        f"Status: {report.overall_status.value.upper()}",
+        f"Summary: {report.summary}",
+        f"Generated at: {report.generated_at}",
+    ]
+    if report.metadata:
+        lines.append(f"Metadata: {report.metadata}")
+    lines.append("Checks:")
+    for check in report.checks:
+        lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Repair Plan:")
+    lines.append(
+        f"- selected_categories={list(report.repair_plan.selected_categories)}, "
+        f"selected_ids={list(report.repair_plan.selected_ids)}, "
+        f"all_safe={report.repair_plan.all_safe}"
+    )
+    for action in report.repair_plan.actions:
+        lines.append(
+            f"- [{action.status.value.upper()}] {action.category}: "
+            f"{action.message} ({action.row_count} rows)"
+        )
+        lines.append(
+            f"  - repair_mode={action.repair_mode.value}, dry_run={action.dry_run}, "
+            f"applied={action.applied}, target_table={action.target_table}"
+        )
+        preview = action.sample_findings if verbose else action.sample_findings[:3]
+        for finding in preview:
+            lines.append(
+                f"  - finding: id={finding.finding_id}, rows={finding.row_count}, "
+                f"message={finding.message}"
+            )
+        if action.backup_sql:
+            lines.append(f"  - backup_sql: {action.backup_sql}")
+    lines.append(f"Consistency Summary: {report.consistency_summary.to_dict()}")
     if report.recommendations:
         lines.append("Recommendations:")
         for recommendation in report.recommendations:
@@ -127,8 +252,62 @@ def _preview_rows(rows: list[dict[str, object]], limit: int) -> tuple[list[str],
     return preview, len(rows) > limit
 
 
+def _render_remote_sync_check_details(check: CheckResult, verbose: bool) -> list[str]:
+    details = check.details
+    if not details:
+        return []
+
+    lines: list[str] = []
+    count = details.get("count")
+    severity = details.get("severity")
+    impacted_tables = details.get("impacted_tables")
+    candidates = details.get("candidates")
+    detected_columns = details.get("detected_columns")
+    expected_table = details.get("expected_table")
+    remediation_hint = details.get("remediation_hint")
+    samples = details.get("samples", [])
+
+    if severity or count is not None:
+        summary_parts: list[str] = []
+        if severity:
+            summary_parts.append(f"severity={severity}")
+        if count is not None:
+            summary_parts.append(f"count={count}")
+        lines.append(f"  - {', '.join(summary_parts)}")
+
+    if impacted_tables:
+        lines.append(f"  - impacted_tables={', '.join(str(table) for table in impacted_tables)}")
+
+    if expected_table:
+        lines.append(f"  - expected_table={expected_table}")
+
+    if detected_columns:
+        lines.append(
+            f"  - detected_columns={', '.join(str(column) for column in detected_columns)}"
+        )
+
+    if candidates and verbose:
+        lines.append(f"  - candidates={', '.join(str(candidate) for candidate in candidates)}")
+
+    preview_limit = len(samples) if verbose else 3
+    preview, truncated = _preview_rows(list(samples), limit=preview_limit)
+    for item in preview:
+        lines.append(f"  - sample: {item}")
+    if truncated:
+        lines.append("  - sample: ...")
+
+    if remediation_hint:
+        lines.append(f"  - hint: {remediation_hint}")
+
+    return lines
+
+
 def _format_row(row: dict[str, object]) -> str:
     preferred_keys = [
+        "albumId",
+        "assetsId",
+        "asset_id",
+        "album_id",
         "index_name",
         "table_name",
         "conname",
