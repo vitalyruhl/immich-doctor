@@ -110,27 +110,35 @@ def _source_finding(
     )
 
 
-def test_metadata_failures_service_classifies_root_causes_from_file_findings() -> None:
+def test_metadata_failures_service_classifies_root_causes_from_file_findings(
+    tmp_path: Path,
+) -> None:
+    library_root = tmp_path / "library"
+    missing_path = str(library_root / "missing.jpg")
+    denied_path = str(library_root / "denied.jpg")
+    healthy_path = str(library_root / "healthy.jpg")
+    mismatch_path = str(tmp_path / "outside" / "path.jpg")
+
     candidates = [
-        {"id": "asset-missing", "type": "image", "originalPath": "C:/library/missing.jpg"},
-        {"id": "asset-permission", "type": "image", "originalPath": "C:/library/denied.jpg"},
-        {"id": "asset-bug", "type": "image", "originalPath": "C:/library/healthy.jpg"},
-        {"id": "asset-path", "type": "image", "originalPath": "D:/outside/path.jpg"},
+        {"id": "asset-missing", "type": "image", "originalPath": missing_path},
+        {"id": "asset-permission", "type": "image", "originalPath": denied_path},
+        {"id": "asset-bug", "type": "image", "originalPath": healthy_path},
+        {"id": "asset-path", "type": "image", "originalPath": mismatch_path},
     ]
     analyzer = _FakeAnalyzer(
         findings=[
             _source_finding(
                 "asset-missing",
-                "C:/library/missing.jpg",
+                missing_path,
                 FileIntegrityStatus.FILE_MISSING,
             ),
             _source_finding(
                 "asset-permission",
-                "C:/library/denied.jpg",
+                denied_path,
                 FileIntegrityStatus.FILE_PERMISSION_DENIED,
             ),
-            _source_finding("asset-bug", "C:/library/healthy.jpg", FileIntegrityStatus.FILE_OK),
-            _source_finding("asset-path", "D:/outside/path.jpg", FileIntegrityStatus.FILE_MISSING),
+            _source_finding("asset-bug", healthy_path, FileIntegrityStatus.FILE_OK),
+            _source_finding("asset-path", mismatch_path, FileIntegrityStatus.FILE_MISSING),
         ]
     )
     service = RuntimeMetadataFailuresInspectService(
@@ -144,7 +152,7 @@ def test_metadata_failures_service_classifies_root_causes_from_file_findings() -
             db_name="immich",
             db_user="immich",
             db_password="secret",
-            immich_library_root=Path("C:/library"),
+            immich_library_root=library_root,
         )
     )
 
