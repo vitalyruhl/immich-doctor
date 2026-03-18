@@ -3,64 +3,210 @@ import { nextTick } from "vue";
 import BackupView from "./BackupView.vue";
 
 const backupStore = {
+  targetsOverview: {
+    items: [
+      {
+        targetId: "target-1",
+        targetName: "Local Backup",
+        targetType: "local",
+        enabled: true,
+        transport: { path: "/backup" },
+        verificationStatus: "ready",
+        lastTestResult: {
+          checkedAt: "2026-03-18T20:00:00+00:00",
+          status: "ready",
+          summary: "Target validation completed successfully.",
+          warnings: [],
+          details: {},
+        },
+        lastSuccessfulBackup: null,
+        retentionPolicy: { mode: "keep_all", maxVersions: null, pruneAutomatically: false },
+        restoreReadiness: "not_implemented",
+        sourceScope: "files_only",
+        schedulingCompatible: true,
+        warnings: [],
+        createdAt: "2026-03-18T20:00:00+00:00",
+        updatedAt: "2026-03-18T20:00:00+00:00",
+      },
+    ],
+    limitations: [],
+  },
+  targets: [
+    {
+      targetId: "target-1",
+      targetName: "Local Backup",
+      targetType: "local",
+      enabled: true,
+      transport: { path: "/backup" },
+      verificationStatus: "ready",
+      lastTestResult: {
+        checkedAt: "2026-03-18T20:00:00+00:00",
+        status: "ready",
+        summary: "Target validation completed successfully.",
+        warnings: [],
+        details: {},
+      },
+      lastSuccessfulBackup: null,
+      retentionPolicy: { mode: "keep_all", maxVersions: null, pruneAutomatically: false },
+      restoreReadiness: "not_implemented",
+      sourceScope: "files_only",
+      schedulingCompatible: true,
+      warnings: [],
+      createdAt: "2026-03-18T20:00:00+00:00",
+      updatedAt: "2026-03-18T20:00:00+00:00",
+    },
+  ],
+  selectedTargetId: "target-1",
+  selectedTarget: {
+    targetId: "target-1",
+    targetName: "Local Backup",
+    targetType: "local",
+    enabled: true,
+    transport: { path: "/backup" },
+    verificationStatus: "ready",
+    lastTestResult: {
+      checkedAt: "2026-03-18T20:00:00+00:00",
+      status: "ready",
+      summary: "Target validation completed successfully.",
+      warnings: [],
+      details: {},
+    },
+    lastSuccessfulBackup: null,
+    retentionPolicy: { mode: "keep_all", maxVersions: null, pruneAutomatically: false },
+    restoreReadiness: "not_implemented",
+    sourceScope: "files_only",
+    schedulingCompatible: true,
+    warnings: [],
+    createdAt: "2026-03-18T20:00:00+00:00",
+    updatedAt: "2026-03-18T20:00:00+00:00",
+  },
+  sizeEstimate: {
+    summary: "Partial backup size data is available for: Storage backup estimate.",
+    state: "partial",
+    warnings: [],
+    scopes: [
+      {
+        scope: "storage",
+        label: "Storage backup estimate",
+        state: "completed",
+        sourceScope: "/library",
+        representation: "filesystem_usage",
+        bytes: 2048,
+        fileCount: 2,
+        stale: false,
+        categories: [],
+        warnings: [],
+        metadata: {},
+      },
+      {
+        scope: "database",
+        label: "Database backup estimate",
+        state: "unsupported",
+        sourceScope: "database",
+        representation: "physical_db_size_proxy",
+        bytes: null,
+        fileCount: null,
+        stale: false,
+        categories: [],
+        warnings: [],
+        metadata: {},
+      },
+    ],
+    limitations: [],
+  },
+  storageEstimate: {
+    scope: "storage",
+    label: "Storage backup estimate",
+    state: "completed",
+    sourceScope: "/library",
+    representation: "filesystem_usage",
+    bytes: 2048,
+    fileCount: 2,
+    stale: false,
+    categories: [],
+    warnings: [],
+    metadata: {},
+  },
+  databaseEstimate: {
+    scope: "database",
+    label: "Database backup estimate",
+    state: "unsupported",
+    sourceScope: "database",
+    representation: "physical_db_size_proxy",
+    bytes: null,
+    fileCount: null,
+    stale: false,
+    categories: [],
+    warnings: [],
+    metadata: {},
+  },
+  currentExecution: {
+    state: "completed",
+    summary: "Backup execution completed.",
+    targetType: "local",
+    warnings: [],
+    report: {
+      verificationLevel: "destination_exists",
+      bytesPlanned: 2048,
+      bytesTransferred: 2048,
+    },
+    snapshot: {
+      snapshotId: "snapshot-1",
+      createdAt: "2026-03-18T20:00:00+00:00",
+      kind: "manual",
+      coverage: "files_only",
+      repairRunId: null,
+      verified: false,
+      manifestPath: "/data/manifests/backup/snapshots/snapshot-1.json",
+      fileArtifactCount: 1,
+      hasDbArtifact: false,
+      basicValidity: "valid",
+      validityMessage: "Snapshot metadata is structurally valid.",
+    },
+  },
   snapshots: {
     limitations: ["Current executable snapshot creation is files-only."],
   },
+  snapshotItems: [
+    {
+      snapshotId: "snapshot-1",
+      createdAt: "2026-03-18T20:00:00+00:00",
+      kind: "manual",
+      coverage: "files_only",
+      repairRunId: null,
+      verified: false,
+      manifestPath: "/data/manifests/backup/snapshots/snapshot-1.json",
+      fileArtifactCount: 1,
+      hasDbArtifact: false,
+      basicValidity: "valid",
+      validityMessage: "Snapshot metadata is structurally valid.",
+    },
+  ],
   quarantine: {
     foundationState: "ok",
     path: "/data/quarantine",
     indexPresent: true,
     itemCount: 0,
-    workflowImplemented: false,
-    message: "Quarantine indexing exists, but move/restore workflow is not implemented yet.",
   },
-  snapshotItems: [
-    {
-      snapshotId: "snapshot-1",
-      createdAt: "2026-03-15T10:00:00+00:00",
-      kind: "pre_repair",
-      coverage: "files_only",
-      repairRunId: "repair-run-1",
-      verified: true,
-      hasDbArtifact: false,
-      manifestPath: "/data/manifests/backup/snapshots/snapshot-1.json",
-      basicValidity: "valid",
-      validityMessage: "Snapshot metadata is structurally valid.",
-    },
-  ],
+  hasTargets: true,
   isLoading: false,
+  isSavingTarget: false,
   isExecuting: false,
-  activeExecutionKind: null,
+  isExecutionRunning: false,
+  isSizeCollectionRunning: false,
+  isValidatingTarget: false,
   error: null,
+  targetError: null,
   executionError: null,
-  lastExecution: {
-    generatedAt: "2026-03-15T11:30:00+00:00",
-    requestedKind: "manual",
-    result: {
-      domain: "backup.files",
-      action: "run",
-      status: "SUCCESS",
-      summary: "File backup execution completed.",
-      warnings: [],
-      details: {},
-    },
-    snapshot: {
-      snapshotId: "snapshot-new",
-      createdAt: "2026-03-15T11:30:00+00:00",
-      kind: "manual",
-      coverage: "files_only",
-      repairRunId: null,
-      verified: false,
-      hasDbArtifact: false,
-      manifestPath: "/data/manifests/backup/snapshots/snapshot-new.json",
-      basicValidity: "valid",
-      validityMessage: "Snapshot metadata is structurally valid.",
-      fileArtifactCount: 1,
-    },
-    limitations: ["Current executable snapshot creation is files-only."],
-  },
+  validationError: null,
   load: vi.fn().mockResolvedValue(undefined),
-  executeBackup: vi.fn().mockResolvedValue(undefined),
+  saveTarget: vi.fn().mockResolvedValue(undefined),
+  removeTarget: vi.fn().mockResolvedValue(undefined),
+  validateTarget: vi.fn().mockResolvedValue(undefined),
+  startExecution: vi.fn().mockResolvedValue(undefined),
+  cancelExecution: vi.fn().mockResolvedValue(undefined),
+  refreshSizeEstimate: vi.fn().mockResolvedValue(undefined),
+  selectTarget: vi.fn(),
 };
 
 vi.mock("@/stores/backup", () => ({
@@ -72,7 +218,7 @@ describe("BackupView", () => {
     vi.clearAllMocks();
   });
 
-  it("renders snapshot and quarantine foundation visibility", async () => {
+  it("renders target management and non-blocking size visibility", async () => {
     const wrapper = mount(BackupView, {
       global: {
         stubs: {
@@ -89,16 +235,13 @@ describe("BackupView", () => {
     await nextTick();
     await nextTick();
 
+    expect(wrapper.text()).toContain("Source size estimate");
+    expect(wrapper.text()).toContain("Local Backup");
+    expect(wrapper.text()).toContain("Backup execution completed.");
     expect(wrapper.text()).toContain("snapshot-1");
-    expect(wrapper.text()).toContain("files_only");
-    expect(wrapper.text()).toContain("/data/quarantine");
-    expect(wrapper.text()).toContain("Visibility only");
-    expect(wrapper.text()).toContain("Perform Backup");
-    expect(wrapper.text()).toContain("Create Pre-Repair Snapshot");
-    expect(wrapper.text()).toContain("snapshot-new");
   });
 
-  it("triggers real backup actions through the store", async () => {
+  it("calls save and execution actions through the store", async () => {
     const wrapper = mount(BackupView, {
       global: {
         stubs: {
@@ -114,12 +257,14 @@ describe("BackupView", () => {
 
     await nextTick();
     await nextTick();
+
+    const form = wrapper.find("form");
+    await form.trigger("submit");
 
     const buttons = wrapper.findAll("button");
     await buttons[0]?.trigger("click");
-    await buttons[1]?.trigger("click");
 
-    expect(backupStore.executeBackup).toHaveBeenNthCalledWith(1, "manual");
-    expect(backupStore.executeBackup).toHaveBeenNthCalledWith(2, "pre_repair");
+    expect(backupStore.saveTarget).toHaveBeenCalledTimes(1);
+    expect(backupStore.startExecution).toHaveBeenCalled();
   });
 });

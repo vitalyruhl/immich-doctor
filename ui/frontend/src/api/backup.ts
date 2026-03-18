@@ -1,16 +1,97 @@
 import { request } from "./client";
 import type { ApiResponse } from "./types/common";
-import type { BackupExecutionResponse, BackupSnapshotsResponse } from "./types/backup";
+import type {
+  BackupExecutionStatusResponse,
+  BackupSizeEstimateResponse,
+  BackupSnapshotsResponse,
+  BackupTargetDraft,
+  BackupTargetMutationResponse,
+  BackupTargetValidationResponse,
+  BackupTargetsOverviewResponse,
+} from "./types/backup";
 
 export async function fetchBackupSnapshots(): Promise<ApiResponse<BackupSnapshotsResponse>> {
   return request<BackupSnapshotsResponse>("/backup/snapshots");
 }
 
-export async function runBackupFiles(
-  kind: "manual" | "pre_repair",
-): Promise<ApiResponse<BackupExecutionResponse>> {
-  return request<BackupExecutionResponse>("/backup/files", {
+export async function fetchBackupSizeEstimate(): Promise<ApiResponse<BackupSizeEstimateResponse>> {
+  return request<BackupSizeEstimateResponse>("/backup/size-estimate");
+}
+
+export async function collectBackupSizeEstimate(
+  force = false,
+): Promise<ApiResponse<BackupSizeEstimateResponse>> {
+  return request<BackupSizeEstimateResponse>("/backup/size-estimate/collect", {
     method: "POST",
-    body: JSON.stringify({ kind }),
+    body: JSON.stringify({ force }),
+  });
+}
+
+export async function fetchBackupTargets(): Promise<ApiResponse<BackupTargetsOverviewResponse>> {
+  return request<BackupTargetsOverviewResponse>("/backup/targets");
+}
+
+export async function createBackupTarget(
+  payload: BackupTargetDraft,
+): Promise<ApiResponse<BackupTargetMutationResponse>> {
+  return request<BackupTargetMutationResponse>("/backup/targets", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateBackupTarget(
+  targetId: string,
+  payload: BackupTargetDraft,
+): Promise<ApiResponse<BackupTargetMutationResponse>> {
+  return request<BackupTargetMutationResponse>(`/backup/targets/${targetId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteBackupTarget(
+  targetId: string,
+): Promise<ApiResponse<BackupTargetMutationResponse>> {
+  return request<BackupTargetMutationResponse>(`/backup/targets/${targetId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchBackupTargetValidation(
+  targetId: string,
+): Promise<ApiResponse<BackupTargetValidationResponse>> {
+  return request<BackupTargetValidationResponse>(`/backup/targets/${targetId}/validation`);
+}
+
+export async function startBackupTargetValidation(
+  targetId: string,
+): Promise<ApiResponse<BackupTargetValidationResponse>> {
+  return request<BackupTargetValidationResponse>(`/backup/targets/${targetId}/validate`, {
+    method: "POST",
+  });
+}
+
+export async function fetchCurrentBackupExecution(): Promise<
+  ApiResponse<BackupExecutionStatusResponse>
+> {
+  return request<BackupExecutionStatusResponse>("/backup/executions/current");
+}
+
+export async function startManualBackupExecution(
+  targetId: string,
+  kind: "manual" | "pre_repair" = "manual",
+): Promise<ApiResponse<BackupExecutionStatusResponse>> {
+  return request<BackupExecutionStatusResponse>("/backup/executions", {
+    method: "POST",
+    body: JSON.stringify({ target_id: targetId, kind }),
+  });
+}
+
+export async function cancelManualBackupExecution(): Promise<
+  ApiResponse<BackupExecutionStatusResponse>
+> {
+  return request<BackupExecutionStatusResponse>("/backup/executions/cancel", {
+    method: "POST",
   });
 }

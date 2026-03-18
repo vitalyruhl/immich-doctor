@@ -263,6 +263,48 @@ Validation gate:
 
 ---
 
+# Parallel / Distributed Rsync Design Note
+
+Status:
+- documented for evaluation
+- not enabled by default
+
+Current recommendation:
+- keep single-stream backup as the default
+- allow only conservative future opt-in parallelism after measurement on real workloads
+- keep mirrored or distributed targets in roadmap status until verification and retry behavior are stronger
+
+Tradeoff summary:
+
+- single-stream backup
+  - simplest verification model
+  - lowest retry complexity
+  - least risk of HDD seek amplification and NAS overload
+- limited parallelism
+  - may help on fast SSD + multi-core + high-bandwidth links
+  - can regress badly on HDD-backed or metadata-heavy libraries
+  - increases traversal duplication, CPU cost, retry complexity, and partial-result handling
+- distributed or mirrored targets
+  - improves future coverage and routing flexibility
+  - requires per-target journaling, stronger verification, and clearer restore-readiness semantics
+
+Why it is not default now:
+
+- IO contention is likely to dominate on HDDs and many NAS devices
+- metadata traversal overhead grows when multiple rsync workers walk the tree independently
+- verification and retry handling become materially more complex
+- the current files-only verification layer is not strong enough to justify aggressive parallel fan-out
+
+Roadmap direction:
+
+- single-stream remains the safe baseline
+- limited parallel rsync may be added later as an explicit opt-in with conservative worker limits
+- mirrored backup to multiple targets stays roadmap-only
+- split/distributed routing by scope stays roadmap-only
+- per-scope target routing should wait until DB + metadata coverage and restore verification are real
+
+---
+
 # Out of Scope (V1)
 
 - Broad automated restore execution against production

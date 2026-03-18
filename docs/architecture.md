@@ -204,11 +204,16 @@ Current file-backup internals are limited to:
 - deterministic versioned destination path generation
 - safe rsync command construction with non-destructive defaults
 - a local executor abstraction that runs rsync via argument lists only
+- a managed rsync transfer executor for asynchronous manual backup jobs
+- explicit target configuration persistence under the config path
+- local secret-reference storage for backup transports
 
 Explicit constraints for this phase:
 
-- local paths only
-- no remote transport
+- no DB backup coupling
+- no productive SMB execution
+- no password-based SSH execution
+- no restore automation
 - no database backup coupling
 - no scheduling
 - no retention
@@ -277,6 +282,17 @@ Current API surface:
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
 - `POST /api/backup/files`
+- `GET /api/backup/size-estimate`
+- `POST /api/backup/size-estimate/collect`
+- `GET /api/backup/targets`
+- `POST /api/backup/targets`
+- `PUT /api/backup/targets/{target_id}`
+- `DELETE /api/backup/targets/{target_id}`
+- `GET /api/backup/targets/{target_id}/validation`
+- `POST /api/backup/targets/{target_id}/validate`
+- `GET /api/backup/executions/current`
+- `POST /api/backup/executions`
+- `POST /api/backup/executions/cancel`
 - `GET /api/restore/simulate`
 - `GET /api/settings`
 - `GET /api/settings/schema`
@@ -320,7 +336,10 @@ Current safety visibility in the UI includes:
 - runtime apply readiness and blocking preconditions
 - persisted repair run history and journal entries
 - persisted backup snapshot manifests
-- real files-backup execution and standalone `pre_repair` snapshot creation
+- non-blocking backup size estimation state
+- explicit backup target inventory and validation state
+- real manual files-backup execution for local plus safe-subset SSH/rsync targets
+- standalone `pre_repair` snapshot creation
 - quarantine foundation state
 
 Current exclusions remain explicit:

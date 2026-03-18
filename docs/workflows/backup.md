@@ -38,11 +38,31 @@ Status: active
   - optional `repair_run_id`
   - verification/basic validity signal
 - GUI now also exposes real backup execution actions for:
-  - `Perform Backup`
-  - `Create Pre-Repair Snapshot`
-  - both actions call the existing files backup flow and surface the created
-    `snapshot_id`, `kind`, `coverage`, and basic validity result
+  - explicit manual target selection
+  - non-blocking backup size collection
+  - target validation state
+  - manual files-only backup execution for local, SSH, and rsync targets
 - GUI also shows quarantine foundation status separately from snapshot coverage
+
+Manual backup target behavior now includes:
+
+- local folder targets with absolute path validation
+- SSH and rsync targets with explicit host key strategy and secret-reference-based private key handling
+- SMB targets as configuration + validation + mount planning only
+- persisted target validation summary and last successful backup metadata
+- explicit restore-readiness signaling of `not_implemented`
+
+Manual execution reporting now includes:
+
+- source scope
+- target type
+- bytes planned when a fresh source size estimate exists
+- bytes transferred when rsync stats are available
+- file counts when available
+- duration
+- warnings
+- verification level
+- version/snapshot identifier
 
 ## Snapshot coverage semantics
 
@@ -63,7 +83,7 @@ Status: active
 - metadata capture
 - backup-all orchestration
 - retention
-- remote targets
+- stronger remote host verification support beyond current safe subset
 - pre-repair and post-repair snapshot integration for mutating repair flows
 - paired DB + file snapshot creation
 
@@ -76,6 +96,7 @@ Status: active
 Current UI limitation:
 
 - snapshots are visible and linkable from repair history
-- executable GUI snapshot creation is still files-only, even for `pre_repair`
-- current executable snapshot creation is still files-only
+- executable GUI backup coverage is still files-only, even for `pre_repair`
+- productive SMB backup execution is still intentionally disabled
+- password-based SSH execution is still intentionally unsupported
 - restore is simulation-only and targeted undo is not yet exposed as a GUI action

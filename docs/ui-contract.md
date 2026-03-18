@@ -90,3 +90,39 @@ The Runtime page must:
 - keep unexplained or unsupported states visible
 - never encourage blind retries when corruption, truncation, missing files, or
   permission errors are already proven
+
+## Backup contract
+
+The backup UI must treat backend state as the source of truth for:
+
+- background size estimation
+- manual target inventory
+- target validation state
+- manual backup execution state
+- verification level
+- restore-readiness signaling
+
+Canonical backup endpoints now include:
+
+```text
+GET /api/backup/snapshots
+GET /api/backup/size-estimate
+POST /api/backup/size-estimate/collect
+GET /api/backup/targets
+POST /api/backup/targets
+PUT /api/backup/targets/{target_id}
+DELETE /api/backup/targets/{target_id}
+GET /api/backup/targets/{target_id}/validation
+POST /api/backup/targets/{target_id}/validate
+GET /api/backup/executions/current
+POST /api/backup/executions
+POST /api/backup/executions/cancel
+```
+
+Backup UI rules:
+
+- never show restore-ready or disaster-recovery-ready wording unless the backend says so
+- files-only backup must stay labeled as files-only
+- target warnings must be visible before execution
+- pending, running, partial, failed, unsupported, and canceled states must remain visible
+- secret inputs may be sent to the backend on create/update, but UI state and later reads must only show masked secret references

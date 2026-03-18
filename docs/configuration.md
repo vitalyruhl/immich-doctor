@@ -94,7 +94,11 @@ Current backup-related configuration expectations:
 - `backup files` currently uses `BACKUP_TARGET_PATH` or `IMMICH_DOCTOR_BACKUP_TARGET_PATH` as the backup root
 - `backup files` currently supports local source to local target only
 - `backup files` now persists one snapshot manifest under `MANIFESTS_PATH/backup/snapshots/`
-- later backup phases may add DB artifacts, paired DB + file snapshots, metadata capture, and remote targets
+- manual backup target configuration is now persisted under `CONFIG_PATH/backup/targets.json`
+- when `CONFIG_PATH` is unset, the backend falls back to `data/config/backup/targets.json`
+- local secret references for backup targets are stored under `CONFIG_PATH/backup/secrets/` or the same `data/config` fallback
+- API and UI responses must expose only masked secret references, never raw secret material
+- later backup phases may add DB artifacts, paired DB + file snapshots, metadata capture, and stronger remote support
 
 ## Notes for Docker and Unraid usage
 

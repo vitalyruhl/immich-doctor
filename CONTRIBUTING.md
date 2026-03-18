@@ -108,6 +108,13 @@ Review should focus on:
 Changes that can delete, move, quarantine, rewrite, or otherwise alter user data
 must receive explicit maintainer review before merge.
 
+UI and API contributors must also follow these additional safety rules:
+
+- UI claims must match real backend capability exactly
+- `UNKNOWN`, `UNSUPPORTED`, `PARTIAL`, and `FAILED` states must remain visible
+- restore-readiness must never be implied from transport success alone
+- secrets must never be returned in API/UI responses or written to logs/reports in raw form
+
 ## Testing expectations
 
 - Use `pytest` for automated tests.
