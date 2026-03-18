@@ -107,6 +107,18 @@ class BackupTargetsApiResponse(BaseModel):
     mocked: bool = False
 
 
+class BackupTargetValidationApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class BackupExecutionStatusApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class UndoPlanApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

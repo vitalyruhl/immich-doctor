@@ -62,6 +62,12 @@ class BackupTargetSettingsService:
             "item": target.model_dump(by_alias=True, mode="json"),
         }
 
+    def get_target(self, settings: AppSettings, *, target_id: str) -> BackupTargetConfig:
+        for target in self.store.load_document(settings).items:
+            if target.target_id == target_id:
+                return target
+        raise KeyError(f"Backup target not found: {target_id}")
+
     def update_target(
         self,
         settings: AppSettings,
@@ -94,6 +100,24 @@ class BackupTargetSettingsService:
             "summary": "Backup target removed." if applied else "Backup target did not exist.",
             "targetId": target_id,
         }
+
+    def save_target(
+        self,
+        settings: AppSettings,
+        updated_target: BackupTargetConfig,
+    ) -> BackupTargetConfig:
+        document = self.store.load_document(settings)
+        replaced = False
+        for index, target in enumerate(document.items):
+            if target.target_id != updated_target.target_id:
+                continue
+            document.items[index] = updated_target
+            replaced = True
+            break
+        if not replaced:
+            document.items.append(updated_target)
+        self.store.save_document(settings, document)
+        return updated_target
 
     def _build_target(
         self,

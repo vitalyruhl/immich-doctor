@@ -175,10 +175,14 @@ class BackgroundJobRuntime:
                 result=result,
             )
         except Exception as exc:
+            failed_result = dict(handle.record.result)
+            failed_result["state"] = BackgroundJobState.FAILED.value
+            failed_result["summary"] = "Background job failed."
+            failed_result["error"] = str(exc)
             handle.mark_finished(
                 state=BackgroundJobState.FAILED,
                 summary="Background job failed.",
-                result=handle.record.result,
+                result=failed_result,
                 error=str(exc),
             )
         finally:

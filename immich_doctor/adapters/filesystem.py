@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+import shutil
 import stat
 import time
 from collections.abc import Callable
@@ -214,10 +215,10 @@ class FilesystemAdapter:
         if existing_path is None:
             return None
         try:
-            statvfs = os.statvfs(existing_path)
+            usage = shutil.disk_usage(existing_path)
         except OSError:
             return None
-        return statvfs.f_frsize * statvfs.f_bavail
+        return usage.free
 
     def scan_directory_usage(
         self,
