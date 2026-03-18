@@ -397,10 +397,21 @@ Set the Unraid Web UI field to:
 http://[IP]:[PORT]/
 ```
 
-## License recommendation
+## License
 
-This repository currently uses the MIT license.
+Copyright 2026 Vitaly Ruhl
 
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 
 ## Documentation
 
@@ -418,3 +429,30 @@ This repository currently uses the MIT license.
 - Pull requests are required for changes to `main`
 - CI and lint checks are intended to be required before merge
 
+
+<br>
+<br>
+
+
+## Donate
+
+<table align="center" width="100%" border="0" bgcolor:=#3f3f3f>
+<tr align="center">
+<td align="center">  
+if you prefer a one-time donation
+
+[![donate-Paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://paypal.me/FamilieRuhl)
+
+</td>
+
+<td align="center">  
+Become a patron, by simply clicking on this button (**very appreciated!**):
+
+[![Become a patron](https://c5.patreon.com/external/logo/become_a_patron_button.png)](https://www.patreon.com/join/6555448/checkout?ru=undefined)
+
+</td>
+</tr>
+</table>
+
+<br>
+<br>
