@@ -24,17 +24,23 @@ def test_backup_snapshots_route_returns_expected_shape(monkeypatch) -> None:
                     "kind": "pre_repair",
                     "coverage": "files_only",
                     "repairRunId": "repair-run-1",
-                    "verified": True,
                     "manifestPath": "/data/manifests/backup/snapshots/snapshot-1.json",
                     "fileArtifactCount": 1,
                     "hasDbArtifact": False,
                     "basicValidity": "valid",
-                    "validityMessage": "Snapshot metadata is structurally valid.",
+                    "validityMessage": (
+                        "Snapshot manifest structure is valid. "
+                        "Artifact content is not verified here."
+                    ),
                 }
             ],
             "limitations": [
-                "Current executable snapshot creation is files-only.",
-                "Restore orchestration is not implemented yet.",
+                "Current executable snapshot coverage is files-only.",
+                (
+                    "Snapshot visibility currently reports manifest structure only, "
+                    "not artifact-content integrity."
+                ),
+                "Restore execution is not implemented.",
             ],
         },
     )
@@ -69,16 +75,22 @@ def test_backup_files_route_returns_execution_result(monkeypatch) -> None:
                 "kind": snapshot_kind.value,
                 "coverage": "files_only",
                 "repairRunId": None,
-                "verified": False,
                 "manifestPath": "/data/manifests/backup/snapshots/snapshot-new.json",
                 "fileArtifactCount": 1,
                 "hasDbArtifact": False,
                 "basicValidity": "valid",
-                "validityMessage": "Snapshot metadata is structurally valid.",
+                "validityMessage": (
+                    "Snapshot manifest structure is valid. "
+                    "Artifact content is not verified here."
+                ),
             },
             "limitations": [
-                "Current executable snapshot creation is files-only.",
-                "Restore orchestration is not implemented yet.",
+                "Current executable snapshot coverage is files-only.",
+                (
+                    "Snapshot visibility currently reports manifest structure only, "
+                    "not artifact-content integrity."
+                ),
+                "Restore execution is not implemented.",
             ],
         },
     )
@@ -100,7 +112,7 @@ def test_backup_size_estimate_route_returns_expected_shape(monkeypatch) -> None:
             generatedAt="2026-03-18T20:00:00+00:00",
             jobId="job-1",
             state=BackgroundJobState.PARTIAL,
-            summary="Partial backup size data is available.",
+            summary="Backup size collection completed with partial data.",
             sourceScope="backup.files",
             collectedAt="2026-03-18T20:00:00+00:00",
             durationSeconds=2.5,
@@ -138,7 +150,7 @@ def test_backup_size_collect_route_returns_pending_job(monkeypatch) -> None:
             generatedAt="2026-03-18T20:00:00+00:00",
             jobId="job-2",
             state=BackgroundJobState.PENDING,
-            summary="Collecting backup size data has not started yet.",
+            summary="Backup size collection is pending.",
             sourceScope="backup.files",
             scopes=[],
             warnings=[],
@@ -208,7 +220,7 @@ def test_backup_target_validation_route_returns_expected_shape(monkeypatch) -> N
             "jobId": "validation-1",
             "targetId": target_id,
             "state": "completed",
-            "summary": "Target validation completed successfully.",
+            "summary": "Target validation completed for currently implemented checks.",
             "checks": [],
             "warnings": [],
         },
@@ -230,7 +242,7 @@ def test_backup_execution_current_route_returns_expected_shape(monkeypatch) -> N
             "generatedAt": "2026-03-18T20:00:00+00:00",
             "jobId": "execution-1",
             "state": "running",
-            "summary": "Backup execution is running.",
+            "summary": "Manual files-only backup is running.",
             "report": None,
             "snapshot": None,
             "warnings": [],

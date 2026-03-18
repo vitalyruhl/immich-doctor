@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -20,8 +22,17 @@ REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "d
 
 
 def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
-    app = FastAPI(title="immich-doctor API", version="0.1.0")
-    app.state.backup_job_runtime = BackgroundJobRuntime()
+    runtime = BackgroundJobRuntime()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            runtime.shutdown()
+
+    app = FastAPI(title="immich-doctor API", version="0.1.0", lifespan=lifespan)
+    app.state.backup_job_runtime = runtime
     app.include_router(backup_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(repair_router, prefix="/api")
@@ -44,10 +55,6 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
         elif request.url.path == "/" and response.status_code == 200:
             response.headers.setdefault("Cache-Control", "no-cache")
         return response
-
-    @app.on_event("shutdown")
-    def shutdown_background_runtime() -> None:
-        app.state.backup_job_runtime.shutdown()
 
     return app
 

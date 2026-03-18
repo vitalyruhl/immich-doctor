@@ -15,7 +15,7 @@ const backupStore = {
         lastTestResult: {
           checkedAt: "2026-03-18T20:00:00+00:00",
           status: "ready",
-          summary: "Target validation completed successfully.",
+          summary: "Target validation completed for currently implemented checks.",
           warnings: [],
           details: {},
         },
@@ -42,7 +42,7 @@ const backupStore = {
       lastTestResult: {
         checkedAt: "2026-03-18T20:00:00+00:00",
         status: "ready",
-        summary: "Target validation completed successfully.",
+        summary: "Target validation completed for currently implemented checks.",
         warnings: [],
         details: {},
       },
@@ -67,7 +67,7 @@ const backupStore = {
     lastTestResult: {
       checkedAt: "2026-03-18T20:00:00+00:00",
       status: "ready",
-      summary: "Target validation completed successfully.",
+      summary: "Target validation completed for currently implemented checks.",
       warnings: [],
       details: {},
     },
@@ -81,7 +81,7 @@ const backupStore = {
     updatedAt: "2026-03-18T20:00:00+00:00",
   },
   sizeEstimate: {
-    summary: "Partial backup size data is available for: Storage backup estimate.",
+    summary: "Backup size collection completed with partial data for: Storage backup estimate.",
     state: "partial",
     warnings: [],
     scopes: [
@@ -142,7 +142,7 @@ const backupStore = {
   },
   currentExecution: {
     state: "completed",
-    summary: "Backup execution completed.",
+    summary: "Manual files-only backup completed. Restore execution remains unavailable.",
     targetType: "local",
     warnings: [],
     report: {
@@ -156,16 +156,15 @@ const backupStore = {
       kind: "manual",
       coverage: "files_only",
       repairRunId: null,
-      verified: false,
       manifestPath: "/data/manifests/backup/snapshots/snapshot-1.json",
       fileArtifactCount: 1,
       hasDbArtifact: false,
       basicValidity: "valid",
-      validityMessage: "Snapshot metadata is structurally valid.",
+      validityMessage: "Snapshot manifest structure is valid. Artifact content is not verified here.",
     },
   },
   snapshots: {
-    limitations: ["Current executable snapshot creation is files-only."],
+    limitations: ["Current executable snapshot coverage is files-only."],
   },
   snapshotItems: [
     {
@@ -174,12 +173,11 @@ const backupStore = {
       kind: "manual",
       coverage: "files_only",
       repairRunId: null,
-      verified: false,
       manifestPath: "/data/manifests/backup/snapshots/snapshot-1.json",
       fileArtifactCount: 1,
       hasDbArtifact: false,
       basicValidity: "valid",
-      validityMessage: "Snapshot metadata is structurally valid.",
+      validityMessage: "Snapshot manifest structure is valid. Artifact content is not verified here.",
     },
   ],
   quarantine: {
@@ -237,7 +235,7 @@ describe("BackupView", () => {
 
     expect(wrapper.text()).toContain("Source size estimate");
     expect(wrapper.text()).toContain("Local Backup");
-    expect(wrapper.text()).toContain("Backup execution completed.");
+    expect(wrapper.text()).toContain("Manual files-only backup completed. Restore execution remains unavailable.");
     expect(wrapper.text()).toContain("snapshot-1");
   });
 

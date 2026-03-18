@@ -88,7 +88,7 @@ class ManualBackupExecutionService:
             "coverage": "files_only",
             "restoreReadiness": "not_implemented",
             "state": "pending",
-            "summary": "Backup execution queued.",
+            "summary": "Manual files-only backup is pending.",
             "report": None,
             "snapshot": None,
             "warnings": list(target.warnings),
@@ -97,7 +97,7 @@ class ManualBackupExecutionService:
             settings,
             job_type=BACKUP_EXECUTION_JOB_TYPE,
             initial_result=pending,
-            summary="Backup execution queued.",
+            summary="Manual files-only backup is pending.",
             runner=lambda handle: self._run_execution(
                 handle,
                 target_id=target_id,
@@ -132,7 +132,10 @@ class ManualBackupExecutionService:
                 "coverage": "files_only",
                 "restoreReadiness": "not_implemented",
                 "state": validation["state"],
-                "summary": "Backup execution cannot start because target validation did not pass.",
+                "summary": (
+                    "Manual files-only backup cannot start because target validation "
+                    "did not pass."
+                ),
                 "report": {
                     "verificationLevel": VerificationLevel.NONE.value,
                     "warnings": list(validation["warnings"]),
@@ -166,7 +169,7 @@ class ManualBackupExecutionService:
 
         handle.update(
             state=BackgroundJobState.RUNNING,
-            summary="Backup execution is running.",
+            summary="Manual files-only backup is running.",
             result={
                 "generatedAt": datetime.now(UTC).isoformat(),
                 "jobId": handle.record.job_id,
@@ -176,7 +179,7 @@ class ManualBackupExecutionService:
                 "coverage": "files_only",
                 "restoreReadiness": "not_implemented",
                 "state": "running",
-                "summary": "Backup execution is running.",
+                "summary": "Manual files-only backup is running.",
                 "report": planned,
                 "snapshot": None,
                 "warnings": list(target.warnings),
@@ -251,7 +254,9 @@ class ManualBackupExecutionService:
             "coverage": "files_only",
             "restoreReadiness": "not_implemented",
             "state": "completed",
-            "summary": "Backup execution completed.",
+            "summary": (
+                "Manual files-only backup completed. Restore execution remains unavailable."
+            ),
             "report": {
                 "sourceScope": "files_only",
                 "targetType": target.target_type.value,
@@ -392,7 +397,7 @@ class ManualBackupExecutionService:
             "generatedAt": datetime.now(UTC).isoformat(),
             "jobId": None,
             "state": "pending",
-            "summary": "No manual backup execution has started yet.",
+            "summary": "Manual files-only backup has not run yet.",
             "report": None,
             "snapshot": None,
             "warnings": [],

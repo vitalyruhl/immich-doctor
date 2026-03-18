@@ -40,8 +40,9 @@ class BackupTargetSettingsService:
             "limitations": [
                 "Target configuration is persisted locally under the configured "
                 "config path or data/config when CONFIG_PATH is unset.",
-                "SMB targets are configuration and validation only in this phase; "
-                "productive SMB backup execution is intentionally disabled.",
+                "SMB targets are configuration, validation, and mount-planning "
+                "only in this phase; productive SMB backup execution is "
+                "intentionally disabled.",
                 "Restore readiness remains not implemented even when backup "
                 "targets are configured.",
             ],
@@ -214,8 +215,8 @@ class BackupTargetSettingsService:
         warnings: list[str] = []
         if payload.target_type == BackupTargetType.SMB:
             warnings.append(
-                "SMB targets are configuration and validation only in this phase; "
-                "productive execution is disabled."
+                "SMB targets are configuration, validation, and mount-planning "
+                "only in this phase; productive execution is disabled."
             )
         if payload.target_type in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
             warnings.append(

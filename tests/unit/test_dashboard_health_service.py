@@ -75,7 +75,10 @@ def test_dashboard_health_service_uses_real_checks_when_available(tmp_path) -> N
             ValidationReport(
                 domain="backup",
                 action="verify",
-                summary="Backup verification completed.",
+                summary=(
+                    "Backup verification completed for current target-readiness "
+                    "and snapshot-manifest checks."
+                ),
                 checks=[
                     CheckResult(
                         name="backup_target_configured",

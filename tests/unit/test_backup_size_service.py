@@ -58,7 +58,7 @@ def test_backup_size_service_reuses_fresh_cached_snapshot(tmp_path: Path) -> Non
             generatedAt=datetime(2026, 3, 18, 12, 0, tzinfo=UTC).isoformat(),
             jobId="cached-job",
             state=BackgroundJobState.COMPLETED,
-            summary="Backup size data collection completed.",
+            summary="Backup size collection completed.",
             sourceScope="backup.files",
             collectedAt=datetime(2026, 3, 18, 12, 0, tzinfo=UTC).isoformat(),
             scopes=[
@@ -109,7 +109,7 @@ def test_backup_size_service_persists_background_progress(tmp_path: Path) -> Non
                 generatedAt=datetime.now(UTC).isoformat(),
                 jobId=job_id,
                 state=BackgroundJobState.PENDING,
-                summary="Pending.",
+                summary="Backup size collection is pending.",
                 sourceScope="backup.files",
             )
 
@@ -133,11 +133,11 @@ def test_backup_size_service_persists_background_progress(tmp_path: Path) -> Non
                     generatedAt=datetime.now(UTC).isoformat(),
                     jobId=job_id,
                     state=BackgroundJobState.RUNNING,
-                    summary="Running.",
+                    summary="Backup size collection is running.",
                     sourceScope="backup.files",
                     progress=BackupSizeProgress(
                         scope="storage",
-                        message="Collecting storage size data.",
+                        message="Backup size collection is running.",
                         current=1,
                         unit="files",
                     ),
@@ -147,7 +147,7 @@ def test_backup_size_service_persists_background_progress(tmp_path: Path) -> Non
                 generatedAt=datetime.now(UTC).isoformat(),
                 jobId=job_id,
                 state=BackgroundJobState.COMPLETED,
-                summary="Completed.",
+                summary="Backup size collection completed.",
                 sourceScope="backup.files",
                 collectedAt=datetime.now(UTC).isoformat(),
             )
@@ -165,7 +165,7 @@ def test_backup_size_service_persists_background_progress(tmp_path: Path) -> Non
 
         latest = service.get_snapshot(settings)
         assert latest.state == BackgroundJobState.COMPLETED
-        assert latest.summary == "Completed."
+        assert latest.summary == "Backup size collection completed."
     finally:
         runtime.shutdown()
 
@@ -176,7 +176,7 @@ def test_backup_size_collector_marks_stale_snapshots() -> None:
         generatedAt=datetime(2026, 3, 18, 12, 0, tzinfo=UTC).isoformat(),
         jobId="job-1",
         state=BackgroundJobState.COMPLETED,
-        summary="Completed.",
+        summary="Backup size collection completed.",
         sourceScope="backup.files",
         collectedAt=(datetime(2026, 3, 18, 12, 0, tzinfo=UTC) - timedelta(hours=2)).isoformat(),
     )

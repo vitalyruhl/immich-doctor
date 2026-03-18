@@ -123,6 +123,36 @@ Backup UI rules:
 
 - never show restore-ready or disaster-recovery-ready wording unless the backend says so
 - files-only backup must stay labeled as files-only
+- local plus safe-subset SSH/rsync execution must stay distinct from SMB configuration, validation, and mount-planning only targets
 - target warnings must be visible before execution
+- verification labels must describe the actual assurance level and must not imply end-to-end integrity proof
+- snapshot cards must describe manifest-structure status separately from artifact-content verification
 - pending, running, partial, failed, unsupported, and canceled states must remain visible
 - secret inputs may be sent to the backend on create/update, but UI state and later reads must only show masked secret references
+
+Canonical backup machine values and UI/doc meanings:
+
+- job state `pending`: queued or not yet started; never implies data was collected
+- job state `running`: actively collecting, validating, or transferring
+- job state `partial`: finished with only partial data, partial validation coverage, or warnings that materially limit confidence
+- job state `completed`: finished successfully for the currently implemented scope only; never implies restore-readiness
+- job state `failed`: finished unsuccessfully
+- job state `unsupported`: current implementation cannot safely cover the requested configuration or scope
+- job state `cancel_requested`: cancellation was requested but the job has not reached a terminal state yet
+- job state `canceled`: the job stopped after cancellation
+- backup coverage `files_only`: file scope only; use the human label `files-only`
+- verification level `none`: no verification beyond task outcome
+- verification level `transport_success_only`: the transfer process reported success
+- verification level `destination_exists`: destination existence was checked in addition to transport success
+- verification level `basic_manifest_verified`: only manifest structure checks passed
+- restore readiness `not_implemented`: no restore execution is available
+- restore readiness `partial`: some restore planning/readiness signals exist, but no full restore guarantee exists
+- snapshot basic validity `valid`: manifest structure is valid
+- snapshot basic validity `invalid`: manifest structure is invalid
+
+Terminology rules:
+
+- `ready` in target verification status means validated for currently implemented checks only
+- `snapshot` means a persisted backup record with manifest metadata; it is not automatically a full restore point
+- `manifest` means the persisted JSON metadata record; it is not artifact-content verification
+- `stale` means cached size-estimate data is older than the freshness window and should be treated as aged data

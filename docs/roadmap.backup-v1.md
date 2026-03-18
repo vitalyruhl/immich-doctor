@@ -15,9 +15,16 @@ Current repo note:
 - Full restore is now modeled as deterministic simulation/instruction output,
   but broad automated restore execution is still not implemented.
 
+Current shipped scope:
+- manual files-only execution exists for local and safe-subset SSH/rsync targets
+- SMB targets are configuration, validation, and mount-planning only
+- restore execution is not implemented
+- current verification remains limited to transport/destination/manifest-structure signals
+- aggressive parallel rsync is not enabled by default
+
 ---
 
-# Vision
+# Vision (roadmap target, not current shipped scope)
 
 Backup V1 shall provide a reproducible, transportable backup set that allows building a separate test/repair Immich instance later.
 

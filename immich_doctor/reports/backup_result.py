@@ -29,7 +29,7 @@ def render_backup_result_text(result: BackupResult) -> str:
             )
 
     if result.snapshot is not None:
-        lines.append("Snapshot:")
+        lines.append("Snapshot Record:")
         lines.append(
             f"- id={result.snapshot.snapshot_id}, kind={result.snapshot.kind.value}, "
             f"coverage={result.snapshot.coverage.value}, "

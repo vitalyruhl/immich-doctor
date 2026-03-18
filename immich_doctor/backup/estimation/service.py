@@ -45,7 +45,7 @@ class BackupSizeCollector:
             generatedAt=timestamp,
             jobId=job_id,
             state=BackgroundJobState.PENDING,
-            summary="Collecting backup size data has not started yet.",
+            summary="Backup size collection is pending.",
             sourceScope="backup.files",
             scopes=[
                 BackupSizeScopeEstimate(
@@ -89,10 +89,10 @@ class BackupSizeCollector:
             self.pending_snapshot(job_id=job_id).model_copy(
                 update={
                     "state": BackgroundJobState.RUNNING,
-                    "summary": "Collecting backup size data.",
+                    "summary": "Backup size collection is running.",
                     "progress": BackupSizeProgress(
                         scope="database",
-                        message="Collecting backup size data.",
+                        message="Backup size collection is running.",
                         current=0,
                         unit="scopes",
                     ),
@@ -113,7 +113,7 @@ class BackupSizeCollector:
                 scope_results=scope_results + [self._running_storage_placeholder()],
                 progress=BackupSizeProgress(
                     scope="storage",
-                    message="Collecting storage size data.",
+                    message="Backup size collection is running.",
                     current=1,
                     total=2,
                     unit="scopes",
@@ -436,23 +436,24 @@ class BackupSizeCollector:
         scope_results: list[BackupSizeScopeEstimate],
     ) -> str:
         if state == BackgroundJobState.PENDING:
-            return "Collecting backup size data has not started yet."
+            return "Backup size collection is pending."
         if state == BackgroundJobState.RUNNING:
-            return "Collecting backup size data."
+            return "Backup size collection is running."
         if state == BackgroundJobState.COMPLETED:
-            return "Backup size data collection completed."
+            return "Backup size collection completed."
         if state == BackgroundJobState.UNSUPPORTED:
-            return "Backup size data collection is unsupported for the current configuration."
+            return "Backup size collection is unsupported for the current configuration."
         if state == BackgroundJobState.CANCELED:
-            return "Backup size data collection was canceled."
+            return "Backup size collection was canceled."
         if state == BackgroundJobState.FAILED:
-            return "Backup size data collection failed."
+            return "Backup size collection failed."
         completed_scopes = [
             scope.label for scope in scope_results if scope.state == BackgroundJobState.COMPLETED
         ]
         if completed_scopes:
-            return f"Partial backup size data is available for: {', '.join(completed_scopes)}."
-        return "Backup size data collection produced only partial results."
+            scope_list = ", ".join(completed_scopes)
+            return f"Backup size collection completed with partial data for: {scope_list}."
+        return "Backup size collection completed with partial data."
 
     def _category_path_map(self, settings: AppSettings) -> dict[str, tuple[str, str]]:
         library_root = settings.immich_library_root

@@ -9,6 +9,8 @@ export type BackupJobState =
   | "canceled";
 
 export type BackupTargetType = "local" | "smb" | "ssh" | "rsync";
+export type BackupSnapshotCoverage = "files_only" | "db_only" | "paired";
+export type BackupRequestedKind = "manual" | "pre_repair";
 export type BackupTargetVerificationStatus =
   | "unknown"
   | "ready"
@@ -16,18 +18,24 @@ export type BackupTargetVerificationStatus =
   | "failed"
   | "running"
   | "unsupported";
+export type BackupRestoreReadiness = "not_implemented" | "partial";
+export type BackupVerificationLevel =
+  | "none"
+  | "transport_success_only"
+  | "destination_exists"
+  | "basic_manifest_verified";
+export type BackupSnapshotBasicValidity = "valid" | "invalid";
 
 export interface BackupSnapshotSummary {
   snapshotId: string;
   createdAt: string;
   kind: "pre_repair" | "post_repair" | "periodic" | "manual";
-  coverage: "files_only" | "db_only" | "paired";
+  coverage: BackupSnapshotCoverage;
   repairRunId: string | null;
-  verified: boolean;
   manifestPath: string;
   fileArtifactCount: number;
   hasDbArtifact: boolean;
-  basicValidity: "valid" | "invalid";
+  basicValidity: BackupSnapshotBasicValidity;
   validityMessage: string;
 }
 
@@ -128,7 +136,7 @@ export interface BackupTargetConfig {
     completedAt: string;
     sourceScope: string;
     bytesTransferred?: number | null;
-    verificationLevel: string;
+    verificationLevel: BackupVerificationLevel;
     snapshotId?: string | null;
   } | null;
   retentionPolicy: {
@@ -136,7 +144,7 @@ export interface BackupTargetConfig {
     maxVersions?: number | null;
     pruneAutomatically: boolean;
   };
-  restoreReadiness: "not_implemented" | "partial";
+  restoreReadiness: BackupRestoreReadiness;
   sourceScope: string;
   schedulingCompatible: boolean;
   warnings: string[];
@@ -175,9 +183,9 @@ export interface BackupExecutionStatusResponse {
   jobId: string | null;
   targetId?: string;
   targetType?: BackupTargetType;
-  requestedKind?: "manual" | "pre_repair";
-  coverage?: string;
-  restoreReadiness?: string;
+  requestedKind?: BackupRequestedKind;
+  coverage?: BackupSnapshotCoverage;
+  restoreReadiness?: BackupRestoreReadiness;
   state: BackupJobState;
   summary: string;
   report?: {
@@ -188,7 +196,7 @@ export interface BackupExecutionStatusResponse {
     fileCounts?: { planned?: number | null; transferred?: number | null } | null;
     durationSeconds?: number | null;
     warnings?: string[];
-    verificationLevel?: string;
+    verificationLevel?: BackupVerificationLevel;
     versionId?: string;
     snapshotId?: string;
     validationChecks?: Array<{ name: string; status: string; message: string }>;

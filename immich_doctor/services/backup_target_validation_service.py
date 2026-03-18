@@ -66,7 +66,7 @@ class BackupTargetValidationService:
             "targetId": target_id,
             "targetType": target.target_type.value,
             "state": BackgroundJobState.PENDING.value,
-            "summary": "Target validation queued.",
+            "summary": "Target validation is pending.",
             "checks": [],
             "warnings": [],
         }
@@ -78,7 +78,7 @@ class BackupTargetValidationService:
             settings,
             job_type=_validation_job_type(target_id),
             initial_result=pending,
-            summary="Target validation queued.",
+            summary="Target validation is pending.",
             runner=lambda handle: self._run_validation(handle, target_id=target_id),
         )
         pending["jobId"] = record.job_id
@@ -273,8 +273,8 @@ class BackupTargetValidationService:
                 name="smb_execution_mode",
                 status=CheckStatus.SKIP,
                 message=(
-                    "SMB targets are configuration and validation only in this phase; "
-                    "productive SMB execution is disabled."
+                    "SMB targets are configuration, validation, and mount-planning "
+                    "only in this phase; productive SMB execution is disabled."
                 ),
             )
         ]
@@ -299,7 +299,7 @@ class BackupTargetValidationService:
                 CheckResult(
                     name="smb_mount_plan",
                     status=CheckStatus.WARN,
-                    message="SMB system mount validation is planning-only in this phase.",
+                    message="SMB system mount checks are mount-planning only in this phase.",
                 )
             )
         return checks
@@ -317,12 +317,12 @@ class BackupTargetValidationService:
     def _summary_from_checks(self, checks: list[CheckResult]) -> str:
         state = self._status_from_checks(checks)
         if state == BackgroundJobState.COMPLETED:
-            return "Target validation completed successfully."
+            return "Target validation completed for currently implemented checks."
         if state == BackgroundJobState.UNSUPPORTED:
-            return "Target validation is only partially supported for this target."
+            return "Target validation is unsupported for part of this target in the current phase."
         if state == BackgroundJobState.FAILED:
             return "Target validation failed."
-        return "Target validation completed with warnings."
+        return "Target validation completed with warnings for currently implemented checks."
 
     def _verification_status_from_state(
         self,

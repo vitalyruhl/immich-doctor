@@ -73,7 +73,10 @@ class BackupVerifyService:
         return ValidationReport(
             domain="backup",
             action="verify",
-            summary="Backup verification completed.",
+            summary=(
+                "Backup verification completed for current target-readiness and "
+                "snapshot-manifest checks."
+            ),
             checks=checks,
             metadata={"environment": settings.environment},
         )
@@ -138,7 +141,7 @@ class BackupVerifyService:
                 CheckResult(
                     name=f"backup_snapshot:{snapshot.snapshot_id}",
                     status=CheckStatus.PASS,
-                    message="Snapshot manifest structure is consistent with declared coverage.",
+                    message="Snapshot manifest structure matches declared snapshot coverage.",
                     details={
                         "snapshot_id": snapshot.snapshot_id,
                         "kind": snapshot.kind.value,
@@ -154,7 +157,7 @@ class BackupVerifyService:
                 CheckResult(
                     name="backup_snapshot_reference_integrity",
                     status=CheckStatus.PASS,
-                    message="Snapshot manifests passed current structural integrity checks.",
+                    message="Snapshot manifests passed current manifest-structure checks.",
                 )
             )
         return checks

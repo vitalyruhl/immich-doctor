@@ -71,7 +71,7 @@ Placement rules:
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
 - backup.files: versioned local file backup execution through the backup application layer
-- backup.verify: backup target readiness and required tool presence
+- backup.verify: current backup target-readiness and required tool presence
 - backup.restore: deterministic full-restore simulation and readiness analysis
 - repair.undo: targeted undo planning and execution for currently supported journal-backed actions
 - remote.sync: older separate remote-scope diagnostics and repair flow; not the
@@ -247,7 +247,7 @@ Implemented now:
 - versioned destination generation from one authoritative backup context timestamp
 - target resolution through `BackupLocationResolver`
 - structured `BackupResult` and traceable `BackupArtifact` metadata
-- persisted `BackupSnapshot` manifests under `data/manifests/backup/snapshots/`
+- persisted `BackupSnapshot` records and manifest files under `data/manifests/backup/snapshots/`
 - explicit snapshot kinds: `manual`, `pre_repair`, `post_repair`, `periodic`
 - explicit snapshot coverage: `files_only`, `db_only`, `paired`
 
@@ -312,6 +312,8 @@ Current API constraints:
 - repair and backup safety visibility endpoints must expose real persisted
   state only; they must not imply that automated undo, quarantine execution,
   or restore orchestration already exists
+- backup execution reporting must keep verification levels conservative and must
+  not imply artifact-content integrity or disaster-recovery readiness
 - targeted undo may only execute for journal-backed actions with explicit safe
   undo payloads; unsupported repair domains must surface blockers instead of
   claiming reversibility
@@ -335,7 +337,7 @@ Current safety visibility in the UI includes:
 
 - runtime apply readiness and blocking preconditions
 - persisted repair run history and journal entries
-- persisted backup snapshot manifests
+- persisted backup snapshot records
 - non-blocking backup size estimation state
 - explicit backup target inventory and validation state
 - real manual files-backup execution for local plus safe-subset SSH/rsync targets
@@ -346,6 +348,8 @@ Current exclusions remain explicit:
 
 - no broad restore automation
 - no quarantine move/restore workflow
+- no productive SMB backup execution
+- no strong end-to-end backup integrity verification yet
 
 ## UI-to-backend contract rule
 
