@@ -28,8 +28,8 @@ class BackupExecutionService:
                 summarize_backup_snapshot(result.snapshot) if result.snapshot is not None else None
             ),
             "limitations": [
-                "Current executable snapshot creation is files-only.",
-                "Restore orchestration is not implemented yet.",
+                "Current executable snapshot coverage is files-only.",
+                "Restore execution is not implemented.",
             ],
         }
 

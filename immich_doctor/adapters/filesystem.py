@@ -2,11 +2,33 @@ from __future__ import annotations
 
 import errno
 import os
+import shutil
 import stat
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
 from immich_doctor.core.models import CheckResult, CheckStatus
+
+
+class DirectoryScanTimeoutError(RuntimeError):
+    """Raised when a directory usage scan exceeds the configured deadline."""
+
+
+class DirectoryScanCanceledError(RuntimeError):
+    """Raised when a directory usage scan is canceled safely."""
+
+
+@dataclass(slots=True, frozen=True)
+class DirectoryUsageSummary:
+    total_bytes: int
+    file_count: int
+    directory_count: int
+    other_entry_count: int
+    error_count: int
+    error_samples: tuple[dict[str, str], ...]
 
 
 class FilesystemAdapter:
@@ -180,6 +202,130 @@ class FilesystemAdapter:
             return False
         return True
 
+    def nearest_existing_path(self, path: Path) -> Path | None:
+        current = path
+        while not current.exists() and current != current.parent:
+            current = current.parent
+        if current.exists():
+            return current
+        return None
+
+    def free_space_bytes(self, path: Path) -> int | None:
+        existing_path = self.nearest_existing_path(path)
+        if existing_path is None:
+            return None
+        try:
+            usage = shutil.disk_usage(existing_path)
+        except OSError:
+            return None
+        return usage.free
+
+    def scan_directory_usage(
+        self,
+        path: Path,
+        *,
+        on_file: Callable[[Path, int], None] | None = None,
+        on_progress: Callable[[dict[str, object]], None] | None = None,
+        cancel_requested: Callable[[], bool] | None = None,
+        deadline_monotonic: float | None = None,
+        progress_interval_seconds: float = 0.5,
+        progress_every_files: int = 1000,
+        error_sample_limit: int = 5,
+    ) -> DirectoryUsageSummary:
+        stack: list[Path] = [path]
+        total_bytes = 0
+        file_count = 0
+        directory_count = 0
+        other_entry_count = 0
+        error_count = 0
+        error_samples: list[dict[str, str]] = []
+        last_progress = 0.0
+
+        while stack:
+            self._raise_if_scan_should_stop(
+                cancel_requested=cancel_requested,
+                deadline_monotonic=deadline_monotonic,
+            )
+            current_directory = stack.pop()
+            directory_count += 1
+
+            try:
+                with os.scandir(current_directory) as iterator:
+                    for entry in iterator:
+                        self._raise_if_scan_should_stop(
+                            cancel_requested=cancel_requested,
+                            deadline_monotonic=deadline_monotonic,
+                        )
+                        try:
+                            entry_path = Path(entry.path)
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry_path)
+                            elif entry.is_file(follow_symlinks=False):
+                                entry_stat = entry.stat(follow_symlinks=False)
+                                total_bytes += entry_stat.st_size
+                                file_count += 1
+                                if on_file is not None:
+                                    on_file(entry_path, entry_stat.st_size)
+                            else:
+                                other_entry_count += 1
+                        except OSError as exc:
+                            error_count += 1
+                            if len(error_samples) < error_sample_limit:
+                                error_samples.append(
+                                    {
+                                        "path": entry.path,
+                                        "message": str(exc),
+                                    }
+                                )
+
+                        now = time.monotonic()
+                        if on_progress is not None and (
+                            file_count == 1
+                            or file_count % progress_every_files == 0
+                            or now - last_progress >= progress_interval_seconds
+                        ):
+                            on_progress(
+                                {
+                                    "current": file_count,
+                                    "unit": "files",
+                                    "message": "Collecting storage size data.",
+                                    "current_path": entry.path,
+                                    "bytes": total_bytes,
+                                    "directories": directory_count,
+                                }
+                            )
+                            last_progress = now
+            except OSError as exc:
+                error_count += 1
+                if len(error_samples) < error_sample_limit:
+                    error_samples.append(
+                        {
+                            "path": current_directory.as_posix(),
+                            "message": str(exc),
+                        }
+                    )
+
+        if on_progress is not None:
+            on_progress(
+                {
+                    "current": file_count,
+                    "unit": "files",
+                    "message": "Storage size collection completed.",
+                    "current_path": path.as_posix(),
+                    "bytes": total_bytes,
+                    "directories": directory_count,
+                }
+            )
+
+        return DirectoryUsageSummary(
+            total_bytes=total_bytes,
+            file_count=file_count,
+            directory_count=directory_count,
+            other_entry_count=other_entry_count,
+            error_count=error_count,
+            error_samples=tuple(error_samples),
+        )
+
     def _directory_state(self, name: str, path: Path) -> CheckResult | None:
         try:
             path_stat = path.stat()
@@ -235,3 +381,14 @@ class FilesystemAdapter:
             "reason": "write_probe_failed",
             "message": f"Configured directory write probe failed: {exc.strerror or exc}.",
         }
+
+    def _raise_if_scan_should_stop(
+        self,
+        *,
+        cancel_requested: Callable[[], bool] | None,
+        deadline_monotonic: float | None,
+    ) -> None:
+        if cancel_requested is not None and cancel_requested():
+            raise DirectoryScanCanceledError("Directory usage scan was canceled.")
+        if deadline_monotonic is not None and time.monotonic() > deadline_monotonic:
+            raise DirectoryScanTimeoutError("Directory usage scan timed out.")

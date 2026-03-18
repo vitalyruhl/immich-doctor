@@ -17,12 +17,14 @@ def summarize_backup_snapshot(snapshot: BackupSnapshot) -> dict[str, object]:
         "kind": snapshot.kind.value,
         "coverage": snapshot.coverage.value,
         "repairRunId": snapshot.repair_run_id,
-        "verified": snapshot.verified,
         "manifestPath": snapshot.manifest_path.as_posix(),
         "fileArtifactCount": len(snapshot.file_artifacts),
         "hasDbArtifact": snapshot.db_artifact is not None,
         "basicValidity": "valid" if consistency_error is None else "invalid",
-        "validityMessage": consistency_error or "Snapshot metadata is structurally valid.",
+        "validityMessage": (
+            consistency_error
+            or "Snapshot manifest structure is valid. Artifact content is not verified here."
+        ),
     }
 
 
@@ -38,7 +40,11 @@ class BackupSnapshotVisibilityService:
             "generatedAt": datetime.now(UTC).isoformat(),
             "items": items,
             "limitations": [
-                "Current executable snapshot creation is files-only.",
-                "Restore orchestration is not implemented yet.",
+                "Current executable snapshot coverage is files-only.",
+                (
+                    "Snapshot visibility currently reports manifest structure only, "
+                    "not artifact-content integrity."
+                ),
+                "Restore execution is not implemented.",
             ],
         }

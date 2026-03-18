@@ -32,7 +32,8 @@ Current MVP scope:
 - persisted repair-run and repair-journal foundation for later reversible repair flows
 - drift-protected plan tokens for inspect -> plan -> apply binding
 - quarantine index foundation for later quarantine-first file handling
-- persisted backup snapshot manifests with explicit files-only vs paired coverage modeling
+- persisted backup snapshot records with manifest metadata and explicit
+  files-only vs paired coverage modeling
 - pre-repair snapshot creation for integrated mutating repair flows
 - GUI visibility for repair runs, journal entries, backup snapshots, and quarantine foundation
 - targeted undo for journal-backed runtime permission repairs
@@ -40,7 +41,11 @@ Current MVP scope:
 - storage path validation
 - storage permission validation
 - file backup execution through a thin backup application flow
-- backup target verification
+- backup target validation
+- non-blocking backup size estimation with persisted background job state
+- explicit manual backup target configuration for local, SSH, rsync, and SMB planning
+- target validation state and manual backup execution state in the API/UI
+- tiered backup execution reporting with explicit verification level
 - minimal API health endpoint for the dashboard
 - database health validation
 - database index inspection
@@ -55,8 +60,10 @@ Not in scope yet:
 - no quarantine moves yet
 - no DB backup
 - no metadata backup
-- no remote backup targets
-- no retention
+- no productive SMB backup execution
+- no password-based SSH execution support
+- no aggressive parallel rsync default
+- no automated retention deletion
 - no broad full restore execution yet
 - no backup-all orchestration
 
@@ -216,6 +223,8 @@ Implemented now:
 - DB index inspection with compact default output and verbose details
 - `backup files` as a thin local file backup flow on top of the backup foundation,
   now with persisted snapshot metadata
+- manual files-only execution through the API/UI for local plus safe-subset
+  SSH/rsync targets, with SMB kept at configuration and validation planning only
 
 Planned next:
 
@@ -223,6 +232,8 @@ Planned next:
 - metadata capture
 - paired DB + file snapshots
 - backup-all orchestration
+- stronger restore-readiness verification
+- scheduled backup orchestration on top of the same target model
 
 `consistency validate` is the canonical server-side consistency overview. It
 groups findings by stable categories, supports only
@@ -281,8 +292,8 @@ The GUI now exposes real safety context before broader repair rollout:
 - persisted `RepairRun` and journal visibility
 - backup snapshot visibility with explicit files-only coverage labeling
 - real backup execution actions for:
-  - `Perform Backup`
-  - `Create Pre-Repair Snapshot`
+  - `Start Files-Only Backup`
+  - `Create Files-Only Pre-Repair Snapshot`
 - quarantine foundation visibility without pretending move/restore is already implemented
 
 Undo visibility now exists in the GUI through persisted journal data. Automated
@@ -319,15 +330,27 @@ repairs are still not undoable through the tool.
 `backup files` now persists one snapshot manifest under
 `data/manifests/backup/snapshots/<snapshot_id>.json` for every successful run.
 Snapshot metadata includes kind, coverage, source fingerprint, file artifacts,
-nullable DB artifact, verification flag, and optional `repair_run_id`.
+nullable DB artifact, a persisted internal verification flag, and optional
+`repair_run_id`. The API/UI expose only conservative manifest-structure status,
+not end-to-end artifact verification.
 
-`backup verify` still checks backup target readiness and now also validates
-persisted snapshot manifest structure and coverage consistency. It does not yet
+`backup verify` still checks current backup target-readiness and now also
+validates persisted snapshot-manifest structure and declared coverage. It does
+not yet
 claim full artifact-content verification or restore readiness.
 
 `backup restore simulate` now provides deterministic restore-readiness output,
 snapshot selection, blockers, and environment-aware manual steps. It does not
 execute destructive full restore operations in this phase.
+
+Manual backup targets in the API/UI are intentionally constrained:
+
+- local targets can execute files-only manual backups
+- SSH and rsync targets can execute files-only manual backups only for the
+  current private-key transport subset
+- SMB targets are configuration, validation, and mount-planning only
+- reported verification levels remain limited to transport or destination
+  existence checks unless stronger verification is implemented later
 
 The API/UI surface for current repair and backup safety visibility now also includes:
 
@@ -338,6 +361,17 @@ The API/UI surface for current repair and backup safety visibility now also incl
 - `POST /api/repair/runs/{repair_run_id}/undo`
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
+- `GET /api/backup/size-estimate`
+- `POST /api/backup/size-estimate/collect`
+- `GET /api/backup/targets`
+- `POST /api/backup/targets`
+- `PUT /api/backup/targets/{target_id}`
+- `DELETE /api/backup/targets/{target_id}`
+- `GET /api/backup/targets/{target_id}/validation`
+- `POST /api/backup/targets/{target_id}/validate`
+- `GET /api/backup/executions/current`
+- `POST /api/backup/executions`
+- `POST /api/backup/executions/cancel`
 - `GET /api/restore/simulate`
 
 ## Docker
@@ -379,10 +413,21 @@ Set the Unraid Web UI field to:
 http://[IP]:[PORT]/
 ```
 
-## License recommendation
+## License
 
-This repository currently uses the MIT license.
+Copyright 2026 Vitaly Ruhl
 
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 
 ## Documentation
 
@@ -400,3 +445,30 @@ This repository currently uses the MIT license.
 - Pull requests are required for changes to `main`
 - CI and lint checks are intended to be required before merge
 
+
+<br>
+<br>
+
+
+## Donate
+
+<table align="center" width="100%" border="0" bgcolor:=#3f3f3f>
+<tr align="center">
+<td align="center">  
+if you prefer a one-time donation
+
+[![donate-Paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://paypal.me/FamilieRuhl)
+
+</td>
+
+<td align="center">  
+Become a patron, by simply clicking on this button (**very appreciated!**):
+
+[![Become a patron](https://c5.patreon.com/external/logo/become_a_patron_button.png)](https://www.patreon.com/join/6555448/checkout?ru=undefined)
+
+</td>
+</tr>
+</table>
+
+<br>
+<br>

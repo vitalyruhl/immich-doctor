@@ -59,6 +59,16 @@ class PostgresAdapter:
             message=message,
         )
 
+    def fetch_database_size_bytes(self, dsn: str, timeout_seconds: int) -> int:
+        rows = fetch_all(
+            dsn,
+            timeout_seconds,
+            "SELECT pg_database_size(current_database()) AS size_bytes;",
+        )
+        if not rows:
+            raise ValueError("Database size query returned no rows.")
+        return int(rows[0]["size_bytes"])
+
     def list_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_ALL_INDEXES_QUERY)
 

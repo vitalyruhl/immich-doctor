@@ -71,7 +71,7 @@ Placement rules:
 - storage.paths: storage path existence and structural relationships
 - storage.permissions: readability, writability, and mount safety
 - backup.files: versioned local file backup execution through the backup application layer
-- backup.verify: backup target readiness and required tool presence
+- backup.verify: current backup target-readiness and required tool presence
 - backup.restore: deterministic full-restore simulation and readiness analysis
 - repair.undo: targeted undo planning and execution for currently supported journal-backed actions
 - remote.sync: older separate remote-scope diagnostics and repair flow; not the
@@ -154,7 +154,7 @@ Contains infrastructure-facing code such as:
 Reserved for PostgreSQL-specific connection and query helpers that may later grow
 beyond simple connectivity checks.
 
-## Backup domain foundation (WIP)
+## Backup domain foundation
 
 The backup domain now has a dedicated internal foundation package layout that is
 prepared for later implementation work without exposing new user-facing commands.
@@ -194,7 +194,7 @@ local rsync foundation. Phase 3 now adds the first thin user-facing backup
 command without expanding into DB backup, metadata capture, remote targets, or
 backup-all orchestration.
 
-### Backup files rsync foundation (WIP)
+### Backup files rsync foundation
 
 Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`.
 
@@ -204,17 +204,22 @@ Current file-backup internals are limited to:
 - deterministic versioned destination path generation
 - safe rsync command construction with non-destructive defaults
 - a local executor abstraction that runs rsync via argument lists only
+- a managed rsync transfer executor for asynchronous manual backup jobs
+- explicit target configuration persistence under the config path
+- local secret-reference storage for backup transports
 
 Explicit constraints for this phase:
 
-- local paths only
-- no remote transport
+- no DB backup coupling
+- no productive SMB execution
+- no password-based SSH execution
+- no restore automation
 - no database backup coupling
 - no scheduling
 - no retention
 - no destructive rsync flags such as `--delete`
 
-### Backup files application flow (WIP)
+### Backup files application flow
 
 Phase 3 adds a thin `backup files` command on top of the Phase 1 and Phase 2
 backup foundation.
@@ -242,7 +247,7 @@ Implemented now:
 - versioned destination generation from one authoritative backup context timestamp
 - target resolution through `BackupLocationResolver`
 - structured `BackupResult` and traceable `BackupArtifact` metadata
-- persisted `BackupSnapshot` manifests under `data/manifests/backup/snapshots/`
+- persisted `BackupSnapshot` records and manifest files under `data/manifests/backup/snapshots/`
 - explicit snapshot kinds: `manual`, `pre_repair`, `post_repair`, `periodic`
 - explicit snapshot coverage: `files_only`, `db_only`, `paired`
 
@@ -277,6 +282,17 @@ Current API surface:
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
 - `POST /api/backup/files`
+- `GET /api/backup/size-estimate`
+- `POST /api/backup/size-estimate/collect`
+- `GET /api/backup/targets`
+- `POST /api/backup/targets`
+- `PUT /api/backup/targets/{target_id}`
+- `DELETE /api/backup/targets/{target_id}`
+- `GET /api/backup/targets/{target_id}/validation`
+- `POST /api/backup/targets/{target_id}/validate`
+- `GET /api/backup/executions/current`
+- `POST /api/backup/executions`
+- `POST /api/backup/executions/cancel`
 - `GET /api/restore/simulate`
 - `GET /api/settings`
 - `GET /api/settings/schema`
@@ -296,6 +312,8 @@ Current API constraints:
 - repair and backup safety visibility endpoints must expose real persisted
   state only; they must not imply that automated undo, quarantine execution,
   or restore orchestration already exists
+- backup execution reporting must keep verification levels conservative and must
+  not imply artifact-content integrity or disaster-recovery readiness
 - targeted undo may only execute for journal-backed actions with explicit safe
   undo payloads; unsupported repair domains must surface blockers instead of
   claiming reversibility
@@ -319,14 +337,19 @@ Current safety visibility in the UI includes:
 
 - runtime apply readiness and blocking preconditions
 - persisted repair run history and journal entries
-- persisted backup snapshot manifests
-- real files-backup execution and standalone `pre_repair` snapshot creation
+- persisted backup snapshot records
+- non-blocking backup size estimation state
+- explicit backup target inventory and validation state
+- real manual files-backup execution for local plus safe-subset SSH/rsync targets
+- standalone `pre_repair` snapshot creation
 - quarantine foundation state
 
 Current exclusions remain explicit:
 
 - no broad restore automation
 - no quarantine move/restore workflow
+- no productive SMB backup execution
+- no strong end-to-end backup integrity verification yet
 
 ## UI-to-backend contract rule
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -13,13 +15,24 @@ from immich_doctor.api.routes.repair import repair_router
 from immich_doctor.api.routes.restore import restore_router
 from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
+from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 
 DEFAULT_UI_DIST_PATH = Path("/app/ui/dist")
 REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "dist"
 
 
 def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
-    app = FastAPI(title="immich-doctor API", version="0.1.0")
+    runtime = BackgroundJobRuntime()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            runtime.shutdown()
+
+    app = FastAPI(title="immich-doctor API", version="0.1.0", lifespan=lifespan)
+    app.state.backup_job_runtime = runtime
     app.include_router(backup_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(repair_router, prefix="/api")

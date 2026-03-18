@@ -84,7 +84,7 @@ Current command behavior:
 - `storage paths check` validates configured source and runtime storage paths
 - `storage permissions check` validates source readability, mount safety, and runtime path writability
 - `backup files` performs one versioned local file backup from the configured Immich library root into the configured backup target
-- `backup verify` validates backup target readiness, configured required tools, and persisted snapshot manifest structure when present
+- `backup verify` validates current backup target-readiness checks, configured required tools, and persisted snapshot-manifest structure when present
 - `db health check` validates host resolution, TCP reachability, login, and round-trip query execution
 - `db performance indexes check` validates index inventory and index health facts
 
@@ -94,7 +94,12 @@ Current backup-related configuration expectations:
 - `backup files` currently uses `BACKUP_TARGET_PATH` or `IMMICH_DOCTOR_BACKUP_TARGET_PATH` as the backup root
 - `backup files` currently supports local source to local target only
 - `backup files` now persists one snapshot manifest under `MANIFESTS_PATH/backup/snapshots/`
-- later backup phases may add DB artifacts, paired DB + file snapshots, metadata capture, and remote targets
+- manual backup target configuration is now persisted under `CONFIG_PATH/backup/targets.json`
+- when `CONFIG_PATH` is unset, the backend falls back to `data/config/backup/targets.json`
+- local secret references for backup targets are stored under `CONFIG_PATH/backup/secrets/` or the same `data/config` fallback
+- API and UI responses must expose only masked secret references, never raw secret material
+- `stale=true` on size-estimate responses means cached estimate data is older than the freshness window
+- later backup phases may add DB artifacts, paired DB + file snapshots, metadata capture, and stronger remote support
 
 ## Notes for Docker and Unraid usage
 
