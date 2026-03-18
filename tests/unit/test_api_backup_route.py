@@ -153,3 +153,47 @@ def test_backup_size_collect_route_returns_pending_job(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["jobId"] == "job-2"
     assert payload["data"]["state"] == "pending"
+
+
+def test_backup_targets_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        backup_routes.BackupTargetSettingsService,
+        "list_targets",
+        lambda self, settings: {
+            "generatedAt": "2026-03-18T20:00:00+00:00",
+            "configPath": "/config/backup/targets.json",
+            "configRoot": "/config/backup",
+            "items": [
+                {
+                    "targetId": "target-1",
+                    "targetName": "Local Backup",
+                    "targetType": "local",
+                    "enabled": True,
+                    "transport": {"path": "/backup", "passwordSecretRef": None},
+                    "verificationStatus": "unknown",
+                    "lastTestResult": None,
+                    "lastSuccessfulBackup": None,
+                    "retentionPolicy": {
+                        "mode": "keep_all",
+                        "maxVersions": None,
+                        "pruneAutomatically": False,
+                    },
+                    "restoreReadiness": "not_implemented",
+                    "sourceScope": "files_only",
+                    "schedulingCompatible": True,
+                    "warnings": [],
+                    "createdAt": "2026-03-18T20:00:00+00:00",
+                    "updatedAt": "2026-03-18T20:00:00+00:00",
+                }
+            ],
+            "limitations": [],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/backup/targets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["items"][0]["targetId"] == "target-1"
+    assert payload["data"]["items"][0]["targetType"] == "local"
