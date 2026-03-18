@@ -95,6 +95,12 @@ class BackupExecutionApiResponse(BaseModel):
     mocked: bool = False
 
 
+class BackupSizeEstimateApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class UndoPlanApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

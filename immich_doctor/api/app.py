@@ -13,6 +13,7 @@ from immich_doctor.api.routes.repair import repair_router
 from immich_doctor.api.routes.restore import restore_router
 from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
+from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 
 DEFAULT_UI_DIST_PATH = Path("/app/ui/dist")
 REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "dist"
@@ -20,6 +21,7 @@ REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "d
 
 def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
     app = FastAPI(title="immich-doctor API", version="0.1.0")
+    app.state.backup_job_runtime = BackgroundJobRuntime()
     app.include_router(backup_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(repair_router, prefix="/api")
@@ -42,6 +44,10 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
         elif request.url.path == "/" and response.status_code == 200:
             response.headers.setdefault("Cache-Control", "no-cache")
         return response
+
+    @app.on_event("shutdown")
+    def shutdown_background_runtime() -> None:
+        app.state.backup_job_runtime.shutdown()
 
     return app
 
