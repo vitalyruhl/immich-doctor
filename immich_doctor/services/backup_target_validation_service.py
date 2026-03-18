@@ -209,7 +209,7 @@ class BackupTargetValidationService:
                 probe_command = (
                     f"mkdir -p {remote_path} && "
                     f"probe={remote_path}/.immich-doctor-write-probe && "
-                    "touch \"$probe\" && rm -f \"$probe\""
+                    'touch "$probe" && rm -f "$probe"'
                 )
                 probe = transport.run_remote_command(material, probe_command)
                 if probe.returncode == 0:

@@ -63,7 +63,7 @@ class PostgresAdapter:
         rows = fetch_all(
             dsn,
             timeout_seconds,
-            'SELECT pg_database_size(current_database()) AS size_bytes;',
+            "SELECT pg_database_size(current_database()) AS size_bytes;",
         )
         if not rows:
             raise ValueError("Database size query returned no rows.")

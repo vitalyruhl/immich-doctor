@@ -80,8 +80,7 @@ def test_backup_files_route_returns_execution_result(monkeypatch) -> None:
                 "hasDbArtifact": False,
                 "basicValidity": "valid",
                 "validityMessage": (
-                    "Snapshot manifest structure is valid. "
-                    "Artifact content is not verified here."
+                    "Snapshot manifest structure is valid. Artifact content is not verified here."
                 ),
             },
             "limitations": [

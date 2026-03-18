@@ -133,8 +133,7 @@ class ManualBackupExecutionService:
                 "restoreReadiness": "not_implemented",
                 "state": validation["state"],
                 "summary": (
-                    "Manual files-only backup cannot start because target validation "
-                    "did not pass."
+                    "Manual files-only backup cannot start because target validation did not pass."
                 ),
                 "report": {
                     "verificationLevel": VerificationLevel.NONE.value,

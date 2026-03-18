@@ -88,9 +88,7 @@ def test_backup_size_service_reuses_fresh_cached_snapshot(tmp_path: Path) -> Non
 
         service = BackupSizeEstimationService(
             runtime=runtime,
-            collector=BackupSizeCollector(
-                clock=lambda: datetime(2026, 3, 18, 12, 30, tzinfo=UTC)
-            ),
+            collector=BackupSizeCollector(clock=lambda: datetime(2026, 3, 18, 12, 30, tzinfo=UTC)),
         )
         result = service.collect(settings)
 
