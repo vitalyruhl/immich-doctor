@@ -9,13 +9,16 @@ from immich_doctor.api.models import (
     BackupExecutionApiResponse,
     BackupSizeEstimateApiResponse,
     BackupSnapshotsApiResponse,
+    BackupTargetsApiResponse,
 )
 from immich_doctor.backup.core.models import SnapshotKind
+from immich_doctor.backup.targets.models import BackupTargetUpsertPayload
 from immich_doctor.core.config import load_settings
 from immich_doctor.services.backup_execution_service import BackupExecutionService
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 from immich_doctor.services.backup_size_service import BackupSizeEstimationService
 from immich_doctor.services.backup_snapshot_service import BackupSnapshotVisibilityService
+from immich_doctor.services.backup_target_settings_service import BackupTargetSettingsService
 
 backup_router = APIRouter(prefix="/backup", tags=["backup"])
 
@@ -72,3 +75,34 @@ def cancel_backup_size_estimate(request: Request) -> BackupSizeEstimateApiRespon
         load_settings()
     )
     return BackupSizeEstimateApiResponse(data=data.model_dump(by_alias=True, mode="json"))
+
+
+@backup_router.get("/targets", response_model=BackupTargetsApiResponse)
+def list_backup_targets() -> BackupTargetsApiResponse:
+    data = BackupTargetSettingsService().list_targets(load_settings())
+    return BackupTargetsApiResponse(data=data)
+
+
+@backup_router.post("/targets", response_model=BackupTargetsApiResponse)
+def create_backup_target(payload: BackupTargetUpsertPayload) -> BackupTargetsApiResponse:
+    data = BackupTargetSettingsService().create_target(load_settings(), payload)
+    return BackupTargetsApiResponse(data=data)
+
+
+@backup_router.put("/targets/{target_id}", response_model=BackupTargetsApiResponse)
+def update_backup_target(
+    target_id: str,
+    payload: BackupTargetUpsertPayload,
+) -> BackupTargetsApiResponse:
+    data = BackupTargetSettingsService().update_target(
+        load_settings(),
+        target_id=target_id,
+        payload=payload,
+    )
+    return BackupTargetsApiResponse(data=data)
+
+
+@backup_router.delete("/targets/{target_id}", response_model=BackupTargetsApiResponse)
+def delete_backup_target(target_id: str) -> BackupTargetsApiResponse:
+    data = BackupTargetSettingsService().delete_target(load_settings(), target_id=target_id)
+    return BackupTargetsApiResponse(data=data)
