@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,5 +52,26 @@ class RsyncCommandBuilder:
             *self.extra_options,
             _normalize_source_path(plan.request.source_path),
             plan.destination_path.as_posix(),
+        )
+        return RsyncCommandSpec(argv=argv)
+
+    def build_transfer(
+        self,
+        *,
+        source_path: Path,
+        destination_reference: str,
+        remote_shell_argv: tuple[str, ...] | None = None,
+    ) -> RsyncCommandSpec:
+        extra_options = list(self.extra_options)
+        if "--stats" not in extra_options:
+            extra_options.append("--stats")
+        if remote_shell_argv is not None:
+            extra_options.extend(("-e", shlex.join(remote_shell_argv)))
+        argv = (
+            self.executable,
+            *self.base_options,
+            *tuple(extra_options),
+            _normalize_source_path(source_path),
+            destination_reference,
         )
         return RsyncCommandSpec(argv=argv)

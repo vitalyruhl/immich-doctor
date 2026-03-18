@@ -197,3 +197,49 @@ def test_backup_targets_route_returns_expected_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["items"][0]["targetId"] == "target-1"
     assert payload["data"]["items"][0]["targetType"] == "local"
+
+
+def test_backup_target_validation_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        backup_routes.BackupTargetValidationService,
+        "get_validation",
+        lambda self, settings, *, target_id: {
+            "generatedAt": "2026-03-18T20:00:00+00:00",
+            "jobId": "validation-1",
+            "targetId": target_id,
+            "state": "completed",
+            "summary": "Target validation completed successfully.",
+            "checks": [],
+            "warnings": [],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/backup/targets/target-1/validation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["jobId"] == "validation-1"
+
+
+def test_backup_execution_current_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        backup_routes.ManualBackupExecutionService,
+        "get_current",
+        lambda self, settings: {
+            "generatedAt": "2026-03-18T20:00:00+00:00",
+            "jobId": "execution-1",
+            "state": "running",
+            "summary": "Backup execution is running.",
+            "report": None,
+            "snapshot": None,
+            "warnings": [],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/backup/executions/current")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["state"] == "running"
