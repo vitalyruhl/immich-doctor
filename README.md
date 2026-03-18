@@ -41,6 +41,10 @@ Current MVP scope:
 - storage permission validation
 - file backup execution through a thin backup application flow
 - backup target verification
+- non-blocking backup size estimation with persisted background job state
+- explicit manual backup target configuration for local, SSH, rsync, and SMB planning
+- target validation state and manual backup execution state in the API/UI
+- tiered backup execution reporting with explicit verification level
 - minimal API health endpoint for the dashboard
 - database health validation
 - database index inspection
@@ -55,8 +59,9 @@ Not in scope yet:
 - no quarantine moves yet
 - no DB backup
 - no metadata backup
-- no remote backup targets
-- no retention
+- no productive SMB backup execution
+- no password-based SSH execution support
+- no automated retention deletion
 - no broad full restore execution yet
 - no backup-all orchestration
 
@@ -223,6 +228,8 @@ Planned next:
 - metadata capture
 - paired DB + file snapshots
 - backup-all orchestration
+- stronger restore-readiness verification
+- scheduled backup orchestration on top of the same target model
 
 `consistency validate` is the canonical server-side consistency overview. It
 groups findings by stable categories, supports only
@@ -338,6 +345,17 @@ The API/UI surface for current repair and backup safety visibility now also incl
 - `POST /api/repair/runs/{repair_run_id}/undo`
 - `GET /api/repair/quarantine/summary`
 - `GET /api/backup/snapshots`
+- `GET /api/backup/size-estimate`
+- `POST /api/backup/size-estimate/collect`
+- `GET /api/backup/targets`
+- `POST /api/backup/targets`
+- `PUT /api/backup/targets/{target_id}`
+- `DELETE /api/backup/targets/{target_id}`
+- `GET /api/backup/targets/{target_id}/validation`
+- `POST /api/backup/targets/{target_id}/validate`
+- `GET /api/backup/executions/current`
+- `POST /api/backup/executions`
+- `POST /api/backup/executions/cancel`
 - `GET /api/restore/simulate`
 
 ## Docker
