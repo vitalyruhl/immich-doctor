@@ -2,6 +2,12 @@
 
 Status: active
 
+## Current scope / non-goals / safety limits
+
+- current scope: non-blocking backup size collection, target validation, files-only manual backup execution for local plus safe-subset SSH/rsync targets, persisted snapshot records, and snapshot manifest visibility
+- non-goals: productive SMB execution, restore execution, DB-inclusive backup coverage, metadata backup coverage, aggressive parallel rsync by default
+- safety limits: `completed` does not mean verified or restore-ready, target validation covers only currently implemented checks, and `stale` size-estimate data must be treated as aged cache data
+
 ## Implemented now
 
 - `backup verify`

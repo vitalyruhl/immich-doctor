@@ -154,7 +154,7 @@ Contains infrastructure-facing code such as:
 Reserved for PostgreSQL-specific connection and query helpers that may later grow
 beyond simple connectivity checks.
 
-## Backup domain foundation (WIP)
+## Backup domain foundation
 
 The backup domain now has a dedicated internal foundation package layout that is
 prepared for later implementation work without exposing new user-facing commands.
@@ -194,7 +194,7 @@ local rsync foundation. Phase 3 now adds the first thin user-facing backup
 command without expanding into DB backup, metadata capture, remote targets, or
 backup-all orchestration.
 
-### Backup files rsync foundation (WIP)
+### Backup files rsync foundation
 
 Phase 2 adds a local file-backup foundation under `immich_doctor.backup.files`.
 
@@ -219,7 +219,7 @@ Explicit constraints for this phase:
 - no retention
 - no destructive rsync flags such as `--delete`
 
-### Backup files application flow (WIP)
+### Backup files application flow
 
 Phase 3 adds a thin `backup files` command on top of the Phase 1 and Phase 2
 backup foundation.
