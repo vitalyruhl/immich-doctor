@@ -518,6 +518,123 @@ a {
   align-items: start;
 }
 
+.backup-workflow {
+  display: grid;
+  gap: 1rem;
+}
+
+.backup-status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #e7ebef;
+  color: #4c5a65;
+}
+
+.backup-status-pill--pending {
+  background: #fff7d6;
+  color: #8b6a00;
+}
+
+.backup-status-pill--identical,
+.backup-status-pill--restored {
+  background: #ddf3e4;
+  color: #0b6b31;
+}
+
+.backup-status-pill--missing_in_backup,
+.backup-status-pill--restore_candidate,
+.backup-status-pill--skipped {
+  background: #fff0cf;
+  color: #8b5b00;
+}
+
+.backup-status-pill--mismatch,
+.backup-status-pill--conflict,
+.backup-status-pill--failed {
+  background: #ffe0de;
+  color: #ae1b1b;
+}
+
+.backup-folder-list,
+.backup-review-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.backup-folder-card,
+.backup-review-item,
+.backup-preview-card {
+  border: 1px solid #dbe2e8;
+  border-radius: 0.9rem;
+  background: #f8fafc;
+  padding: 0.85rem;
+}
+
+.backup-folder-card--warning,
+.backup-review-item--danger {
+  border-color: #f0b3ae;
+  background: #fff6f5;
+}
+
+.backup-review-item--pending {
+  border-color: #f0d89a;
+  background: #fffbee;
+}
+
+.backup-review-item--restore {
+  border-color: #f0d89a;
+  background: #fff9ea;
+}
+
+.backup-review-item {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.backup-review-item__header,
+.backup-review-item__select,
+.backup-review-item__content {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.backup-review-item__header {
+  justify-content: space-between;
+  align-items: start;
+}
+
+.backup-review-item__select {
+  align-items: center;
+}
+
+.backup-review-item__content {
+  flex-wrap: wrap;
+}
+
+.backup-preview-card {
+  display: grid;
+  gap: 0.65rem;
+  flex: 1 1 320px;
+}
+
+.backup-preview-card h4 {
+  margin: 0;
+}
+
+.backup-preview-card__media {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  background: #dfe7ee;
+}
+
 .runtime-blocking-message {
   margin: 0;
   color: #8b1e1e;

@@ -49,6 +49,7 @@ class VerificationLevel(StrEnum):
     TRANSPORT_SUCCESS_ONLY = "transport_success_only"
     DESTINATION_EXISTS = "destination_exists"
     BASIC_MANIFEST_VERIFIED = "basic_manifest_verified"
+    COPIED_FILES_SHA256 = "copied_files_sha256"
 
 
 class RetentionPolicy(BaseModel):

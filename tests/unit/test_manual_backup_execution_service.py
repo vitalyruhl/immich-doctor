@@ -87,5 +87,6 @@ def test_manual_backup_execution_service_completes_local_backup(tmp_path: Path) 
         runtime.shutdown()
 
     assert current["state"] == "completed"
-    assert current["snapshot"] is not None
+    assert current["snapshot"] is None
+    assert current["report"]["verificationLevel"] == "copied_files_sha256"
     assert updated_target.last_successful_backup is not None
