@@ -6,22 +6,29 @@ import {
   collectBackupSizeEstimate,
   createBackupTarget,
   deleteBackupTarget,
+  fetchBackupAssetWorkflowOverview,
   fetchBackupSizeEstimate,
   fetchBackupSnapshots,
   fetchBackupTargetValidation,
   fetchBackupTargets,
   fetchCurrentBackupExecution,
+  runBackupRestoreAction,
+  runBackupTestCopy,
   startBackupTargetValidation,
   startManualBackupExecution,
   updateBackupTarget,
 } from "@/api/backup";
 import { fetchQuarantineSummary } from "@/api/repair";
 import type {
+  BackupAssetComparisonItem,
+  BackupAssetWorkflowOverviewResponse,
   BackupExecutionStatusResponse,
   BackupJobState,
+  BackupRestoreActionResponse,
   BackupSizeEstimateResponse,
   BackupSnapshotSummary,
   BackupSnapshotsResponse,
+  BackupTestCopyResponse,
   BackupTargetConfig,
   BackupTargetDraft,
   BackupTargetValidationResponse,
@@ -48,15 +55,25 @@ export const useBackupStore = defineStore("backup", () => {
   const sizeEstimate = ref<BackupSizeEstimateResponse | null>(null);
   const currentExecution = ref<BackupExecutionStatusResponse | null>(null);
   const activeValidation = ref<BackupTargetValidationResponse | null>(null);
+  const workflowOverview = ref<BackupAssetWorkflowOverviewResponse | null>(null);
+  const lastTestCopy = ref<BackupTestCopyResponse | null>(null);
+  const restorePreview = ref<BackupRestoreActionResponse | null>(null);
+  const lastRestoreResult = ref<BackupRestoreActionResponse | null>(null);
   const isLoading = ref(false);
   const isSavingTarget = ref(false);
   const isExecuting = ref(false);
   const isValidatingTarget = ref(false);
+  const isLoadingWorkflow = ref(false);
+  const isRunningTestCopy = ref(false);
+  const isRunningRestore = ref(false);
   const error = ref<string | null>(null);
   const targetError = ref<string | null>(null);
   const executionError = ref<string | null>(null);
   const validationError = ref<string | null>(null);
+  const workflowError = ref<string | null>(null);
+  const restoreError = ref<string | null>(null);
   const selectedTargetId = ref<string | null>(null);
+  const selectedAssetIds = ref<string[]>([]);
 
   const snapshotItems = computed<BackupSnapshotSummary[]>(() => snapshots.value?.items ?? []);
   const targets = computed<BackupTargetConfig[]>(() => targetsOverview.value?.items ?? []);
@@ -71,6 +88,13 @@ export const useBackupStore = defineStore("backup", () => {
   );
   const isExecutionRunning = computed(() =>
     currentExecution.value ? !TERMINAL_JOB_STATES.includes(currentExecution.value.state) : false,
+  );
+  const workflowItems = computed<BackupAssetComparisonItem[]>(() => workflowOverview.value?.comparison.items ?? []);
+  const selectedWorkflowItems = computed<BackupAssetComparisonItem[]>(() =>
+    workflowItems.value.filter((item) => selectedAssetIds.value.includes(item.assetId)),
+  );
+  const restorableItems = computed<BackupAssetComparisonItem[]>(() =>
+    workflowItems.value.filter((item) => item.restoreEligible),
   );
 
   async function load(): Promise<void> {
@@ -93,6 +117,9 @@ export const useBackupStore = defineStore("backup", () => {
       if (!selectedTargetId.value && targetsResponse.data.items.length > 0) {
         selectedTargetId.value = targetsResponse.data.items[0]?.targetId ?? null;
       }
+      if (selectedTargetId.value) {
+        await refreshWorkflowOverview(selectedTargetId.value);
+      }
       if (!sizeEstimate.value || sizeEstimate.value.state === "pending" || sizeEstimate.value.stale) {
         void refreshSizeEstimate();
       }
@@ -108,6 +135,9 @@ export const useBackupStore = defineStore("backup", () => {
     targetsOverview.value = response.data;
     if (!selectedTargetId.value && response.data.items.length > 0) {
       selectedTargetId.value = response.data.items[0]?.targetId ?? null;
+    }
+    if (selectedTargetId.value) {
+      await refreshWorkflowOverview(selectedTargetId.value);
     }
   }
 
@@ -186,6 +216,7 @@ export const useBackupStore = defineStore("backup", () => {
         currentExecution.value = (await fetchCurrentBackupExecution()).data;
       }
       await Promise.all([refreshTargets(), refreshSnapshots()]);
+      await refreshWorkflowOverview(targetId);
     } catch (caughtError) {
       executionError.value = errorMessage(caughtError);
     } finally {
@@ -206,13 +237,86 @@ export const useBackupStore = defineStore("backup", () => {
     }
   }
 
+  async function refreshWorkflowOverview(targetId: string): Promise<void> {
+    isLoadingWorkflow.value = true;
+    workflowError.value = null;
+    try {
+      workflowOverview.value = (await fetchBackupAssetWorkflowOverview(targetId)).data;
+      selectedAssetIds.value = selectedAssetIds.value.filter((assetId) =>
+        workflowOverview.value?.comparison.items.some((item) => item.assetId === assetId),
+      );
+    } catch (caughtError) {
+      workflowError.value = errorMessage(caughtError);
+    } finally {
+      isLoadingWorkflow.value = false;
+    }
+  }
+
+  async function startTestCopy(targetId: string): Promise<void> {
+    isRunningTestCopy.value = true;
+    workflowError.value = null;
+    try {
+      lastTestCopy.value = (await runBackupTestCopy(targetId)).data;
+      await refreshWorkflowOverview(targetId);
+    } catch (caughtError) {
+      workflowError.value = errorMessage(caughtError);
+    } finally {
+      isRunningTestCopy.value = false;
+    }
+  }
+
+  function toggleAssetSelection(assetId: string): void {
+    if (selectedAssetIds.value.includes(assetId)) {
+      selectedAssetIds.value = selectedAssetIds.value.filter((item) => item !== assetId);
+      return;
+    }
+    selectedAssetIds.value = [...selectedAssetIds.value, assetId];
+  }
+
+  function clearAssetSelection(): void {
+    selectedAssetIds.value = [];
+  }
+
+  async function previewRestore(targetId: string, assetIds: string[]): Promise<void> {
+    isRunningRestore.value = true;
+    restoreError.value = null;
+    try {
+      restorePreview.value = (await runBackupRestoreAction(targetId, assetIds, false)).data;
+    } catch (caughtError) {
+      restoreError.value = errorMessage(caughtError);
+    } finally {
+      isRunningRestore.value = false;
+    }
+  }
+
+  async function applyRestore(targetId: string, assetIds: string[]): Promise<void> {
+    isRunningRestore.value = true;
+    restoreError.value = null;
+    try {
+      lastRestoreResult.value = (await runBackupRestoreAction(targetId, assetIds, true)).data;
+      restorePreview.value = null;
+      await refreshWorkflowOverview(targetId);
+    } catch (caughtError) {
+      restoreError.value = errorMessage(caughtError);
+    } finally {
+      isRunningRestore.value = false;
+    }
+  }
+
   function selectTarget(targetId: string): void {
     selectedTargetId.value = targetId;
+    selectedAssetIds.value = [];
+    lastTestCopy.value = null;
+    restorePreview.value = null;
+    lastRestoreResult.value = null;
+    void refreshWorkflowOverview(targetId);
   }
 
   return {
     activeValidation,
+    applyRestore,
     cancelExecution,
+    clearAssetSelection,
     currentExecution,
     databaseEstimate,
     error,
@@ -221,26 +325,43 @@ export const useBackupStore = defineStore("backup", () => {
     isExecuting,
     isExecutionRunning,
     isLoading,
+    isLoadingWorkflow,
+    isRunningRestore,
+    isRunningTestCopy,
     isSavingTarget,
     isSizeCollectionRunning,
     isValidatingTarget,
+    lastRestoreResult,
+    lastTestCopy,
     load,
+    previewRestore,
     quarantine,
+    refreshWorkflowOverview,
     refreshSizeEstimate,
     removeTarget,
+    restoreError,
+    restorePreview,
+    restorableItems,
     saveTarget,
+    selectedAssetIds,
     selectedTarget,
     selectedTargetId,
+    selectedWorkflowItems,
     selectTarget,
     sizeEstimate,
     snapshotItems,
     snapshots,
     startExecution,
+    startTestCopy,
     storageEstimate,
     targetError,
+    toggleAssetSelection,
     targets,
     targetsOverview,
     validateTarget,
     validationError,
+    workflowError,
+    workflowItems,
+    workflowOverview,
   };
 });

@@ -119,6 +119,24 @@ class BackupExecutionStatusApiResponse(BaseModel):
     mocked: bool = False
 
 
+class BackupAssetWorkflowApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class BackupTestCopyApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class BackupRestoreActionApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class UndoPlanApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

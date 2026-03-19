@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from immich_doctor.api.models import (
+    BackupAssetWorkflowApiResponse,
     BackupExecutionApiResponse,
     BackupExecutionStatusApiResponse,
+    BackupRestoreActionApiResponse,
     BackupSizeEstimateApiResponse,
     BackupSnapshotsApiResponse,
+    BackupTestCopyApiResponse,
     BackupTargetsApiResponse,
     BackupTargetValidationApiResponse,
 )
@@ -22,6 +26,7 @@ from immich_doctor.services.backup_size_service import BackupSizeEstimationServi
 from immich_doctor.services.backup_snapshot_service import BackupSnapshotVisibilityService
 from immich_doctor.services.backup_target_settings_service import BackupTargetSettingsService
 from immich_doctor.services.backup_target_validation_service import BackupTargetValidationService
+from immich_doctor.services.backup_asset_workflow_service import BackupAssetWorkflowService
 from immich_doctor.services.manual_backup_execution_service import ManualBackupExecutionService
 
 backup_router = APIRouter(prefix="/backup", tags=["backup"])
@@ -38,6 +43,11 @@ class BackupSizeCollectionRequest(BaseModel):
 class ManualBackupExecutionRequest(BaseModel):
     target_id: str
     kind: Literal["manual", "pre_repair"] = "manual"
+
+
+class BackupRestoreRequest(BaseModel):
+    asset_ids: list[str]
+    apply: bool = False
 
 
 def _job_runtime(request: Request) -> BackgroundJobRuntime:
@@ -171,3 +181,56 @@ def cancel_manual_backup_execution(request: Request) -> BackupExecutionStatusApi
     service = ManualBackupExecutionService(runtime=_job_runtime(request))
     data = service.request_cancel() or service.get_current(load_settings())
     return BackupExecutionStatusApiResponse(data=data)
+
+
+@backup_router.get(
+    "/targets/{target_id}/assets/overview",
+    response_model=BackupAssetWorkflowApiResponse,
+)
+def get_backup_asset_workflow_overview(target_id: str) -> BackupAssetWorkflowApiResponse:
+    data = BackupAssetWorkflowService().get_overview(load_settings(), target_id=target_id)
+    return BackupAssetWorkflowApiResponse(data=data)
+
+
+@backup_router.post(
+    "/targets/{target_id}/assets/test-copy",
+    response_model=BackupTestCopyApiResponse,
+)
+def run_backup_test_copy(target_id: str) -> BackupTestCopyApiResponse:
+    data = BackupAssetWorkflowService().run_test_copy(load_settings(), target_id=target_id)
+    return BackupTestCopyApiResponse(data=data)
+
+
+@backup_router.post(
+    "/targets/{target_id}/assets/restore",
+    response_model=BackupRestoreActionApiResponse,
+)
+def run_backup_restore_action(
+    target_id: str,
+    payload: BackupRestoreRequest,
+) -> BackupRestoreActionApiResponse:
+    data = BackupAssetWorkflowService().restore_items(
+        load_settings(),
+        target_id=target_id,
+        asset_ids=payload.asset_ids,
+        apply=payload.apply,
+    )
+    return BackupRestoreActionApiResponse(data=data)
+
+
+@backup_router.get("/targets/{target_id}/assets/preview/content", response_model=None)
+def get_backup_asset_preview_content(
+    target_id: str,
+    side: Literal["source", "backup"],
+    asset_id: str,
+) -> FileResponse:
+    try:
+        path, media_type = BackupAssetWorkflowService().resolve_preview_file(
+            load_settings(),
+            target_id=target_id,
+            side=side,
+            asset_id=asset_id,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type=media_type)

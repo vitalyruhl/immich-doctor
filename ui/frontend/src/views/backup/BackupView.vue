@@ -3,11 +3,11 @@
     <PageHeader
       eyebrow="Backup"
       title="Backup"
-      summary="Backend state drives manual target visibility, conservative validation, and files-only execution status."
+      summary="Check, sync, verify, and selective restore stay explicit, review-driven, and conservative."
     />
     <RiskNotice
-      title="Restore readiness is not implied"
-      message="Manual execution currently covers files-only scope on local and safe-subset SSH/rsync targets. SMB stays configuration, validation, and mount-planning only, verification stays conservative, and restore execution is not implemented."
+      title="High-risk data path"
+      message="Normal backup now favors check plus sync-missing instead of blunt recopy. Selective restore is local-target only, remains operator-confirmed, and quarantines current source files before overwrite."
     />
 
     <LoadingState
@@ -70,15 +70,15 @@
         <article class="panel backup-card">
           <div class="backup-card__header">
             <div>
-              <h3>Manual backup execution</h3>
+              <h3>Manual check / sync execution</h3>
               <p class="health-card__details">
-                Files-only transfer scope. Verification levels show transport or destination checks only, not end-to-end restore proof.
+                Local targets run an asset-aware check plus sync-missing flow. Remote targets keep their existing conservative files-only behavior and do not expose asset-level restore here.
               </p>
             </div>
             <StatusTag :status="jobStateTag(backupStore.currentExecution?.state ?? 'pending')" />
           </div>
           <p class="health-card__summary">
-            {{ backupStore.currentExecution?.summary ?? "Manual files-only backup has not run yet." }}
+            {{ backupStore.currentExecution?.summary ?? "Backup check/sync has not run yet." }}
           </p>
           <dl v-if="backupStore.currentExecution?.report" class="runtime-detail__grid">
             <dt>Target</dt>
@@ -109,7 +109,7 @@
               :disabled="!backupStore.selectedTarget || backupStore.isExecuting || backupStore.isExecutionRunning || Boolean(selectedExecutionBlocker)"
               @click="void backupStore.startExecution(backupStore.selectedTarget!.targetId)"
             >
-              {{ backupStore.isExecutionRunning ? "Backup In Progress" : "Start Files-Only Backup" }}
+              {{ backupStore.isExecutionRunning ? "Sync In Progress" : "Start Check / Sync Missing" }}
             </button>
             <button
               class="runtime-action"
@@ -117,7 +117,7 @@
               :disabled="!backupStore.selectedTarget || backupStore.isExecuting || backupStore.isExecutionRunning || Boolean(selectedExecutionBlocker)"
               @click="void backupStore.startExecution(backupStore.selectedTarget!.targetId, 'pre_repair')"
             >
-              Create Files-Only Pre-Repair Snapshot
+              Run Pre-Repair Check / Sync
             </button>
             <button
               class="runtime-action runtime-action--danger"
@@ -125,7 +125,7 @@
               :disabled="!backupStore.isExecutionRunning"
               @click="void backupStore.cancelExecution()"
             >
-              Cancel Running Backup
+              Cancel Running Sync
             </button>
           </section>
           <p v-if="backupStore.executionError" class="runtime-blocking-message">
@@ -133,6 +133,8 @@
           </p>
         </article>
       </section>
+
+      <BackupWorkflowPanel />
 
       <section class="settings-grid">
         <article class="panel backup-card">
@@ -428,6 +430,7 @@ import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
 import StatusTag from "@/components/common/StatusTag.vue";
 import RiskNotice from "@/components/safety/RiskNotice.vue";
+import BackupWorkflowPanel from "./BackupWorkflowPanel.vue";
 import { useBackupStore } from "@/stores/backup";
 import type {
   BackupJobState,
@@ -561,6 +564,8 @@ function formatRepresentation(representation: string | null | undefined): string
 
 function formatVerificationLevel(level: BackupVerificationLevel | null | undefined): string {
   switch (level) {
+    case "copied_files_sha256":
+      return "Copied files verified by SHA-256";
     case "transport_success_only":
       return "Transport success only";
     case "destination_exists":
@@ -575,7 +580,7 @@ function formatVerificationLevel(level: BackupVerificationLevel | null | undefin
 
 function formatRestoreReadiness(readiness: BackupRestoreReadiness | null | undefined): string {
   if (readiness === "partial") {
-    return "Partially modeled only";
+    return "Partial local selective restore";
   }
   return "Not implemented";
 }

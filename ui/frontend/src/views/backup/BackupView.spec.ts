@@ -142,11 +142,11 @@ const backupStore = {
   },
   currentExecution: {
     state: "completed",
-    summary: "Manual files-only backup completed. Restore execution remains unavailable.",
+    summary: "Check/sync copied 1 missing assets and verified 1. 0 mismatches, 0 conflicts, and 0 restore candidates still require review.",
     targetType: "local",
     warnings: [],
     report: {
-      verificationLevel: "destination_exists",
+      verificationLevel: "copied_files_sha256",
       bytesPlanned: 2048,
       bytesTransferred: 2048,
     },
@@ -220,6 +220,7 @@ describe("BackupView", () => {
     const wrapper = mount(BackupView, {
       global: {
         stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
           PageHeader: { template: "<div />" },
           RiskNotice: { template: "<div />" },
           LoadingState: { template: "<div />" },
@@ -235,7 +236,7 @@ describe("BackupView", () => {
 
     expect(wrapper.text()).toContain("Source size estimate");
     expect(wrapper.text()).toContain("Local Backup");
-    expect(wrapper.text()).toContain("Manual files-only backup completed. Restore execution remains unavailable.");
+    expect(wrapper.text()).toContain("Check/sync copied 1 missing assets and verified 1. 0 mismatches, 0 conflicts, and 0 restore candidates still require review.");
     expect(wrapper.text()).toContain("snapshot-1");
   });
 
@@ -243,6 +244,7 @@ describe("BackupView", () => {
     const wrapper = mount(BackupView, {
       global: {
         stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
           PageHeader: { template: "<div />" },
           RiskNotice: { template: "<div />" },
           LoadingState: { template: "<div />" },

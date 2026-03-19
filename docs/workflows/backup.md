@@ -4,9 +4,9 @@ Status: active
 
 ## Current scope / non-goals / safety limits
 
-- current scope: non-blocking backup size collection, target validation, files-only manual backup execution for local plus safe-subset SSH/rsync targets, persisted snapshot records, and snapshot manifest visibility
-- non-goals: productive SMB execution, restore execution, DB-inclusive backup coverage, metadata backup coverage, aggressive parallel rsync by default
-- safety limits: `completed` does not mean verified or restore-ready, target validation covers only currently implemented checks, and `stale` size-estimate data must be treated as aged cache data
+- current scope: non-blocking backup size collection, target validation, asset-aware local check/sync/verify plus selective restore, conservative files-only manual execution for safe-subset SSH/rsync targets, persisted snapshot records, and snapshot manifest visibility
+- non-goals: productive SMB execution, full bidirectional sync, automatic overwrite on mismatch, DB-inclusive backup coverage, metadata backup coverage, aggressive parallel rsync by default
+- safety limits: `completed` does not mean globally deep-verified or disaster-recovery-ready, target validation covers only currently implemented checks, and `stale` size-estimate data must be treated as aged cache data
 
 ## Implemented now
 
@@ -47,16 +47,24 @@ Status: active
   - explicit manual target selection
   - non-blocking backup size collection
   - target validation state
-  - manual files-only backup execution for local plus safe-subset SSH/rsync targets
+  - local check plus sync-missing execution with asset comparison and review samples
+  - local representative test copy with real copy plus SHA-256 verification
+  - local selective restore/overwrite from backup to source storage after explicit review
+  - legacy files-only execution for safe-subset SSH/rsync targets
 - GUI also shows quarantine foundation status separately from snapshot coverage
 
 Manual backup target behavior now includes:
 
 - local folder targets with absolute path validation
+- local hidden workflow roots under `_immich-doctor/current` and `_immich-doctor/tests`
+- local staged comparison: existence -> size -> mtime -> SHA-256 only when needed
+- local mismatch/conflict visibility with source/backup size, timestamp, and hash details where available
+- local folder-level heuristics for file-count and total-size drift
+- local restore overwrite protection via quarantine-first move before replacement
 - SSH and rsync targets with explicit host key strategy and secret-reference-based private key handling
 - SMB targets as configuration + validation + mount-planning only
 - persisted target validation summary and last successful backup metadata
-- explicit restore-readiness signaling of `not_implemented`
+- explicit restore-readiness signaling of `partial` for local selective restore and `not_implemented` for remote targets
 
 Manual execution reporting now includes:
 
@@ -77,12 +85,15 @@ Machine values stay stable and UI/doc labels should mirror them conservatively:
 - job states: `pending`, `running`, `partial`, `completed`, `failed`, `unsupported`, `cancel_requested`, `canceled`
 - snapshot coverage: `files_only`, `db_only`, `paired`
 - verification levels: `none`, `transport_success_only`, `destination_exists`, `basic_manifest_verified`
+- local sync verification may also report `copied_files_sha256` for copied items
 - restore readiness: `not_implemented`, `partial`
 - snapshot basic validity: `valid`, `invalid`
+- asset comparison statuses: `pending`, `identical`, `missing_in_backup`, `mismatch`, `conflict`, `restore_candidate`, `restored`, `skipped`, `failed`
 
 Meaning rules:
 
 - `completed` means the current implementation finished; it does not mean verified, complete for disaster recovery, or restore-ready
+- `copied_files_sha256` means copied items were hash-verified after copy; it is not a claim that every target file was globally re-hashed
 - target validation always means only the currently implemented checks
 - `files_only` must always be shown to humans as `files-only`
 - `snapshot` means the persisted backup record plus its manifest metadata, not an automatic full restore point
@@ -93,6 +104,7 @@ Current verification semantics stay conservative:
 
 - `transport_success_only` means the transfer process reported success
 - `destination_exists` adds a destination path existence check only
+- local `check/sync` hashes copied items and suspicious same-size pairs only; it does not claim a full deep hash over the whole backup tree
 - snapshot visibility reports manifest structure separately from artifact-content verification
 - no current backup result claims full restore-readiness or end-to-end integrity proof
 
@@ -128,8 +140,10 @@ Current verification semantics stay conservative:
 Current UI limitation:
 
 - snapshots are visible and linkable from repair history
+- local asset-aware restore is still limited to filesystem copy-back only; no DB repair or DB rollback is implied
 - executable GUI backup coverage is still files-only, even for `pre_repair`
 - productive SMB backup execution is still intentionally disabled
 - password-based SSH execution is still intentionally unsupported
 - snapshot cards report manifest structure only and must not be read as artifact verification
-- restore is simulation-only and targeted undo is not yet exposed as a GUI action
+- remote asset preview and selective restore are intentionally unsupported
+- broad full restore remains simulation-only and targeted undo is not yet exposed as a GUI action
