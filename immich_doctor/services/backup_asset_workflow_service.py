@@ -544,10 +544,7 @@ class BackupAssetWorkflowService:
                     "Remote targets keep their existing conservative validation "
                     "and files-only execution behavior."
                 ),
-                (
-                    "No asset preview or selective restore is claimed for "
-                    "unsupported target types."
-                ),
+                ("No asset preview or selective restore is claimed for unsupported target types."),
             ],
             "comparison": {
                 "totalItems": 0,
@@ -868,9 +865,11 @@ class BackupAssetWorkflowService:
             )
 
         quarantine_path: Path | None = None
-        quarantine_root = settings.quarantine_path / "backup-restore-overwrite" / datetime.now(
-            UTC
-        ).strftime("%Y%m%dT%H%M%SZ")
+        quarantine_root = (
+            settings.quarantine_path
+            / "backup-restore-overwrite"
+            / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        )
         temp_restore_path = source_path.with_name(f"{source_path.name}.immich-doctor-restore.tmp")
         source_path.parent.mkdir(parents=True, exist_ok=True)
         try:
