@@ -121,7 +121,10 @@ class BackupAssetWorkflowService:
 
         source_entries = self._collect_file_entries(source_root)
         backup_entries = self._collect_file_entries(backup_root)
-        records = self._compare_entries(source_entries=source_entries, backup_entries=backup_entries)
+        records = self._compare_entries(
+            source_entries=source_entries,
+            backup_entries=backup_entries,
+        )
 
         counts = Counter(record.status.value for record in records)
         display_items = self._select_display_records(records, max_items=max_items)
@@ -145,13 +148,25 @@ class BackupAssetWorkflowService:
             "summary": self._overview_summary(counts),
             "warnings": warnings,
             "limitations": [
-                "Asset-aware check, sync, test copy, preview, and selective restore are currently local-target only.",
-                "Directory totals are heuristic warning signals and not proof of integrity on their own.",
-                "Only suspicious same-size files are hashed during normal comparison; no global deep verification is claimed.",
+                (
+                    "Asset-aware check, sync, test copy, preview, and selective "
+                    "restore are currently local-target only."
+                ),
+                (
+                    "Directory totals are heuristic warning signals and not proof "
+                    "of integrity on their own."
+                ),
+                (
+                    "Only suspicious same-size files are hashed during normal "
+                    "comparison; no global deep verification is claimed."
+                ),
             ],
             "comparison": {
                 "totalItems": len(records),
-                "statusCounts": {status.value: counts.get(status.value, 0) for status in BackupAssetComparisonStatus},
+                "statusCounts": {
+                    status.value: counts.get(status.value, 0)
+                    for status in BackupAssetComparisonStatus
+                },
                 "displayedItems": len(display_items),
                 "truncated": len(display_items) < len(records),
                 "items": [record.to_dict() for record in display_items],
@@ -186,7 +201,10 @@ class BackupAssetWorkflowService:
 
         source_entries = self._collect_file_entries(source_root)
         backup_entries = self._collect_file_entries(backup_root)
-        records = self._compare_entries(source_entries=source_entries, backup_entries=backup_entries)
+        records = self._compare_entries(
+            source_entries=source_entries,
+            backup_entries=backup_entries,
+        )
         counts = Counter(record.status.value for record in records)
         sync_records = [
             record
@@ -251,7 +269,10 @@ class BackupAssetWorkflowService:
             "report": {
                 "sourceRoot": source_root.as_posix(),
                 "backupRoot": backup_root.as_posix(),
-                "statusCounts": {status.value: counts.get(status.value, 0) for status in BackupAssetComparisonStatus},
+                "statusCounts": {
+                    status.value: counts.get(status.value, 0)
+                    for status in BackupAssetComparisonStatus
+                },
                 "copiedCount": copied_count,
                 "verifiedCount": verified_count,
                 "results": results,
@@ -476,7 +497,8 @@ class BackupAssetWorkflowService:
         warnings = list(target.warnings)
         if target.target_type != BackupTargetType.LOCAL or target.transport.path is None:
             warnings.append(
-                "Asset-aware local workflow is unavailable because the selected target is not a local filesystem target."
+                "Asset-aware local workflow is unavailable because the selected "
+                "target is not a local filesystem target."
             )
             return None, None, warnings
         if settings.immich_library_root is None:
@@ -491,7 +513,8 @@ class BackupAssetWorkflowService:
             source_root,
         ):
             warnings.append(
-                "Source and backup target paths overlap. Asset-aware sync/restore is blocked to avoid recursive or destructive copies."
+                "Source and backup target paths overlap. Asset-aware sync/restore "
+                "is blocked to avoid recursive or destructive copies."
             )
             return None, None, warnings
         backup_root.mkdir(parents=True, exist_ok=True)
@@ -511,11 +534,20 @@ class BackupAssetWorkflowService:
             "supported": False,
             "sourceRoot": None,
             "backupRoot": None,
-            "summary": "Asset-aware check / sync / restore is only available for local targets in this phase.",
+            "summary": (
+                "Asset-aware check / sync / restore is only available for local "
+                "targets in this phase."
+            ),
             "warnings": warnings,
             "limitations": [
-                "Remote targets keep their existing conservative validation and files-only execution behavior.",
-                "No asset preview or selective restore is claimed for unsupported target types.",
+                (
+                    "Remote targets keep their existing conservative validation "
+                    "and files-only execution behavior."
+                ),
+                (
+                    "No asset preview or selective restore is claimed for "
+                    "unsupported target types."
+                ),
             ],
             "comparison": {
                 "totalItems": 0,
@@ -552,7 +584,13 @@ class BackupAssetWorkflowService:
         for asset_id in sorted(set(source_entries) | set(backup_entries)):
             source_path = source_entries.get(asset_id)
             backup_path = backup_entries.get(asset_id)
-            records.append(self._compare_one(asset_id, source_path=source_path, backup_path=backup_path))
+            records.append(
+                self._compare_one(
+                    asset_id,
+                    source_path=source_path,
+                    backup_path=backup_path,
+                )
+            )
         return records
 
     def _compare_one(
@@ -869,7 +907,11 @@ class BackupAssetWorkflowService:
                 pass
             rollback_restored = False
             rollback_error: str | None = None
-            if quarantine_path is not None and quarantine_path.exists() and not source_path.exists():
+            if (
+                quarantine_path is not None
+                and quarantine_path.exists()
+                and not source_path.exists()
+            ):
                 try:
                     source_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(quarantine_path.as_posix(), source_path.as_posix())
@@ -931,10 +973,12 @@ class BackupAssetWorkflowService:
             return "No source or backup assets were found for comparison."
         return (
             f"{counts.get(BackupAssetComparisonStatus.IDENTICAL.value, 0)} identical, "
-            f"{counts.get(BackupAssetComparisonStatus.MISSING_IN_BACKUP.value, 0)} missing in backup, "
+            f"{counts.get(BackupAssetComparisonStatus.MISSING_IN_BACKUP.value, 0)} "
+            "missing in backup, "
             f"{counts.get(BackupAssetComparisonStatus.MISMATCH.value, 0)} mismatches, "
             f"{counts.get(BackupAssetComparisonStatus.CONFLICT.value, 0)} conflicts, "
-            f"{counts.get(BackupAssetComparisonStatus.RESTORE_CANDIDATE.value, 0)} restore candidates."
+            f"{counts.get(BackupAssetComparisonStatus.RESTORE_CANDIDATE.value, 0)} "
+            "restore candidates."
         )
 
     def _sync_summary(
@@ -948,7 +992,8 @@ class BackupAssetWorkflowService:
     ) -> str:
         return (
             f"Check/sync copied {copied_count} missing assets and verified {verified_count}. "
-            f"{mismatch_count} mismatches, {conflict_count} conflicts, and {restore_candidate_count} restore candidates still require review."
+            f"{mismatch_count} mismatches, {conflict_count} conflicts, and "
+            f"{restore_candidate_count} restore candidates still require review."
         )
 
     def _restore_summary(

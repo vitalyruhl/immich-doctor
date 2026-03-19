@@ -265,7 +265,10 @@ def test_backup_asset_workflow_overview_route_returns_expected_shape(monkeypatch
             "targetId": target_id,
             "targetType": "local",
             "supported": True,
-            "summary": "1 identical, 1 missing in backup, 1 mismatches, 0 conflicts, 0 restore candidates.",
+            "summary": (
+                "1 identical, 1 missing in backup, 1 mismatches, 0 conflicts, "
+                "0 restore candidates."
+            ),
             "warnings": [],
             "comparison": {
                 "totalItems": 2,
@@ -327,7 +330,10 @@ def test_backup_restore_route_returns_expected_shape(monkeypatch) -> None:
             "targetId": target_id,
             "apply": apply,
             "supported": True,
-            "summary": "Selective restore processed 1 selected items: 1 restored, 0 failed, 0 skipped.",
+            "summary": (
+                "Selective restore processed 1 selected items: 1 restored, "
+                "0 failed, 0 skipped."
+            ),
             "warnings": [],
             "results": [
                 {

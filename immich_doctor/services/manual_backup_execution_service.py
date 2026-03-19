@@ -26,13 +26,13 @@ from immich_doctor.backup.targets.models import (
     VerificationLevel,
 )
 from immich_doctor.core.config import AppSettings
+from immich_doctor.services.backup_asset_workflow_service import BackupAssetWorkflowService
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime, ManagedJobHandle
 from immich_doctor.services.backup_size_service import BackupSizeEstimationService
 from immich_doctor.services.backup_snapshot_service import summarize_backup_snapshot
 from immich_doctor.services.backup_target_settings_service import BackupTargetSettingsService
 from immich_doctor.services.backup_target_validation_service import BackupTargetValidationService
 from immich_doctor.services.backup_transport_service import BackupTransportService
-from immich_doctor.services.backup_asset_workflow_service import BackupAssetWorkflowService
 
 BACKUP_EXECUTION_JOB_TYPE = "backup_manual_execution"
 
