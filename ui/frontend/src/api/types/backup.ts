@@ -23,8 +23,19 @@ export type BackupVerificationLevel =
   | "none"
   | "transport_success_only"
   | "destination_exists"
-  | "basic_manifest_verified";
+  | "basic_manifest_verified"
+  | "copied_files_sha256";
 export type BackupSnapshotBasicValidity = "valid" | "invalid";
+export type BackupAssetComparisonStatus =
+  | "pending"
+  | "identical"
+  | "missing_in_backup"
+  | "mismatch"
+  | "conflict"
+  | "restore_candidate"
+  | "restored"
+  | "skipped"
+  | "failed";
 
 export interface BackupSnapshotSummary {
   snapshotId: string;
@@ -224,4 +235,103 @@ export interface BackupTargetDraft {
   passwordSecret?: { label?: string; material?: string };
   privateKeySecret?: { label?: string; material?: string };
   retentionPolicy?: { mode: string; maxVersions?: number | null; pruneAutomatically: boolean };
+}
+
+export interface BackupAssetSide {
+  exists: boolean;
+  relativePath: string;
+  absolutePath: string | null;
+  size: number | null;
+  modifiedAt: string | null;
+  mimeType: string | null;
+  previewKind: "image" | "video" | null;
+}
+
+export interface BackupAssetComparisonItem {
+  assetId: string;
+  status: BackupAssetComparisonStatus;
+  syncEligible: boolean;
+  restoreEligible: boolean;
+  source: BackupAssetSide;
+  backup: BackupAssetSide;
+  comparison: {
+    method: string;
+    decision: string;
+    sourceHash?: string | null;
+    backupHash?: string | null;
+    details: Record<string, unknown>;
+  };
+}
+
+export interface BackupFolderComparisonItem {
+  folder: string;
+  sourceFileCount: number;
+  backupFileCount: number;
+  sourceTotalBytes: number;
+  backupTotalBytes: number;
+  fileDelta: number;
+  sizeDeltaBytes: number;
+  suspicious: boolean;
+  reasons: string[];
+}
+
+export interface BackupAssetWorkflowOverviewResponse {
+  generatedAt: string;
+  targetId: string;
+  targetType: BackupTargetType;
+  supported: boolean;
+  sourceRoot: string | null;
+  backupRoot: string | null;
+  summary: string;
+  warnings: string[];
+  limitations: string[];
+  comparison: {
+    totalItems: number;
+    statusCounts: Record<string, number>;
+    displayedItems: number;
+    truncated: boolean;
+    items: BackupAssetComparisonItem[];
+  };
+  folders: {
+    suspiciousCount: number;
+    items: BackupFolderComparisonItem[];
+  };
+}
+
+export interface BackupTestCopyResponse {
+  generatedAt: string;
+  targetId: string;
+  supported: boolean;
+  summary: string;
+  warnings: string[];
+  result: {
+    assetId: string | null;
+    sourcePath: string | null;
+    targetPath: string | null;
+    copied: boolean;
+    verified: boolean;
+    verificationMethod: string;
+    error: string | null;
+    details: Record<string, unknown>;
+  } | null;
+}
+
+export interface BackupRestoreActionResponse {
+  generatedAt: string;
+  targetId: string;
+  apply: boolean;
+  supported: boolean;
+  summary: string;
+  warnings: string[];
+  results: Array<{
+    assetId: string;
+    sourcePath: string;
+    backupPath: string;
+    actionAttempted: string;
+    actionOutcome: string;
+    resultStatus: BackupAssetComparisonStatus;
+    reason: string;
+    quarantinePath: string | null;
+    details: Record<string, unknown>;
+  }>;
 }

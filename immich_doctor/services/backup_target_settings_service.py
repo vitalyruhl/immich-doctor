@@ -43,8 +43,9 @@ class BackupTargetSettingsService:
                 "SMB targets are configuration, validation, and mount-planning "
                 "only in this phase; productive SMB backup execution is "
                 "intentionally disabled.",
-                "Restore readiness remains not implemented even when backup "
-                "targets are configured.",
+                "Local targets provide partial asset-aware selective restore "
+                "only after explicit review and confirmation; remote targets "
+                "still do not imply restore readiness.",
             ],
         }
 
@@ -169,7 +170,11 @@ class BackupTargetSettingsService:
             lastTestResult=existing.last_test_result if existing else None,
             lastSuccessfulBackup=existing.last_successful_backup if existing else None,
             retentionPolicy=retention_policy,
-            restoreReadiness=BackupRestoreReadiness.NOT_IMPLEMENTED,
+            restoreReadiness=(
+                BackupRestoreReadiness.PARTIAL
+                if payload.target_type == BackupTargetType.LOCAL
+                else BackupRestoreReadiness.NOT_IMPLEMENTED
+            ),
             sourceScope="files_only",
             schedulingCompatible=True,
             warnings=self._warnings_for_payload(payload),
@@ -217,6 +222,11 @@ class BackupTargetSettingsService:
             warnings.append(
                 "SMB targets are configuration, validation, and mount-planning "
                 "only in this phase; productive execution is disabled."
+            )
+        if payload.target_type == BackupTargetType.LOCAL:
+            warnings.append(
+                "Local targets allow asset-aware check/sync, test copy, and "
+                "explicit selective restore with quarantine-first overwrite protection."
             )
         if payload.target_type in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
             warnings.append(

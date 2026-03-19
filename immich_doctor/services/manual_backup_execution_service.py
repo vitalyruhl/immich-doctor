@@ -26,6 +26,7 @@ from immich_doctor.backup.targets.models import (
     VerificationLevel,
 )
 from immich_doctor.core.config import AppSettings
+from immich_doctor.services.backup_asset_workflow_service import BackupAssetWorkflowService
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime, ManagedJobHandle
 from immich_doctor.services.backup_size_service import BackupSizeEstimationService
 from immich_doctor.services.backup_snapshot_service import summarize_backup_snapshot
@@ -48,6 +49,9 @@ class ManualBackupExecutionService:
         default_factory=ManagedRsyncTransferExecutor
     )
     filesystem: FilesystemAdapter = field(default_factory=FilesystemAdapter)
+    asset_workflow_service: BackupAssetWorkflowService = field(
+        default_factory=BackupAssetWorkflowService
+    )
 
     def __post_init__(self) -> None:
         if self.validator is None:
@@ -86,9 +90,13 @@ class ManualBackupExecutionService:
             "targetType": target.target_type.value,
             "requestedKind": snapshot_kind.value,
             "coverage": "files_only",
-            "restoreReadiness": "not_implemented",
+            "restoreReadiness": target.restore_readiness.value,
             "state": "pending",
-            "summary": "Manual files-only backup is pending.",
+            "summary": (
+                "Backup check/sync is pending."
+                if target.target_type == BackupTargetType.LOCAL
+                else "Manual files-only backup is pending."
+            ),
             "report": None,
             "snapshot": None,
             "warnings": list(target.warnings),
@@ -97,7 +105,7 @@ class ManualBackupExecutionService:
             settings,
             job_type=BACKUP_EXECUTION_JOB_TYPE,
             initial_result=pending,
-            summary="Manual files-only backup is pending.",
+            summary=str(pending["summary"]),
             runner=lambda handle: self._run_execution(
                 handle,
                 target_id=target_id,
@@ -130,10 +138,10 @@ class ManualBackupExecutionService:
                 "targetType": target.target_type.value,
                 "requestedKind": snapshot_kind.value,
                 "coverage": "files_only",
-                "restoreReadiness": "not_implemented",
+                "restoreReadiness": target.restore_readiness.value,
                 "state": validation["state"],
                 "summary": (
-                    "Manual files-only backup cannot start because target validation did not pass."
+                    "Backup execution cannot start because target validation did not pass."
                 ),
                 "report": {
                     "verificationLevel": VerificationLevel.NONE.value,
@@ -165,10 +173,15 @@ class ManualBackupExecutionService:
         version_id = started_at.strftime("%Y%m%dT%H%M%SZ")
         artifact_relative_path = Path("files/immich-library")
         planned = self._planned_metrics(handle.settings)
+        running_summary = (
+            "Backup check/sync is running."
+            if target.target_type == BackupTargetType.LOCAL
+            else "Manual files-only backup is running."
+        )
 
         handle.update(
             state=BackgroundJobState.RUNNING,
-            summary="Manual files-only backup is running.",
+            summary=running_summary,
             result={
                 "generatedAt": datetime.now(UTC).isoformat(),
                 "jobId": handle.record.job_id,
@@ -176,14 +189,67 @@ class ManualBackupExecutionService:
                 "targetType": target.target_type.value,
                 "requestedKind": snapshot_kind.value,
                 "coverage": "files_only",
-                "restoreReadiness": "not_implemented",
+                "restoreReadiness": target.restore_readiness.value,
                 "state": "running",
-                "summary": "Manual files-only backup is running.",
+                "summary": running_summary,
                 "report": planned,
                 "snapshot": None,
                 "warnings": list(target.warnings),
             },
         )
+
+        if target.target_type == BackupTargetType.LOCAL:
+            workflow_result = self.asset_workflow_service.sync_missing(
+                handle.settings,
+                target_id=target_id,
+            )
+            bytes_transferred = sum(
+                int(item.get("details", {}).get("targetSize") or 0)
+                for item in workflow_result["report"]["results"]
+                if item.get("resultStatus") == "restored"
+            )
+            copied_count = int(workflow_result["report"]["copiedCount"])
+            updated_target = target.model_copy(
+                update={
+                    "last_successful_backup": BackupTargetLastBackupMetadata(
+                        backupId=version_id,
+                        completedAt=datetime.now(UTC).isoformat(),
+                        sourceScope="files_only",
+                        bytesTransferred=bytes_transferred,
+                        verificationLevel=VerificationLevel.COPIED_FILES_SHA256,
+                        snapshotId=None,
+                    )
+                }
+            )
+            self.target_settings.save_target(handle.settings, updated_target)
+            return {
+                "generatedAt": datetime.now(UTC).isoformat(),
+                "jobId": handle.record.job_id,
+                "targetId": target_id,
+                "targetType": target.target_type.value,
+                "requestedKind": snapshot_kind.value,
+                "coverage": "files_only",
+                "restoreReadiness": target.restore_readiness.value,
+                "state": workflow_result["state"],
+                "summary": workflow_result["summary"],
+                "report": {
+                    "sourceScope": "files_only",
+                    "targetType": target.target_type.value,
+                    "bytesPlanned": planned.get("bytesPlanned"),
+                    "bytesTransferred": bytes_transferred,
+                    "fileCounts": {
+                        "planned": planned.get("fileCount"),
+                        "transferred": copied_count,
+                    },
+                    "durationSeconds": None,
+                    "warnings": list(workflow_result["warnings"]),
+                    "verificationLevel": VerificationLevel.COPIED_FILES_SHA256.value,
+                    "versionId": version_id,
+                    "details": workflow_result["report"],
+                },
+                "snapshot": None,
+                "warnings": list(workflow_result["warnings"]),
+            }
 
         try:
             transfer, backup_root_reference, verification_level = self._execute_transfer(
@@ -201,7 +267,7 @@ class ManualBackupExecutionService:
                 "targetType": target.target_type.value,
                 "requestedKind": snapshot_kind.value,
                 "coverage": "files_only",
-                "restoreReadiness": "not_implemented",
+                "restoreReadiness": target.restore_readiness.value,
                 "state": state,
                 "summary": exc.message,
                 "report": {
@@ -251,7 +317,7 @@ class ManualBackupExecutionService:
             "targetType": target.target_type.value,
             "requestedKind": snapshot_kind.value,
             "coverage": "files_only",
-            "restoreReadiness": "not_implemented",
+            "restoreReadiness": target.restore_readiness.value,
             "state": "completed",
             "summary": (
                 "Manual files-only backup completed. Restore execution remains unavailable."
@@ -381,7 +447,7 @@ class ManualBackupExecutionService:
             "targetType": target.target_type.value,
             "requestedKind": snapshot_kind.value,
             "coverage": "files_only",
-            "restoreReadiness": "not_implemented",
+            "restoreReadiness": target.restore_readiness.value,
             "state": "failed",
             "summary": summary,
             "report": {
@@ -396,7 +462,7 @@ class ManualBackupExecutionService:
             "generatedAt": datetime.now(UTC).isoformat(),
             "jobId": None,
             "state": "pending",
-            "summary": "Manual files-only backup has not run yet.",
+            "summary": "Backup check/sync has not run yet.",
             "report": None,
             "snapshot": None,
             "warnings": [],

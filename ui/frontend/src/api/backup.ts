@@ -1,9 +1,12 @@
 import { request } from "./client";
 import type { ApiResponse } from "./types/common";
 import type {
+  BackupAssetWorkflowOverviewResponse,
   BackupExecutionStatusResponse,
+  BackupRestoreActionResponse,
   BackupSizeEstimateResponse,
   BackupSnapshotsResponse,
+  BackupTestCopyResponse,
   BackupTargetDraft,
   BackupTargetMutationResponse,
   BackupTargetValidationResponse,
@@ -93,5 +96,30 @@ export async function cancelManualBackupExecution(): Promise<
 > {
   return request<BackupExecutionStatusResponse>("/backup/executions/cancel", {
     method: "POST",
+  });
+}
+
+export async function fetchBackupAssetWorkflowOverview(
+  targetId: string,
+): Promise<ApiResponse<BackupAssetWorkflowOverviewResponse>> {
+  return request<BackupAssetWorkflowOverviewResponse>(`/backup/targets/${targetId}/assets/overview`);
+}
+
+export async function runBackupTestCopy(
+  targetId: string,
+): Promise<ApiResponse<BackupTestCopyResponse>> {
+  return request<BackupTestCopyResponse>(`/backup/targets/${targetId}/assets/test-copy`, {
+    method: "POST",
+  });
+}
+
+export async function runBackupRestoreAction(
+  targetId: string,
+  assetIds: string[],
+  apply = false,
+): Promise<ApiResponse<BackupRestoreActionResponse>> {
+  return request<BackupRestoreActionResponse>(`/backup/targets/${targetId}/assets/restore`, {
+    method: "POST",
+    body: JSON.stringify({ asset_ids: assetIds, apply }),
   });
 }

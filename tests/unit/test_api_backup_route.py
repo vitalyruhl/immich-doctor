@@ -254,3 +254,101 @@ def test_backup_execution_current_route_returns_expected_shape(monkeypatch) -> N
     assert response.status_code == 200
     payload = response.json()
     assert payload["data"]["state"] == "running"
+
+
+def test_backup_asset_workflow_overview_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        backup_routes.BackupAssetWorkflowService,
+        "get_overview",
+        lambda self, settings, *, target_id: {
+            "generatedAt": "2026-03-19T12:00:00+00:00",
+            "targetId": target_id,
+            "targetType": "local",
+            "supported": True,
+            "summary": (
+                "1 identical, 1 missing in backup, 1 mismatches, 0 conflicts, 0 restore candidates."
+            ),
+            "warnings": [],
+            "comparison": {
+                "totalItems": 2,
+                "statusCounts": {"identical": 1, "missing_in_backup": 1},
+                "displayedItems": 2,
+                "truncated": False,
+                "items": [],
+            },
+            "folders": {"suspiciousCount": 1, "items": []},
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/backup/targets/target-1/assets/overview")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["targetId"] == "target-1"
+    assert payload["data"]["supported"] is True
+
+
+def test_backup_test_copy_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        backup_routes.BackupAssetWorkflowService,
+        "run_test_copy",
+        lambda self, settings, *, target_id: {
+            "generatedAt": "2026-03-19T12:00:00+00:00",
+            "targetId": target_id,
+            "supported": True,
+            "summary": "Representative test copy completed and verified.",
+            "warnings": [],
+            "result": {
+                "assetId": "library/asset.jpg",
+                "sourcePath": "/library/asset.jpg",
+                "targetPath": "/backup/_immich-doctor/tests/test/library/asset.jpg",
+                "copied": True,
+                "verified": True,
+                "verificationMethod": "sha256",
+                "error": None,
+                "details": {},
+            },
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post("/api/backup/targets/target-1/assets/test-copy")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["result"]["verified"] is True
+
+
+def test_backup_restore_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        backup_routes.BackupAssetWorkflowService,
+        "restore_items",
+        lambda self, settings, *, target_id, asset_ids, apply: {
+            "generatedAt": "2026-03-19T12:00:00+00:00",
+            "targetId": target_id,
+            "apply": apply,
+            "supported": True,
+            "summary": (
+                "Selective restore processed 1 selected items: 1 restored, 0 failed, 0 skipped."
+            ),
+            "warnings": [],
+            "results": [
+                {
+                    "assetId": asset_ids[0],
+                    "resultStatus": "restored",
+                    "actionOutcome": "restored",
+                }
+            ],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post(
+        "/api/backup/targets/target-1/assets/restore",
+        json={"asset_ids": ["photos/asset.jpg"], "apply": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["results"][0]["resultStatus"] == "restored"
