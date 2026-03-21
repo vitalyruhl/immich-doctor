@@ -58,6 +58,31 @@ SMB `system_mount` targets stay configuration and validation only in this phase.
 Only `pre_mounted_path` is executable now, and only because it resolves to an
 already mounted usable path.
 
+## What to enter in the UI
+
+- Local folder on this system:
+  Enter one usable local path. This can also be a path already mounted into the
+  host or container.
+- SMB mounted local path:
+  Enter only the mounted local path. Doctor treats this like another usable
+  local path and does not need SMB server/share credentials for execution.
+- SMB system mount:
+  Enter server/host, share name, optional subfolder inside the share, username,
+  and password secret. Share means the SMB share root such as `backups`;
+  subfolder means an optional path inside that share such as `immich`.
+- SSH target:
+  Prefer the SSH connection shorthand such as `backup@example-host` or
+  `backup@example-host:2222`. Separate host/user/port fields are secondary.
+- Rsync over SSH:
+  Uses the same connection model as SSH. This is SSH-based transport, not a
+  mounted filesystem or NFS-style path.
+
+Local folder and SMB mounted local path differ mainly by operator intent:
+
+- local folder: regular local or already-mounted storage path on this system
+- SMB mounted local path: the path comes from an SMB share that was mounted
+  outside doctor already
+
 ## Security model
 
 Backup target secrets are write-only from the UI perspective.

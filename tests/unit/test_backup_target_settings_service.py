@@ -119,9 +119,6 @@ def test_backup_target_service_accepts_smb_pre_mounted_mode_without_credentials(
         BackupTargetUpsertPayload(
             targetName="SMB Pre-Mounted",
             targetType=BackupTargetType.SMB,
-            host="nas.local",
-            share="immich",
-            remotePath="/backups",
             mountStrategy="pre_mounted_path",
             mountedPath=(tmp_path / "mnt" / "immich-backup").as_posix(),
         ),
@@ -130,6 +127,28 @@ def test_backup_target_service_accepts_smb_pre_mounted_mode_without_credentials(
     warnings = result["item"]["warnings"]
     assert result["item"]["restoreReadiness"] == "partial"
     assert any("already authenticated mount" in warning for warning in warnings)
+
+
+def test_backup_target_service_accepts_smb_system_mount_without_subfolder(
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
+    service = BackupTargetSettingsService()
+
+    result = service.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="SMB System Mount",
+            targetType=BackupTargetType.SMB,
+            host="nas.local",
+            share="backups",
+            mountStrategy="system_mount",
+            username="backup",
+            passwordSecret={"label": "SMB password", "material": "secret"},
+        ),
+    )
+
+    assert result["item"]["transport"]["remotePath"] is None
 
 
 def test_backup_target_service_rejects_smb_system_mount_without_credentials(

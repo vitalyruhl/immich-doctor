@@ -152,14 +152,14 @@
             <label class="backup-form__field">
               <span>Type</span>
               <select v-model="draft.targetType">
-                <option value="local">Local folder</option>
+                <option value="local">Local folder on this system</option>
                 <option value="smb">SMB share</option>
                 <option value="ssh">SSH target</option>
-                <option value="rsync">rsync-capable Linux target</option>
+                <option value="rsync">Rsync over SSH</option>
               </select>
             </label>
             <p v-if="draft.targetType === 'smb'" class="health-card__details">
-              SMB targets require authentication. Pre-mounted path targets can execute through the path-like workflow; system-mount execution stays disabled in this phase.
+              SMB targets can either use a path that is already mounted for doctor or keep system-mount details for later. Only the mounted-path variant is executable today.
             </p>
             <label class="backup-form__field backup-form__field--toggle">
               <input v-model="draft.enabled" type="checkbox" />
@@ -167,60 +167,60 @@
             </label>
 
             <template v-if="draft.targetType === 'local'">
+              <p class="health-card__details">
+                Use this for a folder path on this system. It can also be a path already mounted into the host or container.
+              </p>
               <label class="backup-form__field">
-                <span>Absolute destination path</span>
+                <span>Local folder on this system</span>
                 <input v-model="draft.path" type="text" placeholder="/backups/immich" required />
               </label>
             </template>
 
             <template v-else-if="draft.targetType === 'smb'">
               <label class="backup-form__field">
-                <span>Host</span>
-                <input v-model="draft.host" type="text" required />
-              </label>
-              <label class="backup-form__field">
-                <span>Share</span>
-                <input v-model="draft.share" type="text" required />
-              </label>
-              <label class="backup-form__field">
-                <span>Remote path</span>
-                <input v-model="draft.remotePath" type="text" placeholder="/backups" required />
-              </label>
-              <label class="backup-form__field">
-                <span>Mount strategy</span>
+                <span>Access mode</span>
                 <select v-model="draft.mountStrategy">
-                  <option value="system_mount">System mount</option>
-                  <option value="pre_mounted_path">Pre-mounted path</option>
+                  <option value="pre_mounted_path">Mounted local path</option>
+                  <option value="system_mount">System mount (planned)</option>
                 </select>
               </label>
-              <label v-if="draft.mountStrategy === 'pre_mounted_path'" class="backup-form__field">
-                <span>Mounted path</span>
-                <input
-                  v-model="draft.mountedPath"
-                  type="text"
-                  placeholder="/mnt/immich-backup"
-                  required
-                />
-              </label>
-              <p v-if="draft.mountStrategy === 'pre_mounted_path'" class="health-card__details">
-                Pre-mounted SMB mode uses an already authenticated mount. Leave credential fields empty here.
-              </p>
+              <template v-if="draft.mountStrategy === 'pre_mounted_path'">
+                <p class="health-card__details">
+                  Use this when the backup location is already mounted outside doctor. Doctor only needs the mounted local path.
+                </p>
+                <label class="backup-form__field">
+                  <span>Mounted local path</span>
+                  <input
+                    v-model="draft.mountedPath"
+                    type="text"
+                    placeholder="/mnt/immich-backup"
+                    required
+                  />
+                </label>
+              </template>
               <template v-else>
+                <p class="health-card__details">
+                  Use this for an SMB share doctor should access by server, share name, and optional subfolder inside that share. Execution stays disabled in this phase.
+                </p>
+                <label class="backup-form__field">
+                  <span>Server / Host</span>
+                  <input v-model="draft.host" type="text" required />
+                </label>
+                <label class="backup-form__field">
+                  <span>Share name</span>
+                  <input v-model="draft.share" type="text" placeholder="backups" required />
+                </label>
+                <label class="backup-form__field">
+                  <span>Subfolder in share</span>
+                  <input v-model="draft.remotePath" type="text" placeholder="immich" />
+                </label>
                 <label class="backup-form__field">
                   <span>Username</span>
                   <input v-model="draft.username" type="text" required />
                 </label>
                 <p v-if="existingPasswordSecretRef" class="health-card__details">
-                  Stored secret reference: {{ existingPasswordSecretRef.secretId }}. Leave the password secret field empty to keep it.
+                  Stored password secret reference: {{ existingPasswordSecretRef.secretId }}. Leave the password field empty to keep it.
                 </p>
-                <label class="backup-form__field">
-                  <span>Password secret label</span>
-                  <input
-                    v-model="draft.passwordSecret!.label"
-                    type="text"
-                    placeholder="SMB credential"
-                  />
-                </label>
                 <label class="backup-form__field">
                   <span>Password secret</span>
                   <input
@@ -250,13 +250,20 @@
 
             <template v-else>
               <label class="backup-form__field">
-                <span>Connection string</span>
+                <span>{{ draft.targetType === 'rsync' ? 'Rsync over SSH connection' : 'SSH connection' }}</span>
                 <input
                   v-model="draft.connectionString"
                   type="text"
                   placeholder="root@192.168.2.2"
                 />
               </label>
+              <p class="health-card__details">
+                {{
+                  draft.targetType === 'rsync'
+                    ? 'Use this for rsync over SSH. This is SSH-based transport, not a mounted filesystem.'
+                    : 'Use username@host or username@host:port. Expand manual fields only if you prefer entering server, user, and port separately.'
+                }}
+              </p>
               <p v-if="parsedConnection.error" class="runtime-blocking-message">
                 {{ parsedConnection.error }}
               </p>
@@ -270,26 +277,37 @@
                   <dd>{{ parsedConnection.port }}</dd>
                 </template>
               </dl>
-              <template v-if="!trimmedConnectionString">
+              <button
+                class="runtime-action runtime-action--secondary"
+                type="button"
+                @click="toggleRemoteConnectionMode()"
+              >
+                {{
+                  useManualRemoteFields
+                    ? 'Use single connection field'
+                    : 'Enter server, user, and port separately'
+                }}
+              </button>
+              <template v-if="useManualRemoteFields">
                 <label class="backup-form__field">
-                  <span>Host</span>
+                  <span>Server / Host</span>
                   <input v-model="draft.host" type="text" required />
                 </label>
                 <label class="backup-form__field">
                   <span>Username</span>
                   <input v-model="draft.username" type="text" required />
                 </label>
+                <label class="backup-form__field">
+                  <span>Port</span>
+                  <input v-model.number="draft.port" type="number" min="1" />
+                </label>
               </template>
               <label class="backup-form__field">
-                <span>Port</span>
-                <input v-model.number="draft.port" type="number" min="1" />
-              </label>
-              <label class="backup-form__field">
-                <span>Remote path</span>
+                <span>{{ draft.targetType === 'rsync' ? 'Destination folder on remote system' : 'Destination folder on remote system' }}</span>
                 <input v-model="draft.remotePath" type="text" placeholder="/srv/backup" required />
               </label>
               <label class="backup-form__field">
-                <span>Auth mode</span>
+                <span>Authentication method</span>
                 <select v-model="draft.authMode">
                   <option value="agent">SSH agent</option>
                   <option value="private_key">Private key</option>
@@ -299,37 +317,10 @@
               <p v-if="draft.authMode === 'password'" class="health-card__details">
                 Password-based SSH execution remains hidden and unsupported for execution in this phase.
               </p>
-              <label class="backup-form__field">
-                <span>Known host mode</span>
-                <select v-model="draft.knownHostMode">
-                  <option value="strict">Strict</option>
-                  <option value="accept_new">Accept new</option>
-                  <option value="disabled">Disabled</option>
-                </select>
-              </label>
-              <p v-if="draft.knownHostMode === 'disabled'" class="runtime-blocking-message">
-                Disabled known-host mode accepts host changes without verification. Use only for controlled environments.
-              </p>
-              <label class="backup-form__field">
-                <span>Known host reference</span>
-                <input
-                  v-model="draft.knownHostReference"
-                  type="text"
-                  placeholder="~/.ssh/known_hosts"
-                />
-              </label>
               <p v-if="draft.authMode === 'private_key' && existingPrivateKeySecretRef" class="health-card__details">
                 Stored secret reference: {{ existingPrivateKeySecretRef.secretId }}. Leave the private key field empty to keep it.
               </p>
               <template v-if="draft.authMode === 'private_key'">
-                <label class="backup-form__field">
-                  <span>Private key label</span>
-                  <input
-                    v-model="draft.privateKeySecret!.label"
-                    type="text"
-                    placeholder="Primary SSH Key"
-                  />
-                </label>
                 <label class="backup-form__field">
                   <span>Private key</span>
                   <textarea
@@ -344,14 +335,6 @@
                   Stored secret reference: {{ existingPasswordSecretRef.secretId }}. Leave the password field empty to keep it.
                 </p>
                 <label class="backup-form__field">
-                  <span>Password secret label</span>
-                  <input
-                    v-model="draft.passwordSecret!.label"
-                    type="text"
-                    placeholder="SSH password"
-                  />
-                </label>
-                <label class="backup-form__field">
                   <span>Password secret</span>
                   <input
                     v-model="draft.passwordSecret!.material"
@@ -361,6 +344,28 @@
                   />
                 </label>
               </template>
+              <details class="backup-form__details">
+                <summary>Advanced SSH options</summary>
+                <label class="backup-form__field">
+                  <span>Known host mode</span>
+                  <select v-model="draft.knownHostMode">
+                    <option value="strict">Strict</option>
+                    <option value="accept_new">Accept new</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </label>
+                <p v-if="draft.knownHostMode === 'disabled'" class="runtime-blocking-message">
+                  Disabled known-host mode accepts host changes without verification. Use only for controlled environments.
+                </p>
+                <label class="backup-form__field">
+                  <span>Known hosts file</span>
+                  <input
+                    v-model="draft.knownHostReference"
+                    type="text"
+                    placeholder="~/.ssh/known_hosts"
+                  />
+                </label>
+              </details>
             </template>
 
             <div class="runtime-actions">
@@ -565,6 +570,7 @@ const selectedPreRepairLabel = computed(() =>
     ? "Run Pre-Repair Check / Sync"
     : "Run Pre-Repair Files-Only Backup",
 );
+const useManualRemoteFields = ref(false);
 const sshPasswordAuthEnabled = SSH_PASSWORD_AUTH_ENABLED;
 const existingPasswordSecretRef = computed<SecretReferenceSummary | null>(
   () => editingTarget.value?.transport.passwordSecretRef ?? null,
@@ -604,6 +610,7 @@ const formValidationError = computed(() => validateDraft(draft.value));
 
 function resetDraft(): void {
   editingTargetId.value = null;
+  useManualRemoteFields.value = false;
   draft.value = defaultDraft();
 }
 
@@ -614,15 +621,13 @@ function selectTarget(targetId: string): void {
 function loadTargetIntoDraft(target: BackupTargetConfig): void {
   editingTargetId.value = target.targetId;
   backupStore.selectTarget(target.targetId);
+  useManualRemoteFields.value = false;
   draft.value = {
     targetName: target.targetName,
     targetType: target.targetType,
     enabled: target.enabled,
     path: target.transport.path ?? "",
-    connectionString:
-      target.transport.username && target.transport.host
-        ? `${target.transport.username}@${target.transport.host}`
-        : "",
+    connectionString: formatStoredConnectionString(target),
     host: target.transport.host ?? "",
     port: target.transport.port ?? 22,
     share: target.transport.share ?? "",
@@ -663,49 +668,87 @@ function buildTargetPayload(currentDraft: BackupTargetDraft): BackupTargetDraft 
     payload.path = trimToUndefined(currentDraft.path);
     return payload;
   }
-  payload.host = trimToUndefined(currentDraft.host);
-  payload.port = parsedConnection.value.port ?? currentDraft.port ?? 22;
-  payload.share = trimToUndefined(currentDraft.share);
-  payload.remotePath = trimToUndefined(currentDraft.remotePath);
   payload.mountStrategy = currentDraft.mountStrategy;
-  payload.mountedPath = trimToUndefined(currentDraft.mountedPath);
-  payload.username = trimToUndefined(currentDraft.username);
-  payload.domain = trimToUndefined(currentDraft.domain);
-  payload.mountOptions = trimToUndefined(currentDraft.mountOptions);
   if (currentDraft.targetType === "smb") {
-    const passwordSecret = buildSecretInput(currentDraft.passwordSecret?.label, currentDraft.passwordSecret?.material);
+    if (currentDraft.mountStrategy === "pre_mounted_path") {
+      payload.mountedPath = trimToUndefined(currentDraft.mountedPath);
+      return payload;
+    }
+    payload.host = trimToUndefined(currentDraft.host);
+    payload.share = trimToUndefined(currentDraft.share);
+    payload.remotePath = trimToUndefined(currentDraft.remotePath);
+    payload.username = trimToUndefined(currentDraft.username);
+    payload.domain = trimToUndefined(currentDraft.domain);
+    payload.mountOptions = trimToUndefined(currentDraft.mountOptions);
+    const passwordSecret = buildSecretInput(currentDraft.passwordSecret?.material);
     if (passwordSecret) {
       payload.passwordSecret = passwordSecret;
     }
     return payload;
   }
-  payload.connectionString = trimToUndefined(currentDraft.connectionString);
+  const connectionString = trimToUndefined(currentDraft.connectionString);
+  payload.connectionString = connectionString;
+  if (connectionString) {
+    payload.port = parsedConnection.value.port ?? currentDraft.port ?? 22;
+  } else {
+    payload.host = trimToUndefined(currentDraft.host);
+    payload.port = currentDraft.port ?? 22;
+    payload.username = trimToUndefined(currentDraft.username);
+  }
   payload.authMode = currentDraft.authMode;
   payload.knownHostMode = currentDraft.knownHostMode;
   payload.knownHostReference = trimToUndefined(currentDraft.knownHostReference);
-  const passwordSecret = buildSecretInput(currentDraft.passwordSecret?.label, currentDraft.passwordSecret?.material);
+  payload.remotePath = trimToUndefined(currentDraft.remotePath);
+  const passwordSecret = buildSecretInput(currentDraft.passwordSecret?.material);
   if (passwordSecret) {
     payload.passwordSecret = passwordSecret;
   }
-  const privateKeySecret = buildSecretInput(
-    currentDraft.privateKeySecret?.label,
-    currentDraft.privateKeySecret?.material,
-  );
+  const privateKeySecret = buildSecretInput(currentDraft.privateKeySecret?.material);
   if (privateKeySecret) {
     payload.privateKeySecret = privateKeySecret;
   }
   return payload;
 }
 
-function buildSecretInput(label?: string, material?: string): { label?: string; material?: string } | undefined {
+function buildSecretInput(material?: string): { material?: string } | undefined {
   const secretMaterial = material ?? "";
   if (!secretMaterial) {
     return undefined;
   }
   return {
-    label: trimToUndefined(label),
     material: secretMaterial,
   };
+}
+
+function toggleRemoteConnectionMode(): void {
+  if (useManualRemoteFields.value) {
+    const username = trimToUndefined(draft.value.username);
+    const host = trimToUndefined(draft.value.host);
+    if (!trimToUndefined(draft.value.connectionString) && username && host) {
+      const port = draft.value.port ?? 22;
+      draft.value.connectionString =
+        port === 22 ? `${username}@${host}` : `${username}@${host}:${port}`;
+    }
+    useManualRemoteFields.value = false;
+    return;
+  }
+  if (trimmedConnectionString.value && !parsedConnection.value.error) {
+    draft.value.username = draft.value.username ?? parsedConnection.value.username;
+    draft.value.host = draft.value.host ?? parsedConnection.value.host;
+    draft.value.port = parsedConnection.value.port ?? draft.value.port ?? 22;
+    draft.value.connectionString = "";
+  }
+  useManualRemoteFields.value = true;
+}
+
+function formatStoredConnectionString(target: BackupTargetConfig): string {
+  if (!target.transport.username || !target.transport.host) {
+    return "";
+  }
+  const port = target.transport.port ?? 22;
+  return port === 22
+    ? `${target.transport.username}@${target.transport.host}`
+    : `${target.transport.username}@${target.transport.host}:${port}`;
 }
 
 function validateDraft(currentDraft: BackupTargetDraft): string | null {
@@ -719,14 +762,14 @@ function validateDraft(currentDraft: BackupTargetDraft): string | null {
     return null;
   }
   if (currentDraft.targetType === "smb") {
-    if (!trimToUndefined(currentDraft.host) || !trimToUndefined(currentDraft.share) || !trimToUndefined(currentDraft.remotePath)) {
-      return "SMB targets require host, share, and remote path.";
-    }
     if (currentDraft.mountStrategy === "pre_mounted_path") {
       if (!trimToUndefined(currentDraft.mountedPath)) {
         return "SMB pre-mounted targets require a mounted path.";
       }
       return null;
+    }
+    if (!trimToUndefined(currentDraft.host) || !trimToUndefined(currentDraft.share)) {
+      return "SMB system-mount targets require a server and share name.";
     }
     if (!trimToUndefined(currentDraft.username)) {
       return "SMB system-mount targets require a username.";
@@ -945,7 +988,7 @@ function formatVerificationLevel(level: BackupVerificationLevel | null | undefin
 
 function formatRestoreReadiness(readiness: BackupRestoreReadiness | null | undefined): string {
   if (readiness === "partial") {
-    return "Partial local selective restore";
+    return "Partial path-based selective restore";
   }
   return "Not implemented";
 }
@@ -953,13 +996,13 @@ function formatRestoreReadiness(readiness: BackupRestoreReadiness | null | undef
 function formatTargetType(targetType: BackupTargetType | null | undefined): string {
   switch (targetType) {
     case "local":
-      return "Local folder";
+      return "Local folder on this system";
     case "smb":
       return "SMB share";
     case "ssh":
       return "SSH target";
     case "rsync":
-      return "rsync-capable Linux target";
+      return "Rsync over SSH";
     default:
       return "Unavailable";
   }

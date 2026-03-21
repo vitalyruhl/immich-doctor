@@ -124,6 +124,10 @@ Backup UI rules:
 - never show restore-ready or disaster-recovery-ready wording unless the backend says so
 - files-only backup must stay labeled as files-only
 - path-like execution must stay distinct from transport-prepared SSH/rsync snapshot transfer and from unsupported SMB `system_mount` targets
+- target forms must hide irrelevant fields for the selected mode instead of exposing one generic transport superset
+- SMB `pre_mounted_path` must be presented as a mounted local path, not as a full SMB transport form
+- SSH shorthand may be primary, but separate host/user/port fields must stay visually secondary
+- rsync wording must stay explicit that the current target type is rsync over SSH
 - target warnings must be visible before execution
 - verification labels must describe the actual assurance level and must not imply end-to-end integrity proof
 - snapshot cards must describe manifest-structure status separately from artifact-content verification

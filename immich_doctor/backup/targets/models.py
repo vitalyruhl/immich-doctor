@@ -352,15 +352,17 @@ class BackupTargetUpsertPayload(BaseModel):
             if not Path(self.path).expanduser().is_absolute():
                 raise ValueError("Local targets require an absolute destination path.")
         elif self.target_type == BackupTargetType.SMB:
-            required = [self.host, self.share, self.remote_path, self.mount_strategy]
-            if any(value in {None, ""} for value in required):
-                raise ValueError(
-                    "SMB targets require host, share, remote path, and explicit mount strategy."
-                )
+            if self.mount_strategy in {None, ""}:
+                raise ValueError("SMB targets require an explicit mount strategy.")
             if self.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH:
                 if not self.mounted_path:
                     raise ValueError("SMB pre-mounted targets require a mounted path.")
             elif self.mount_strategy == BackupTargetMountStrategy.SYSTEM_MOUNT:
+                required = [self.host, self.share]
+                if any(value in {None, ""} for value in required):
+                    raise ValueError(
+                        "SMB system-mount targets require host and share."
+                    )
                 if not self.username:
                     raise ValueError("SMB system-mount targets require a username.")
             else:

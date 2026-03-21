@@ -2,6 +2,32 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import BackupView from "./BackupView.vue";
 
+function createLocalTarget() {
+  return {
+    targetId: "target-1",
+    targetName: "Local Backup",
+    targetType: "local",
+    enabled: true,
+    transport: { path: "/backup" },
+    verificationStatus: "ready",
+    lastTestResult: {
+      checkedAt: "2026-03-18T20:00:00+00:00",
+      status: "ready",
+      summary: "Target validation completed for currently implemented checks.",
+      warnings: [],
+      details: {},
+    },
+    lastSuccessfulBackup: null,
+    retentionPolicy: { mode: "keep_all", maxVersions: null, pruneAutomatically: false },
+    restoreReadiness: "not_implemented",
+    sourceScope: "files_only",
+    schedulingCompatible: true,
+    warnings: [],
+    createdAt: "2026-03-18T20:00:00+00:00",
+    updatedAt: "2026-03-18T20:00:00+00:00",
+  };
+}
+
 const backupStore: any = {
   targetsOverview: {
     items: [
@@ -207,6 +233,107 @@ const backupStore: any = {
   selectTarget: vi.fn(),
 };
 
+function resetMockStore(): void {
+  const target = createLocalTarget();
+  backupStore.targetsOverview = {
+    items: [target],
+    limitations: [],
+  };
+  backupStore.targets = [target];
+  backupStore.selectedTargetId = target.targetId;
+  backupStore.selectedTarget = target;
+  backupStore.sizeEstimate = {
+    summary: "Backup size collection completed with partial data for: Storage backup estimate.",
+    state: "partial",
+    warnings: [],
+    scopes: [
+      {
+        scope: "storage",
+        label: "Storage backup estimate",
+        state: "completed",
+        sourceScope: "/library",
+        representation: "filesystem_usage",
+        bytes: 2048,
+        fileCount: 2,
+        stale: false,
+        categories: [],
+        warnings: [],
+        metadata: {},
+      },
+      {
+        scope: "database",
+        label: "Database backup estimate",
+        state: "unsupported",
+        sourceScope: "database",
+        representation: "physical_db_size_proxy",
+        bytes: null,
+        fileCount: null,
+        stale: false,
+        categories: [],
+        warnings: [],
+        metadata: {},
+      },
+    ],
+    limitations: [],
+  };
+  backupStore.storageEstimate = backupStore.sizeEstimate.scopes[0];
+  backupStore.databaseEstimate = backupStore.sizeEstimate.scopes[1];
+  backupStore.currentExecution = {
+    state: "completed",
+    summary: "Check/sync copied 1 missing assets and verified 1. 0 mismatches, 0 conflicts, and 0 restore candidates still require review.",
+    targetType: "local",
+    warnings: [],
+    report: {
+      verificationLevel: "copied_files_sha256",
+      bytesPlanned: 2048,
+      bytesTransferred: 2048,
+    },
+    snapshot: {
+      snapshotId: "snapshot-1",
+      createdAt: "2026-03-18T20:00:00+00:00",
+      kind: "manual",
+      coverage: "files_only",
+      repairRunId: null,
+      manifestPath: "/data/manifests/backup/snapshots/snapshot-1.json",
+      fileArtifactCount: 1,
+      hasDbArtifact: false,
+      basicValidity: "valid",
+      validityMessage: "Snapshot manifest structure is valid. Artifact content is not verified here.",
+    },
+  };
+  backupStore.snapshots = {
+    limitations: ["Current executable snapshot coverage is files-only."],
+  };
+  backupStore.snapshotItems = [backupStore.currentExecution.snapshot];
+  backupStore.quarantine = {
+    foundationState: "ok",
+    path: "/data/quarantine",
+    indexPresent: true,
+    itemCount: 0,
+  };
+  backupStore.hasTargets = true;
+  backupStore.isLoading = false;
+  backupStore.isSavingTarget = false;
+  backupStore.isExecuting = false;
+  backupStore.isExecutionRunning = false;
+  backupStore.isSizeCollectionRunning = false;
+  backupStore.isValidatingTarget = false;
+  backupStore.error = null;
+  backupStore.targetError = null;
+  backupStore.executionError = null;
+  backupStore.validationError = null;
+  backupStore.load = vi.fn().mockResolvedValue(undefined);
+  backupStore.saveTarget = vi.fn().mockResolvedValue(undefined);
+  backupStore.removeTarget = vi.fn().mockResolvedValue(undefined);
+  backupStore.validateTarget = vi.fn().mockResolvedValue(undefined);
+  backupStore.startExecution = vi.fn().mockResolvedValue(undefined);
+  backupStore.cancelExecution = vi.fn().mockResolvedValue(undefined);
+  backupStore.refreshSizeEstimate = vi.fn().mockResolvedValue(undefined);
+  backupStore.selectTarget = vi.fn();
+}
+
+resetMockStore();
+
 vi.mock("@/stores/backup", () => ({
   useBackupStore: () => backupStore,
 }));
@@ -214,6 +341,7 @@ vi.mock("@/stores/backup", () => ({
 describe("BackupView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetMockStore();
   });
 
   it("renders target management and non-blocking size visibility", async () => {
@@ -411,5 +539,148 @@ describe("BackupView", () => {
 
     expect(wrapper.text()).toContain("Mounted path check / sync is supported");
     expect(wrapper.text()).not.toContain("SMB system-mount execution is not implemented");
+  });
+
+  it("shows only mounted-path fields for SMB pre-mounted mode", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("smb");
+    await nextTick();
+    const accessModeSelect = wrapper.findAll("select").find((select) =>
+      select.text().includes("Mounted local path"),
+    );
+    await accessModeSelect?.setValue("pre_mounted_path");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Mounted local path");
+    expect(wrapper.text()).toContain("already mounted outside doctor");
+    expect(wrapper.text()).not.toContain("Server / Host");
+    expect(wrapper.text()).not.toContain("Share name");
+    expect(wrapper.text()).not.toContain("Subfolder in share");
+    expect(wrapper.text()).not.toContain("Password secret");
+
+    await wrapper.findAll('input[type="text"]')[0]?.setValue("Mounted SMB");
+    await wrapper.find('input[placeholder="/mnt/immich-backup"]').setValue("/mnt/backup");
+    await wrapper.find("form").trigger("submit");
+
+    expect(backupStore.saveTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: "smb",
+        mountStrategy: "pre_mounted_path",
+        mountedPath: "/mnt/backup",
+      }),
+      undefined,
+    );
+    const lastPayload = backupStore.saveTarget.mock.calls[backupStore.saveTarget.mock.calls.length - 1]?.[0];
+    expect(lastPayload.host).toBeUndefined();
+    expect(lastPayload.share).toBeUndefined();
+    expect(lastPayload.remotePath).toBeUndefined();
+  });
+
+  it("shows share and optional subfolder semantics for SMB system-mount mode", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("smb");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Server / Host");
+    expect(wrapper.text()).toContain("Share name");
+    expect(wrapper.text()).toContain("Subfolder in share");
+    expect(wrapper.text()).toContain("Execution stays disabled in this phase.");
+    expect(wrapper.text()).not.toContain("Password secret label");
+  });
+
+  it("keeps SSH shorthand primary and separate fields secondary", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("ssh");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("SSH connection");
+    expect(wrapper.text()).toContain("username@host or username@host:port");
+    expect(wrapper.text()).not.toContain("Server / Host");
+
+    const toggleButtons = wrapper.findAll("button").filter((button) =>
+      button.text().includes("Enter server, user, and port separately"),
+    );
+    await toggleButtons[0]?.trigger("click");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Server / Host");
+    expect(wrapper.text()).toContain("Port");
+  });
+
+  it("uses rsync over SSH wording", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("rsync");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Rsync over SSH");
+    expect(wrapper.text()).toContain("This is SSH-based transport, not a mounted filesystem.");
   });
 });
