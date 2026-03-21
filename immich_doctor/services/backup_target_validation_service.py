@@ -21,6 +21,9 @@ from immich_doctor.backup.targets.models import (
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime, ManagedJobHandle
+from immich_doctor.services.backup_runtime_capability_service import (
+    BackupRuntimeCapabilityService,
+)
 from immich_doctor.services.backup_target_settings_service import BackupTargetSettingsService
 from immich_doctor.services.backup_transport_service import BackupTransportService
 
@@ -49,6 +52,7 @@ class BackupTargetValidationService:
             summary = "Target validation has not run yet."
             checks: list[dict[str, object]] = []
             warnings: list[str] = []
+            execution_support = self._default_execution_support(target)
         else:
             state = self._job_state_from_verification_status(
                 target.last_test_result.status
@@ -56,6 +60,10 @@ class BackupTargetValidationService:
             summary = target.last_test_result.summary
             checks = target.last_test_result.details.get("checks", [])
             warnings = target.last_test_result.warnings
+            execution_support = target.last_test_result.details.get(
+                "executionSupport",
+                self._default_execution_support(target),
+            )
         return {
             "generatedAt": datetime.now(UTC).isoformat(),
             "jobId": None,
@@ -66,6 +74,7 @@ class BackupTargetValidationService:
             "summary": summary,
             "checks": checks,
             "warnings": warnings,
+            "executionSupport": execution_support,
         }
 
     def start_validation(self, settings: AppSettings, *, target_id: str) -> dict[str, object]:
@@ -84,6 +93,7 @@ class BackupTargetValidationService:
             "summary": "Target validation is pending.",
             "checks": [],
             "warnings": [],
+            "executionSupport": self._default_execution_support(target),
         }
         updated_target = target.model_copy(
             update={"verification_status": BackupTargetVerificationStatus.RUNNING}
@@ -106,9 +116,16 @@ class BackupTargetValidationService:
         target: BackupTargetConfig,
     ) -> dict[str, object]:
         checks = self._checks_for_target(settings, target=target)
-        summary = self._summary_from_checks(checks)
-        status = self._status_from_checks(checks)
-        warnings = [check.message for check in checks if check.status == CheckStatus.WARN]
+        validation_checks = self._validation_relevant_checks(target, checks)
+        execution_support = self._execution_support_from_checks(target, checks, validation_checks)
+        summary = self._summary_from_checks(
+            validation_checks,
+            execution_support=execution_support,
+        )
+        status = self._status_from_checks(validation_checks)
+        warnings = [
+            check.message for check in validation_checks if check.status == CheckStatus.WARN
+        ]
         return {
             "generatedAt": datetime.now(UTC).isoformat(),
             "jobId": None,
@@ -119,6 +136,7 @@ class BackupTargetValidationService:
             "summary": summary,
             "checks": [check.to_dict() for check in checks],
             "warnings": warnings,
+            "executionSupport": execution_support,
         }
 
     def _run_validation(self, handle: ManagedJobHandle, *, target_id: str) -> dict[str, object]:
@@ -129,7 +147,10 @@ class BackupTargetValidationService:
             status=self._verification_status_from_state(result["state"]),
             summary=str(result["summary"]),
             warnings=list(result["warnings"]),
-            details={"checks": list(result["checks"])},
+            details={
+                "checks": list(result["checks"]),
+                "executionSupport": dict(result["executionSupport"]),
+            },
         )
         updated_target = target.model_copy(
             update={
@@ -226,23 +247,9 @@ class BackupTargetValidationService:
             )
         ssh_tool_checks = self.tools.validate_required_tools(["ssh"])
         checks.extend(ssh_tool_checks)
-        rsync_tool_checks = self.tools.validate_required_tools(["rsync"])
-        if target.target_type == BackupTargetType.RSYNC:
-            checks.extend(rsync_tool_checks)
-        elif rsync_tool_checks[0].status == CheckStatus.FAIL:
-            checks.append(
-                CheckResult(
-                    name="tool_rsync",
-                    status=CheckStatus.WARN,
-                    message=(
-                        "Local rsync is not available on PATH. SSH connectivity can still "
-                        "be validated, but files-only remote execution will not run."
-                    ),
-                    details={"tool": "rsync"},
-                )
-            )
-        else:
-            checks.append(rsync_tool_checks[0])
+        rsync_snapshot = BackupRuntimeCapabilityService(runtime=self.runtime).probe_rsync()
+        rsync_check = self._rsync_execution_check(target, rsync_snapshot)
+        checks.append(rsync_check)
 
         transport = BackupTransportService(self.target_settings.secrets)
         checks.extend(self._agent_checks(target))
@@ -250,7 +257,7 @@ class BackupTargetValidationService:
         if any(
             check.status == CheckStatus.FAIL
             for check in checks
-            if check.name in {"tool_ssh", "tool_rsync", "remote_agent_socket", "remote_known_hosts_path"}
+            if check.name in {"tool_ssh", "remote_agent_socket", "remote_known_hosts_path"}
         ):
             return checks
 
@@ -455,14 +462,25 @@ class BackupTargetValidationService:
             return BackgroundJobState.PARTIAL
         return BackgroundJobState.COMPLETED
 
-    def _summary_from_checks(self, checks: list[CheckResult]) -> str:
+    def _summary_from_checks(
+        self,
+        checks: list[CheckResult],
+        *,
+        execution_support: dict[str, object],
+    ) -> str:
         state = self._status_from_checks(checks)
+        execution_suffix = ""
+        if execution_support.get("supported") is False and execution_support.get("summary"):
+            execution_suffix = f" {execution_support['summary']}"
         if state == BackgroundJobState.COMPLETED:
-            return "Target validation completed for currently implemented checks."
+            return (
+                "Target validation completed for currently implemented connectivity and "
+                f"destination checks.{execution_suffix}"
+            )
         if state == BackgroundJobState.UNSUPPORTED:
             reason = self._first_check_message(checks, {CheckStatus.SKIP})
             if reason:
-                return f"Target validation is unsupported in this phase: {reason}"
+                return f"Target validation is unsupported in this phase: {reason}{execution_suffix}"
             return "Target validation is unsupported for part of this target in the current phase."
         if state == BackgroundJobState.FAILED:
             reason = self._first_check_message(checks, {CheckStatus.FAIL})
@@ -471,7 +489,7 @@ class BackupTargetValidationService:
             return "Target validation failed."
         reason = self._first_check_message(checks, {CheckStatus.WARN})
         if reason:
-            return f"Target validation completed with warnings: {reason}"
+            return f"Target validation completed with warnings: {reason}{execution_suffix}"
         return "Target validation completed with warnings for currently implemented checks."
 
     def _verification_status_from_state(
@@ -512,6 +530,10 @@ class BackupTargetValidationService:
             state = str(normalized.get("state") or "")
             verification_status = self._verification_status_from_state(state).value
             normalized["verificationStatus"] = verification_status
+        if normalized.get("executionSupport") is None:
+            normalized["executionSupport"] = self._default_execution_support_from_result(
+                normalized
+            )
         return normalized
 
     def _first_check_message(
@@ -583,3 +605,168 @@ class BackupTargetValidationService:
                 details={"path": known_hosts_path.as_posix()},
             )
         ]
+
+    def _validation_relevant_checks(
+        self,
+        target: BackupTargetConfig,
+        checks: list[CheckResult],
+    ) -> list[CheckResult]:
+        if target.target_type not in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
+            return checks
+        return [check for check in checks if check.name != "tool_rsync"]
+
+    def _execution_support_from_checks(
+        self,
+        target: BackupTargetConfig,
+        checks: list[CheckResult],
+        validation_checks: list[CheckResult],
+    ) -> dict[str, object]:
+        if target.target_type == BackupTargetType.LOCAL:
+            return {
+                "supported": True,
+                "state": "supported",
+                "summary": "Asset-aware local check and sync execution is supported.",
+            }
+        if target.target_type == BackupTargetType.SMB:
+            if (
+                target.transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH
+                and target.transport.mounted_path is not None
+            ):
+                return {
+                    "supported": True,
+                    "state": "supported",
+                    "summary": "Mounted path check and sync execution is supported.",
+                }
+            return {
+                "supported": False,
+                "state": "unsupported",
+                "summary": (
+                    "SMB system mount remains planned only and is not executable in the "
+                    "current safe subset."
+                ),
+            }
+        if target.transport.auth_mode == BackupTargetAuthMode.PASSWORD:
+            return {
+                "supported": False,
+                "state": "unsupported",
+                "summary": (
+                    "Password-based SSH/rsync execution is not implemented in this phase."
+                ),
+            }
+        validation_state = self._status_from_checks(validation_checks)
+        if validation_state not in {BackgroundJobState.COMPLETED, BackgroundJobState.PARTIAL}:
+            return {
+                "supported": False,
+                "state": "blocked",
+                "summary": (
+                    "Remote execution readiness is unavailable until connectivity and "
+                    "destination validation succeed."
+                ),
+            }
+        rsync_check = next((check for check in checks if check.name == "tool_rsync"), None)
+        if rsync_check is not None and rsync_check.status != CheckStatus.PASS:
+            return {
+                "supported": False,
+                "state": "blocked",
+                "summary": rsync_check.message,
+                "details": rsync_check.details,
+            }
+        return {
+            "supported": True,
+            "state": "supported",
+            "summary": "Files-only remote execution is supported.",
+        }
+
+    def _rsync_execution_check(
+        self,
+        target: BackupTargetConfig,
+        snapshot: dict[str, object],
+    ) -> CheckResult:
+        check_details = snapshot.get("check")
+        details = (
+            dict(check_details["details"])
+            if isinstance(check_details, dict)
+            and isinstance(check_details.get("details"), dict)
+            else {"tool": "rsync"}
+        )
+        message = (
+            "SSH target reachable, but files-only remote execution is blocked because local "
+            "rsync is not available on PATH."
+            if target.target_type == BackupTargetType.SSH
+            else "Rsync-over-SSH target reachable, but remote execution is blocked because local rsync is not available on PATH."
+        )
+        if snapshot.get("available") is True:
+            version = details.get("version")
+            return CheckResult(
+                name="tool_rsync",
+                status=CheckStatus.PASS,
+                message=(
+                    "Local rsync is available in the doctor runtime."
+                    if not version
+                    else f"Local rsync is available in the doctor runtime ({version})."
+                ),
+                details=details,
+            )
+        return CheckResult(
+            name="tool_rsync",
+            status=CheckStatus.WARN,
+            message=message,
+            details=details,
+        )
+
+    def _default_execution_support(
+        self,
+        target: BackupTargetConfig,
+    ) -> dict[str, object]:
+        if target.target_type == BackupTargetType.LOCAL:
+            return {
+                "supported": True,
+                "state": "supported",
+                "summary": "Asset-aware local check and sync execution is supported.",
+            }
+        if target.target_type == BackupTargetType.SMB:
+            if (
+                target.transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH
+                and target.transport.mounted_path is not None
+            ):
+                return {
+                    "supported": True,
+                    "state": "supported",
+                    "summary": "Mounted path check and sync execution is supported.",
+                }
+            return {
+                "supported": False,
+                "state": "unsupported",
+                "summary": (
+                    "SMB system mount remains planned only and is not executable in the "
+                    "current safe subset."
+                ),
+            }
+        return {
+            "supported": False,
+            "state": "unknown",
+            "summary": "Remote execution readiness has not been checked yet.",
+        }
+
+    def _default_execution_support_from_result(
+        self,
+        result: dict[str, object],
+    ) -> dict[str, object]:
+        target_type = result.get("targetType")
+        if target_type == BackupTargetType.LOCAL.value:
+            return {
+                "supported": True,
+                "state": "supported",
+                "summary": "Asset-aware local check and sync execution is supported.",
+            }
+        if target_type == BackupTargetType.SMB.value:
+            return {
+                "supported": False,
+                "state": "unknown",
+                "summary": "SMB execution readiness has not been checked yet.",
+            }
+        return {
+            "supported": False,
+            "state": "unknown",
+            "summary": "Remote execution readiness has not been checked yet.",
+        }

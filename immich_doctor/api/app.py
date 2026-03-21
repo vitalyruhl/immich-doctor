@@ -17,6 +17,9 @@ from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
 from immich_doctor.core.config import load_settings
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
+from immich_doctor.services.backup_runtime_capability_service import (
+    BackupRuntimeCapabilityService,
+)
 from immich_doctor.services.backup_size_service import BackupSizeEstimationService
 
 DEFAULT_UI_DIST_PATH = Path("/app/ui/dist")
@@ -29,6 +32,10 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
+            try:
+                BackupRuntimeCapabilityService(runtime=runtime).trigger_startup_probe()
+            except Exception:
+                pass
             try:
                 BackupSizeEstimationService(runtime=runtime).trigger_startup_refresh(
                     load_settings()

@@ -193,6 +193,7 @@ class ManualBackupExecutionService:
     ) -> dict[str, object]:
         target = self.target_settings.get_target(handle.settings, target_id=target_id)
         validation = self.validator.validate_target_now(handle.settings, target=target)
+        execution_support = validation.get("executionSupport") or {}
         if validation["state"] not in {"completed", "partial"}:
             return {
                 "generatedAt": datetime.now(UTC).isoformat(),
@@ -213,6 +214,35 @@ class ManualBackupExecutionService:
                 },
                 "snapshot": None,
                 "warnings": list(validation["warnings"]),
+            }
+        if execution_support.get("supported") is False and target.target_type in {
+            BackupTargetType.SSH,
+            BackupTargetType.RSYNC,
+        }:
+            execution_summary = str(
+                execution_support.get("summary")
+                or "Remote execution readiness is unavailable."
+            )
+            return {
+                "generatedAt": datetime.now(UTC).isoformat(),
+                "jobId": handle.record.job_id,
+                "targetId": target_id,
+                "targetType": target.target_type.value,
+                "requestedKind": snapshot_kind.value,
+                "coverage": "files_only",
+                "restoreReadiness": target.restore_readiness.value,
+                "state": "unsupported",
+                "summary": execution_summary,
+                "report": {
+                    "verificationLevel": VerificationLevel.NONE.value,
+                    "warnings": list(validation["warnings"]),
+                    "validationChecks": validation["checks"],
+                    "details": {
+                        "executionSupport": execution_support,
+                    },
+                },
+                "snapshot": None,
+                "warnings": [execution_summary],
             }
 
         source_path = handle.settings.immich_library_root

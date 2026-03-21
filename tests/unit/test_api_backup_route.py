@@ -198,6 +198,31 @@ def test_backup_app_triggers_size_refresh_on_startup(monkeypatch) -> None:
         assert startup_calls == ["called"]
 
 
+def test_backup_app_triggers_rsync_capability_probe_on_startup(monkeypatch) -> None:
+    startup_calls: list[str] = []
+
+    monkeypatch.setattr(
+        api_app_module.BackupRuntimeCapabilityService,
+        "trigger_startup_probe",
+        lambda self: startup_calls.append("called") or {"rsync": {"available": True}},
+    )
+    monkeypatch.setattr(
+        api_app_module.BackupSizeEstimationService,
+        "trigger_startup_refresh",
+        lambda self, settings: BackupSizeEstimateSnapshot(
+            generatedAt="2026-03-21T13:00:00+00:00",
+            jobId="startup-job",
+            state=BackgroundJobState.PENDING,
+            status=BackupSizeEstimateStatus.QUEUED,
+            summary="Backup size recalculation is queued.",
+            sourceScope="backup.files",
+        ),
+    )
+
+    with TestClient(create_api_app()):
+        assert startup_calls == ["called"]
+
+
 def test_backup_targets_route_returns_expected_shape(monkeypatch) -> None:
     monkeypatch.setattr(
         backup_routes.BackupTargetSettingsService,

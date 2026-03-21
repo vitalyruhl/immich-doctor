@@ -103,6 +103,10 @@ class BackgroundJobRuntime:
         init=False,
         repr=False,
     )
+    _capability_snapshots: dict[str, dict[str, object]] = field(
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         self._executor = ThreadPoolExecutor(
@@ -111,6 +115,7 @@ class BackgroundJobRuntime:
         )
         self._lock = Lock()
         self._active_jobs: dict[str, tuple[ManagedJobHandle, Future[None]]] = {}
+        self._capability_snapshots = {}
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=False)
@@ -161,6 +166,15 @@ class BackgroundJobRuntime:
             return None
         handle, _ = active
         return handle.request_cancel()
+
+    def set_capability_snapshot(self, name: str, snapshot: dict[str, object]) -> None:
+        with self._lock:
+            self._capability_snapshots[name] = dict(snapshot)
+
+    def get_capability_snapshot(self, name: str) -> dict[str, object] | None:
+        with self._lock:
+            snapshot = self._capability_snapshots.get(name)
+            return dict(snapshot) if snapshot is not None else None
 
     def _run_job(
         self,

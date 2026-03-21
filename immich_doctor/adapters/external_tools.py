@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 
 from immich_doctor.core.models import CheckResult, CheckStatus
 
@@ -29,3 +30,66 @@ class ExternalToolsAdapter:
                     )
                 )
         return checks
+
+    def inspect_runtime_tool(
+        self,
+        tool: str,
+        *,
+        version_argv: list[str] | None = None,
+    ) -> CheckResult:
+        location = shutil.which(tool)
+        if not location:
+            return CheckResult(
+                name=f"tool_{tool}",
+                status=CheckStatus.FAIL,
+                message=f"Required external tool `{tool}` is not available on PATH.",
+                details={"tool": tool},
+            )
+        details: dict[str, object] = {"tool": tool, "path": location}
+        if version_argv is not None:
+            try:
+                probe = subprocess.run(
+                    version_argv,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except OSError as exc:
+                return CheckResult(
+                    name=f"tool_{tool}",
+                    status=CheckStatus.FAIL,
+                    message=f"Required external tool `{tool}` could not be executed: {exc}",
+                    details=details,
+                )
+            except subprocess.TimeoutExpired:
+                return CheckResult(
+                    name=f"tool_{tool}",
+                    status=CheckStatus.FAIL,
+                    message=f"Required external tool `{tool}` did not respond in time.",
+                    details=details,
+                )
+            if probe.returncode != 0:
+                details["stdout"] = probe.stdout
+                details["stderr"] = probe.stderr
+                return CheckResult(
+                    name=f"tool_{tool}",
+                    status=CheckStatus.FAIL,
+                    message=(
+                        f"Required external tool `{tool}` is present on PATH, but the runtime "
+                        "could not execute it successfully."
+                    ),
+                    details=details,
+                )
+            version_line = next(
+                (line.strip() for line in probe.stdout.splitlines() if line.strip()),
+                None,
+            )
+            if version_line is not None:
+                details["version"] = version_line
+        return CheckResult(
+            name=f"tool_{tool}",
+            status=CheckStatus.PASS,
+            message=f"Required external tool `{tool}` is available in the runtime.",
+            details=details,
+        )

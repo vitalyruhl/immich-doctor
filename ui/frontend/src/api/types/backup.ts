@@ -201,6 +201,12 @@ export interface BackupTargetValidationResponse {
   summary: string;
   checks: Array<{ name: string; status: string; message: string; details?: Record<string, unknown> }>;
   warnings: string[];
+  executionSupport?: {
+    supported: boolean;
+    state: "supported" | "blocked" | "unsupported" | "unknown";
+    summary: string;
+    details?: Record<string, unknown>;
+  };
 }
 
 export interface BackupExecutionStatusResponse {

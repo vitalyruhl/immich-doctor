@@ -791,6 +791,70 @@ describe("BackupView", () => {
     expect(wrapper.text()).not.toContain("Validation running");
   });
 
+  it("keeps SSH validation successful while showing execution blocked when local rsync is missing", async () => {
+    backupStore.targets[0].targetType = "ssh";
+    backupStore.targets[0].transport = {
+      host: "backup.example",
+      username: "backup",
+      remotePath: "/srv/backup",
+      authMode: "agent",
+    };
+    backupStore.targets[0].verificationStatus = "ready";
+    backupStore.targets[0].lastTestResult = {
+      checkedAt: "2026-03-21T14:00:00+00:00",
+      status: "ready",
+      summary:
+        "Target validation completed for currently implemented connectivity and destination checks. SSH target reachable, but files-only remote execution is blocked because local rsync is not available on PATH.",
+      warnings: [],
+      details: {
+        executionSupport: {
+          supported: false,
+          state: "blocked",
+          summary:
+            "SSH target reachable, but files-only remote execution is blocked because local rsync is not available on PATH.",
+        },
+        checks: [
+          {
+            name: "remote_write_probe",
+            status: "pass",
+            message: "Remote target write probe succeeded.",
+          },
+          {
+            name: "tool_rsync",
+            status: "warn",
+            message:
+              "SSH target reachable, but files-only remote execution is blocked because local rsync is not available on PATH.",
+          },
+        ],
+      },
+    };
+    backupStore.targetsOverview.items = backupStore.targets;
+    backupStore.selectedTarget = backupStore.targets[0];
+
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Validated for currently implemented checks");
+    expect(wrapper.text()).toContain(
+      "SSH target reachable, but files-only remote execution is blocked because local rsync is not available on PATH.",
+    );
+    expect(wrapper.text()).not.toContain("Validation failed");
+  });
+
   it("keeps SSH shorthand primary and separate fields secondary", async () => {
     const wrapper = mount(BackupView, {
       global: {

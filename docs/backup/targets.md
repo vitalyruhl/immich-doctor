@@ -43,6 +43,11 @@ Current SSH validation expectations:
   default and prepare that path before probing
 - successful SSH login alone is not the only check: validation also probes the
   configured remote destination path and reports that failure reason explicitly
+- SSH connectivity and remote-path validation are not the same thing as remote
+  execution readiness
+- rsync-based remote execution additionally requires local `rsync` in the
+  doctor runtime; if SSH/path probes succeed but local `rsync` is missing, the
+  target stays validated while execution remains blocked
 
 ## SMB authentication requirements
 

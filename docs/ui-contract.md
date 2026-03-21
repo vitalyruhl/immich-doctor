@@ -130,6 +130,7 @@ Backup UI rules:
 - rsync wording must stay explicit that the current target type is rsync over SSH
 - SSH validation must report the final backend result instead of leaving the UI in a stale running state
 - SSH validation failures must expose an actionable summary from the backend, for example missing `SSH_AUTH_SOCK` in the doctor runtime or an unwritable remote destination
+- SSH validation success must stay distinct from rsync-based remote execution readiness; missing local `rsync` must surface as an execution limitation, not as a generic target failure
 - target warnings must be visible before execution
 - verification labels must describe the actual assurance level and must not imply end-to-end integrity proof
 - snapshot cards must describe manifest-structure status separately from artifact-content verification

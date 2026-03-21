@@ -26,6 +26,9 @@ RUN groupadd --gid 1000 app && \
     useradd --uid 1000 --gid 1000 --create-home --home-dir /home/app --shell /usr/sbin/nologin app
 
 COPY pyproject.toml uv.lock README.md /opt/immich-doctor/
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends rsync && \
+    rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY immich_doctor /opt/immich-doctor/immich_doctor

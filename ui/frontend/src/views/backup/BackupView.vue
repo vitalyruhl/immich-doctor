@@ -1184,9 +1184,10 @@ function validationDetailForTarget(target: BackupTargetConfig): string | null {
   }
   const checks =
     activeValidation?.checks ??
-    ((target.lastTestResult?.details.checks as Array<{ status?: string; message?: string }> | undefined) ?? []);
+    ((target.lastTestResult?.details.checks as Array<{ name?: string; status?: string; message?: string }> | undefined) ?? []);
   const firstProblem = checks.find((check) =>
-    check.status === "fail" || check.status === "warn" || check.status === "skip",
+    (check.status === "fail" || check.status === "warn" || check.status === "skip") &&
+    check.name !== "tool_rsync",
   );
   return firstProblem?.message ?? null;
 }
@@ -1211,6 +1212,10 @@ function executionBlockerForTarget(target: BackupTargetConfig | null): string | 
   if ((target.targetType === "ssh" || target.targetType === "rsync") && target.transport.authMode === "password") {
     return "Password-based SSH/rsync execution is not implemented in this phase.";
   }
+  const executionSupport = executionSupportForTarget(target);
+  if (executionSupport && executionSupport.supported === false && executionSupport.summary) {
+    return executionSupport.summary;
+  }
   const checks =
     (target.lastTestResult?.details.checks as Array<{ name?: string; status?: string; message?: string }> | undefined) ?? [];
   const rsyncCheck = checks.find((check) => check.name === "tool_rsync" && check.status !== "pass");
@@ -1233,6 +1238,10 @@ function targetUsesPathLikeWorkflow(target: BackupTargetConfig | null): boolean 
 }
 
 function targetExecutionSupport(target: BackupTargetConfig): string {
+  const executionSupport = executionSupportForTarget(target);
+  if (executionSupport?.summary) {
+    return executionSupport.summary;
+  }
   if (target.targetType === "local") {
     return "Asset-aware check / sync is supported";
   }
@@ -1256,6 +1265,27 @@ function verificationTag(status: BackupTargetVerificationStatus): "ok" | "warnin
     return "error";
   }
   return "unknown";
+}
+
+function executionSupportForTarget(target: BackupTargetConfig): {
+  supported: boolean;
+  state: string;
+  summary: string;
+} | null {
+  const activeValidation = activeValidationForTarget(target);
+  if (activeValidation?.executionSupport) {
+    return activeValidation.executionSupport;
+  }
+  const details = target.lastTestResult?.details as
+    | {
+        executionSupport?: {
+          supported: boolean;
+          state: string;
+          summary: string;
+        };
+      }
+    | undefined;
+  return details?.executionSupport ?? null;
 }
 
 function jobStateTag(state: string): "ok" | "warning" | "error" | "unknown" {

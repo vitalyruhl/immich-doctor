@@ -300,3 +300,76 @@ def test_manual_backup_execution_service_uses_remote_transfer_for_ssh_target(
     )
     assert transfer_executor.calls[0]["create_local_parent"] is None
     assert transfer_executor.calls[0]["remote_shell_argv"] == ("ssh", "-p", "22")
+
+
+def test_manual_backup_execution_service_blocks_remote_transfer_when_execution_support_is_missing(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    source_root = settings.immich_library_root
+    assert source_root is not None
+    source_root.mkdir(parents=True)
+    (source_root / "asset.jpg").write_bytes(b"payload")
+
+    target_settings = BackupTargetSettingsService()
+    created = target_settings.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Remote Agent",
+            targetType=BackupTargetType.SSH,
+            connectionString="backup@backup.example",
+            remotePath="/srv/backup",
+            authMode="agent",
+            knownHostMode="strict",
+        ),
+    )
+    target_id = created["item"]["targetId"]
+
+    class FakeValidator:
+        def validate_target_now(self, settings: AppSettings, *, target):  # type: ignore[no-untyped-def]
+            del settings
+            return {
+                "generatedAt": "2026-03-21T10:00:00+00:00",
+                "jobId": None,
+                "targetId": target.target_id,
+                "targetType": target.target_type.value,
+                "state": "completed",
+                "verificationStatus": "ready",
+                "summary": (
+                    "Target validation completed for currently implemented connectivity and "
+                    "destination checks. SSH target reachable, but files-only remote execution "
+                    "is blocked because local rsync is not available on PATH."
+                ),
+                "checks": [],
+                "warnings": [],
+                "executionSupport": {
+                    "supported": False,
+                    "state": "blocked",
+                    "summary": (
+                        "SSH target reachable, but files-only remote execution is blocked "
+                        "because local rsync is not available on PATH."
+                    ),
+                },
+            }
+
+    class FailIfCalledTransferExecutor:
+        def execute(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise AssertionError("Remote transfer must not start when execution support is blocked.")
+
+    runtime = BackgroundJobRuntime()
+    try:
+        service = ManualBackupExecutionService(
+            runtime=runtime,
+            target_settings=target_settings,
+            validator=FakeValidator(),
+            transfer_executor=FailIfCalledTransferExecutor(),
+        )
+        service.start_execution(settings, target_id=target_id)
+        _wait_for_execution(runtime)
+        current = service.get_current(settings)
+    finally:
+        runtime.shutdown()
+
+    assert current["state"] == "unsupported"
+    assert "local rsync is not available on PATH" in current["summary"]
