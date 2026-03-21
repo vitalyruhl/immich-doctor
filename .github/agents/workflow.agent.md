@@ -19,6 +19,7 @@ BRANCH MODEL
 - main is protected
 - main must always represent the latest runnable stable state
 - never commit directly to main
+- main updates must happen through a pull request
 
 Branch types:
 
@@ -63,6 +64,7 @@ GENERAL RULES
 - Never invent branch targets
 - Never perform destructive branch deletion unless explicitly allowed
 - Never merge to main when important checks fail
+- Never push directly to `main`; prepare or update a PR instead
 - Never perform large refactors during workflow shortcuts
 - Prefer small, safe, reviewable changes
 - Always report what was done, what was skipped, and why
@@ -354,7 +356,7 @@ Deterministic outcome:
 ==================================================
 
 Purpose:
-Merge the current active `feature/*` branch, or a clearly isolatable stable subset of it, into `main` while keeping the feature branch active for further work.
+Merge the current active `feature/*` branch, or a clearly isolatable stable subset of it, into `main` through a pull request while keeping the feature branch active for further work.
 
 Input grammar:
 
@@ -389,15 +391,15 @@ Deterministic outcome:
 
 - finalize coherent uncommitted changes
 - verify current feature state against `main`
-- if the full current feature state is safe and improves `main`, merge the full current feature state into `main`
-- if only a stable subset is promotable, isolate the safe subset, including a temporary clean extraction branch if needed, and merge only that safe subset into `main`
+- if the full current feature state is safe and improves `main`, prepare the full current feature state for PR-based merge into `main`
+- if only a stable subset is promotable, isolate the safe subset, including a temporary clean extraction branch if needed, and prepare only that safe subset for PR-based merge into `main`
 - keep the current `feature/*` branch active for continued development
 - ensure unfinished work remains outside `main`
 - push the current branch
 - push any temporary promotion branch if one is used
-- update PR or integration path as needed
-- merge the safe scope into `main`
-- push `main` if promotion succeeds
+- open or update the correct PR targeting `main`
+- merge the safe scope only through that PR when required checks are green
+- do not push `main` directly as part of this shortcut
 
 Reporting requirements:
 
@@ -405,6 +407,7 @@ Reporting requirements:
 - what remains on the feature branch
 - whether follow-up consolidation is recommended
 - that the feature remains in progress
+- which PR or PR path was used for the `main` integration
 
 Disallowed:
 
@@ -423,7 +426,7 @@ If the stable subset cannot be isolated safely → recommend `.end` or `refactor
 ==================================================
 
 Purpose:
-Merge `feature/*` into `main` only when the feature is complete and fully merge-ready.
+Merge `feature/*` into `main` only through a pull request when the feature is complete and fully merge-ready.
 
 Input grammar:
 
@@ -456,15 +459,16 @@ Deterministic outcome:
 - verify full feature state and CI/tests
 - fix only trivial safe issues
 - push the current branch
-- update PR
-- merge only if critical checks are green
-- push main
+- open or update the PR targeting `main`
+- merge only through that PR if critical checks are green
+- do not push `main` directly as part of this shortcut
 
 Reporting requirements:
 
 - that the full feature scope was merged
 - that `.toMain` was used as the full-completion path
 - whether any post-merge cleanup is recommended
+- which PR or PR path was used for the `main` integration
 
 Disallowed:
 
