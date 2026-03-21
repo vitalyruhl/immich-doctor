@@ -173,7 +173,15 @@ def test_manual_backup_execution_service_runs_smb_pre_mounted_path_like_backup(
     assert current["report"]["details"]["executionContext"]["mirrorSyncDestination"] is True
     assert updated_target.restore_readiness.value == "partial"
     assert (
-        Path(tmp_path / "mounted-backup" / "_immich-doctor" / "current" / "immich-library" / "album" / "asset.jpg").read_bytes()
+        Path(
+            tmp_path
+            / "mounted-backup"
+            / "_immich-doctor"
+            / "current"
+            / "immich-library"
+            / "album"
+            / "asset.jpg"
+        ).read_bytes()
         == b"payload"
     )
 
@@ -355,7 +363,9 @@ def test_manual_backup_execution_service_blocks_remote_transfer_when_execution_s
     class FailIfCalledTransferExecutor:
         def execute(self, **kwargs):  # type: ignore[no-untyped-def]
             del kwargs
-            raise AssertionError("Remote transfer must not start when execution support is blocked.")
+            raise AssertionError(
+                "Remote transfer must not start when execution support is blocked."
+            )
 
     runtime = BackgroundJobRuntime()
     try:

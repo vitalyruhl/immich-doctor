@@ -40,9 +40,7 @@ class BackupTransportService:
         target: BackupTargetConfig,
     ) -> Iterator[RemoteConnectionMaterial]:
         if target.transport.auth_mode == BackupTargetAuthMode.PASSWORD:
-            raise ValueError(
-                "Password auth mode is not implemented for SSH and rsync execution."
-            )
+            raise ValueError("Password auth mode is not implemented for SSH and rsync execution.")
         host = target.transport.host
         username = target.transport.username
         remote_path = target.transport.remote_path
@@ -105,9 +103,7 @@ class BackupTransportService:
                 ]
             )
         elif target.transport.known_host_mode == BackupTargetKnownHostMode.DISABLED:
-            warnings.append(
-                "Known-host verification is explicitly disabled for this target."
-            )
+            warnings.append("Known-host verification is explicitly disabled for this target.")
             ssh_args.extend(
                 [
                     "-o",
@@ -115,9 +111,7 @@ class BackupTransportService:
                 ]
             )
         else:
-            raise ValueError(
-                "Remote target is missing a supported known-host mode."
-            )
+            raise ValueError("Remote target is missing a supported known-host mode.")
 
         try:
             yield RemoteConnectionMaterial(

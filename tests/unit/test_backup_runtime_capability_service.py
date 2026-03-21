@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from subprocess import CompletedProcess
-from pathlib import Path
 import stat
+from pathlib import Path
+from subprocess import CompletedProcess
 
 from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
@@ -11,7 +11,9 @@ from immich_doctor.services.backup_runtime_capability_service import (
 )
 
 
-def test_backup_runtime_capability_service_records_rsync_presence(monkeypatch, tmp_path: Path) -> None:
+def test_backup_runtime_capability_service_records_rsync_presence(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = BackgroundJobRuntime()
     try:
         monkeypatch.setattr(
@@ -31,7 +33,9 @@ def test_backup_runtime_capability_service_records_rsync_presence(monkeypatch, t
     assert snapshot["check"]["details"]["version"] == "rsync 3.2.7"
 
 
-def test_backup_runtime_capability_service_records_rsync_absence(monkeypatch, tmp_path: Path) -> None:
+def test_backup_runtime_capability_service_records_rsync_absence(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = BackgroundJobRuntime()
     try:
         monkeypatch.setattr(

@@ -301,8 +301,7 @@ class BackupAssetWorkflowService:
                 "targetId": target_id,
                 "supported": False,
                 "summary": (
-                    "Test copy is only available for targets with a usable path-like "
-                    "destination."
+                    "Test copy is only available for targets with a usable path-like destination."
                 ),
                 "warnings": warnings,
                 "result": None,

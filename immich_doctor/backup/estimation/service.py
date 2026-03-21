@@ -88,7 +88,9 @@ class BackupSizeCollector:
         *,
         previous_snapshot: BackupSizeEstimateSnapshot | None = None,
         job_id: str | None = None,
-        stale_reason: Literal["restart", "freshness_window", "refresh_requested"] = "refresh_requested",
+        stale_reason: Literal[
+            "restart", "freshness_window", "refresh_requested"
+        ] = "refresh_requested",
     ) -> BackupSizeEstimateSnapshot:
         if previous_snapshot is None:
             return self.pending_snapshot(job_id=job_id)
@@ -149,15 +151,15 @@ class BackupSizeCollector:
             self._build_snapshot(
                 job_id=job_id,
                 started_at=started_at,
-                    scope_results=scope_results + [self._running_storage_placeholder()],
-                    progress=BackupSizeProgress(
-                        scope="storage",
-                        message="Source size recalculation is running.",
-                        current=1,
-                        total=2,
-                        unit="scopes",
-                    ),
+                scope_results=scope_results + [self._running_storage_placeholder()],
+                progress=BackupSizeProgress(
+                    scope="storage",
+                    message="Source size recalculation is running.",
+                    current=1,
+                    total=2,
+                    unit="scopes",
                 ),
+            ),
             progress_callback,
         )
 

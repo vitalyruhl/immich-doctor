@@ -77,10 +77,7 @@ class PreparedBackupExecutionContext:
 
     @property
     def is_versioned_snapshot_destination(self) -> bool:
-        return (
-            self.destination_semantics
-            == PreparedBackupDestinationSemantics.VERSIONED_SNAPSHOT
-        )
+        return self.destination_semantics == PreparedBackupDestinationSemantics.VERSIONED_SNAPSHOT
 
     @property
     def is_mirror_sync_destination(self) -> bool:
@@ -220,8 +217,7 @@ class ManualBackupExecutionService:
             BackupTargetType.RSYNC,
         }:
             execution_summary = str(
-                execution_support.get("summary")
-                or "Remote execution readiness is unavailable."
+                execution_support.get("summary") or "Remote execution readiness is unavailable."
             )
             return {
                 "generatedAt": datetime.now(UTC).isoformat(),
@@ -521,7 +517,8 @@ class ManualBackupExecutionService:
                 warnings=warnings,
             )
         raise ValueError(
-            "Selected target does not expose a prepared execution context for the currently implemented backup flow."
+            "Selected target does not expose a prepared execution context for "
+            "the currently implemented backup flow."
         )
 
     def _execute_transfer(
@@ -537,7 +534,8 @@ class ManualBackupExecutionService:
         verification_level = VerificationLevel.TRANSPORT_SUCCESS_ONLY
         if not prepared_context.is_transport_prepared_destination:
             raise FileBackupExecutionError(
-                "Prepared backup execution context does not support transport-based versioned transfer."
+                "Prepared backup execution context does not support "
+                "transport-based versioned transfer."
             )
         transport = BackupTransportService(self.target_settings.secrets)
         with transport.prepared_remote_connection(handle.settings, target) as material:
@@ -617,8 +615,7 @@ class ManualBackupExecutionService:
     def _running_summary(self, prepared_context: PreparedBackupExecutionContext) -> str:
         return (
             "Backup check/sync is running."
-            if prepared_context.execution_mode
-            == PreparedBackupExecutionMode.ASSET_AWARE_SYNC
+            if prepared_context.execution_mode == PreparedBackupExecutionMode.ASSET_AWARE_SYNC
             else "Manual files-only backup is running."
         )
 

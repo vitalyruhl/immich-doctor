@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-import subprocess
 
 from immich_doctor.adapters.external_tools import ExternalToolsAdapter
 from immich_doctor.adapters.filesystem import FilesystemAdapter
 from immich_doctor.backup.core.job_models import BackgroundJobState
 from immich_doctor.backup.targets.models import (
     BackupTargetAuthMode,
-    BackupTargetKnownHostMode,
     BackupTargetConfig,
+    BackupTargetKnownHostMode,
     BackupTargetLastTestResult,
     BackupTargetMountStrategy,
     BackupTargetType,
@@ -53,9 +53,7 @@ class BackupTargetValidationService:
             warnings: list[str] = []
             execution_support = self._default_execution_support(target)
         else:
-            state = self._job_state_from_verification_status(
-                target.last_test_result.status
-            ).value
+            state = self._job_state_from_verification_status(target.last_test_result.status).value
             summary = target.last_test_result.summary
             checks = target.last_test_result.details.get("checks", [])
             warnings = target.last_test_result.warnings
@@ -361,9 +359,7 @@ class BackupTargetValidationService:
                         Path(target.transport.mounted_path),
                     )
                 )
-                free_space = self.filesystem.free_space_bytes(
-                    Path(target.transport.mounted_path)
-                )
+                free_space = self.filesystem.free_space_bytes(Path(target.transport.mounted_path))
                 if free_space is not None:
                     checks.append(
                         CheckResult(
@@ -405,8 +401,9 @@ class BackupTargetValidationService:
                 name="smb_execution_mode",
                 status=CheckStatus.SKIP,
                 message=(
-                    "SMB system mount is planned only and is not executable in the current safe subset. "
-                    "Only pre-mounted path execution is currently supported."
+                    "SMB system mount is planned only and is not executable in "
+                    "the current safe subset. Only pre-mounted path execution is "
+                    "currently supported."
                 ),
             )
         ]
@@ -530,9 +527,7 @@ class BackupTargetValidationService:
             verification_status = self._verification_status_from_state(state).value
             normalized["verificationStatus"] = verification_status
         if normalized.get("executionSupport") is None:
-            normalized["executionSupport"] = self._default_execution_support_from_result(
-                normalized
-            )
+            normalized["executionSupport"] = self._default_execution_support_from_result(normalized)
         return normalized
 
     def _first_check_message(
@@ -564,12 +559,17 @@ class BackupTargetValidationService:
                 name="remote_agent_socket",
                 status=CheckStatus.FAIL,
                 message=(
-                    "SSH agent auth is selected, but no usable forwarded SSH agent is available "
-                    "in the doctor runtime. Host SSH success does not automatically carry into "
-                    "the container. Mount the agent socket and set SSH_AUTH_SOCK, or use a private key secret."
+                    "SSH agent auth is selected, but no usable forwarded SSH "
+                    "agent is available in the doctor runtime. Host SSH success "
+                    "does not automatically carry into the container. Mount the "
+                    "agent socket and set SSH_AUTH_SOCK, or use a private key "
+                    "secret."
                 )
                 if not isinstance(snapshot.get("summary"), str)
-                else f"{snapshot['summary']} Host SSH success does not automatically carry into the container.",
+                else (
+                    f"{snapshot['summary']} Host SSH success does not "
+                    "automatically carry into the container."
+                ),
                 details=details if isinstance(details, dict) else None,
             )
         ]
@@ -643,9 +643,7 @@ class BackupTargetValidationService:
             return {
                 "supported": False,
                 "state": "unsupported",
-                "summary": (
-                    "Password-based SSH/rsync execution is not implemented in this phase."
-                ),
+                "summary": ("Password-based SSH/rsync execution is not implemented in this phase."),
             }
         validation_state = self._status_from_checks(validation_checks)
         if validation_state not in {BackgroundJobState.COMPLETED, BackgroundJobState.PARTIAL}:
@@ -679,15 +677,17 @@ class BackupTargetValidationService:
         check_details = snapshot.get("check")
         details = (
             dict(check_details["details"])
-            if isinstance(check_details, dict)
-            and isinstance(check_details.get("details"), dict)
+            if isinstance(check_details, dict) and isinstance(check_details.get("details"), dict)
             else {"tool": "rsync"}
         )
         message = (
             "SSH target reachable, but files-only remote execution is blocked because local "
             "rsync is not available on PATH."
             if target.target_type == BackupTargetType.SSH
-            else "Rsync-over-SSH target reachable, but remote execution is blocked because local rsync is not available on PATH."
+            else (
+                "Rsync-over-SSH target reachable, but remote execution is "
+                "blocked because local rsync is not available on PATH."
+            )
         )
         if snapshot.get("available") is True:
             version = details.get("version")

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 import os
-from pathlib import Path
 import stat
 import subprocess
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 
 from immich_doctor.adapters.external_tools import ExternalToolsAdapter
 from immich_doctor.core.models import CheckStatus
@@ -47,7 +47,8 @@ class BackupRuntimeCapabilityService:
                 "available": False,
                 "summary": (
                     "No forwarded SSH agent is available in the doctor runtime. "
-                    "Mount the host agent socket and set SSH_AUTH_SOCK, or use a private key secret."
+                    "Mount the host agent socket and set SSH_AUTH_SOCK, or use a "
+                    "private key secret."
                 ),
                 "details": {"state": "missing_env"},
             }
@@ -61,7 +62,8 @@ class BackupRuntimeCapabilityService:
                 "checkedAt": checked_at,
                 "available": False,
                 "summary": (
-                    "SSH_AUTH_SOCK is set in the doctor runtime, but the forwarded agent socket path "
+                    "SSH_AUTH_SOCK is set in the doctor runtime, but the forwarded "
+                    "agent socket path "
                     "does not exist."
                 ),
                 "details": {"state": "missing_path", "socket": socket_path},
@@ -100,7 +102,8 @@ class BackupRuntimeCapabilityService:
                 "checkedAt": checked_at,
                 "available": False,
                 "summary": (
-                    "The runtime has an SSH agent socket, but `ssh-add` is not available to verify it."
+                    "The runtime has an SSH agent socket, but `ssh-add` is not "
+                    "available to verify it."
                 ),
                 "details": {"state": "missing_tool", "socket": socket_path},
                 "check": ssh_add_check.to_dict(),
@@ -163,7 +166,8 @@ class BackupRuntimeCapabilityService:
                 "checkedAt": checked_at,
                 "available": False,
                 "summary": (
-                    "Forwarded SSH agent is reachable in the doctor runtime, but no identities are loaded."
+                    "Forwarded SSH agent is reachable in the doctor runtime, but "
+                    "no identities are loaded."
                 ),
                 "details": {"state": "no_identities", "socket": socket_path},
             }

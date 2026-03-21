@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+
 from fastapi.testclient import TestClient
 
 from immich_doctor.api.app import create_api_app

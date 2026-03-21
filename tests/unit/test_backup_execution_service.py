@@ -7,18 +7,20 @@ from pathlib import Path
 from immich_doctor.backup.core.models import (
     BackupContext,
     BackupResult,
+    BackupSnapshot,
     BackupTarget,
     SnapshotCoverage,
     SnapshotKind,
 )
-from immich_doctor.backup.core.models import BackupSnapshot
 from immich_doctor.core.config import AppSettings
 from immich_doctor.services.backup_execution_service import BackupExecutionService
 
 
 @dataclass(slots=True)
 class _FakeBackupFilesService:
-    def run(self, settings: AppSettings, *, snapshot_kind: SnapshotKind = SnapshotKind.MANUAL) -> BackupResult:
+    def run(
+        self, settings: AppSettings, *, snapshot_kind: SnapshotKind = SnapshotKind.MANUAL
+    ) -> BackupResult:
         del settings
         snapshot = BackupSnapshot(
             snapshot_id="snapshot-1",

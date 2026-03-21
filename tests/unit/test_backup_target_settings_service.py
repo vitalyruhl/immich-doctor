@@ -113,7 +113,9 @@ def test_backup_target_service_normalizes_private_key_secret_material(
 ) -> None:
     settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
     service = BackupTargetSettingsService()
-    private_key_material = "-----BEGIN OPENSSH PRIVATE KEY-----\r\nKEYDATA\r\n-----END OPENSSH PRIVATE KEY-----"
+    private_key_material = (
+        "-----BEGIN OPENSSH PRIVATE KEY-----\r\nKEYDATA\r\n-----END OPENSSH PRIVATE KEY-----"
+    )
 
     result = service.create_target(
         settings,
@@ -132,9 +134,7 @@ def test_backup_target_service_normalizes_private_key_secret_material(
     stored_material = service.secrets.load_secret_material(settings, secret_id=secret_id)
 
     assert stored_material == (
-        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
-        "KEYDATA\n"
-        "-----END OPENSSH PRIVATE KEY-----\n"
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nKEYDATA\n-----END OPENSSH PRIVATE KEY-----\n"
     )
 
 

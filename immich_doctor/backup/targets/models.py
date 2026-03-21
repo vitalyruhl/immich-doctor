@@ -232,7 +232,9 @@ def _parse_connection_host_reference(host_reference: str) -> tuple[str, int | No
         if remainder == "":
             return host, None
         if not remainder.startswith(":"):
-            raise ValueError("Connection string must use the form username@host or username@host:port.")
+            raise ValueError(
+                "Connection string must use the form username@host or username@host:port."
+            )
         return host, _parse_connection_port(remainder[1:])
 
     colon_count = host_reference.count(":")
@@ -360,9 +362,7 @@ class BackupTargetUpsertPayload(BaseModel):
             elif self.mount_strategy == BackupTargetMountStrategy.SYSTEM_MOUNT:
                 required = [self.host, self.share]
                 if any(value in {None, ""} for value in required):
-                    raise ValueError(
-                        "SMB system-mount targets require host and share."
-                    )
+                    raise ValueError("SMB system-mount targets require host and share.")
                 if not self.username:
                     raise ValueError("SMB system-mount targets require a username.")
             else:

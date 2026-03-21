@@ -148,6 +148,9 @@ def test_backup_asset_workflow_supports_smb_pre_mounted_targets(tmp_path: Path) 
     sync_result = service.sync_missing(settings, target_id=target_id)
 
     assert overview["supported"] is True
-    assert overview["comparison"]["statusCounts"][BackupAssetComparisonStatus.MISSING_IN_BACKUP.value] == 1
+    assert (
+        overview["comparison"]["statusCounts"][BackupAssetComparisonStatus.MISSING_IN_BACKUP.value]
+        == 1
+    )
     assert sync_result["state"] == "completed"
     assert (backup_root / "album" / "missing.jpg").read_bytes() == b"missing"

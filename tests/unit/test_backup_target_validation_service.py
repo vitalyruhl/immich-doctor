@@ -454,11 +454,11 @@ def test_backup_target_validation_service_accepts_stored_private_key_secret_mate
         key_index = material.remote_shell_argv.index("-i")
         key_path = Path(material.remote_shell_argv[key_index + 1])
         assert key_path.read_bytes() == (
-            b"-----BEGIN OPENSSH PRIVATE KEY-----\n"
-            b"KEYDATA\n"
-            b"-----END OPENSSH PRIVATE KEY-----\n"
+            b"-----BEGIN OPENSSH PRIVATE KEY-----\nKEYDATA\n-----END OPENSSH PRIVATE KEY-----\n"
         )
-        return CompletedProcess(args=tuple(material.remote_shell_argv), returncode=0, stdout="ok\n", stderr="")
+        return CompletedProcess(
+            args=tuple(material.remote_shell_argv), returncode=0, stdout="ok\n", stderr=""
+        )
 
     monkeypatch.setattr(
         "immich_doctor.services.backup_transport_service.BackupTransportService.run_remote_command",

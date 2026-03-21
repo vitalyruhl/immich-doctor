@@ -28,7 +28,10 @@ class BackupExecutionService:
                 summarize_backup_snapshot(result.snapshot) if result.snapshot is not None else None
             ),
             "limitations": [
-                "This backup files path is legacy. Target-based manual backup execution is the primary workflow.",
+                (
+                    "This backup files path is legacy. Target-based manual backup "
+                    "execution is the primary workflow."
+                ),
                 "Current executable snapshot coverage is files-only.",
                 "Restore execution is not implemented.",
             ],

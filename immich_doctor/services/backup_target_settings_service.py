@@ -7,8 +7,8 @@ from uuid import uuid4
 
 from immich_doctor.backup.targets.models import (
     BackupRestoreReadiness,
-    BackupTargetConfig,
     BackupTargetAuthMode,
+    BackupTargetConfig,
     BackupTargetKnownHostMode,
     BackupTargetMountStrategy,
     BackupTargetTransportSettings,
@@ -289,9 +289,7 @@ class BackupTargetSettingsService:
                     "Password-based SSH/rsync execution is not implemented in this phase."
                 )
             if payload.known_host_mode == BackupTargetKnownHostMode.DISABLED:
-                warnings.append(
-                    "Known-host verification is explicitly disabled for this target."
-                )
+                warnings.append("Known-host verification is explicitly disabled for this target.")
         if payload.retention_policy and payload.retention_policy.prune_automatically:
             warnings.append(
                 "Automatic retention pruning is not implemented; old backups are "
@@ -309,12 +307,14 @@ class BackupTargetSettingsService:
             if transport.auth_mode == BackupTargetAuthMode.PRIVATE_KEY:
                 if transport.private_key_secret_ref is None:
                     raise ValueError(
-                        "SSH and rsync targets using private_key auth require a private key secret reference."
+                        "SSH and rsync targets using private_key auth require a "
+                        "private key secret reference."
                     )
             elif transport.auth_mode == BackupTargetAuthMode.PASSWORD:
                 if transport.password_secret_ref is None:
                     raise ValueError(
-                        "SSH and rsync targets using password auth require a password secret reference."
+                        "SSH and rsync targets using password auth require a "
+                        "password secret reference."
                     )
             elif transport.auth_mode != BackupTargetAuthMode.AGENT:
                 raise ValueError("SSH and rsync targets require a supported auth mode.")
@@ -329,9 +329,7 @@ class BackupTargetSettingsService:
         if not transport.username:
             raise ValueError("SMB system-mount targets require a username.")
         if transport.password_secret_ref is None:
-            raise ValueError(
-                "SMB system-mount targets require a password secret reference."
-            )
+            raise ValueError("SMB system-mount targets require a password secret reference.")
 
     def _restore_readiness_for_payload(
         self,
