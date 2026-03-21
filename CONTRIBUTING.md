@@ -70,6 +70,7 @@ Reviewers must reject non-canonical naming or placement before merge.
 Bug fixes belong in the relevant `chore/*` branch under the active feature.
 
 Do not push directly to `main`.
+All integration into `main` must happen through a pull request.
 
 ## Commit and pull request expectations
 
