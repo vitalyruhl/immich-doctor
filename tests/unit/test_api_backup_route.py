@@ -251,6 +251,7 @@ def test_backup_target_validation_route_returns_expected_shape(monkeypatch) -> N
             "jobId": "validation-1",
             "targetId": target_id,
             "state": "completed",
+            "verificationStatus": "ready",
             "summary": "Target validation completed for currently implemented checks.",
             "checks": [],
             "warnings": [],
@@ -263,6 +264,7 @@ def test_backup_target_validation_route_returns_expected_shape(monkeypatch) -> N
     assert response.status_code == 200
     payload = response.json()
     assert payload["data"]["jobId"] == "validation-1"
+    assert payload["data"]["verificationStatus"] == "ready"
 
 
 def test_backup_execution_current_route_returns_expected_shape(monkeypatch) -> None:

@@ -70,6 +70,7 @@ Manual backup target behavior now includes:
 - path-like folder-level heuristics for file-count and total-size drift
 - path-like restore overwrite protection via quarantine-first move before replacement
 - SSH and rsync targets with shared remote auth modelling, connection-string parsing, known-host mode handling, and secret-reference-based key/password storage
+- SSH validation now reports doctor-runtime-specific causes such as missing agent socket, known-hosts path preparation, unwritable remote destinations, and SSH probe timeout
 - SMB targets with executable `pre_mounted_path` semantics and `system_mount` planning rules plus authentication requirements for system-mount mode only
 - persisted target validation summary and last successful backup metadata
 - explicit restore-readiness signaling of `partial` for path-like selective restore and `not_implemented` for remote targets
@@ -152,6 +153,7 @@ Current UI limitation:
 - local asset-aware restore is still limited to filesystem copy-back only; no DB repair or DB rollback is implied
 - executable GUI backup coverage is still files-only, even for `pre_repair`
 - SMB `system_mount` execution is still intentionally disabled
+- SMB `system_mount` remains planned only; pre-mounted path is the only currently supported SMB-style execution mode
 - password-based SSH/rsync execution is still intentionally unsupported
 - snapshot cards report manifest structure only and must not be read as artifact verification
 - remote asset preview and selective restore are intentionally unsupported

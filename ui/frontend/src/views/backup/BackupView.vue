@@ -166,7 +166,7 @@
               </select>
             </label>
             <p v-if="draft.targetType === 'smb'" class="health-card__details">
-              SMB targets can either use a path that is already mounted for doctor or keep system-mount details for later. Only the mounted-path variant is executable today.
+              SMB targets can either use a path that is already mounted for doctor or keep planned system-mount details for later. Only the mounted local path variant is supported today.
             </p>
             <label class="backup-form__field backup-form__field--toggle">
               <input v-model="draft.enabled" type="checkbox" />
@@ -188,7 +188,7 @@
                 <span>Access mode</span>
                 <select v-model="draft.mountStrategy">
                   <option value="pre_mounted_path">Mounted local path</option>
-                  <option value="system_mount">System mount (planned)</option>
+                  <option value="system_mount">System mount (not supported yet)</option>
                 </select>
               </label>
               <template v-if="draft.mountStrategy === 'pre_mounted_path'">
@@ -207,7 +207,7 @@
               </template>
               <template v-else>
                 <p class="health-card__details">
-                  Use this for an SMB share doctor should access by server, share name, and optional subfolder inside that share. Execution stays disabled in this phase.
+                  Use this only to record planned SMB system-mount details. Doctor does not mount SMB shares itself yet, so this mode is not executable in the current safe subset.
                 </p>
                 <label class="backup-form__field">
                   <span>Server / Host</span>
@@ -406,7 +406,7 @@
           <EmptyState
             v-if="!backupStore.hasTargets"
             title="No targets configured"
-            message="Create a target first. Local targets, SMB pre-mounted path targets, and the safe SSH/rsync subset can run manual backups in this phase; SMB system-mount stays validation and mount-planning only."
+            message="Create a target first. Local targets, SMB pre-mounted path targets, and the safe SSH/rsync subset can run manual backups in this phase; SMB system mount remains planned only and is not executable yet."
           />
           <section v-else class="backup-grid">
             <article
@@ -420,7 +420,7 @@
                   <h3>{{ target.targetName }}</h3>
                   <p class="health-card__details">{{ formatTargetType(target.targetType) }}</p>
                 </div>
-                <StatusTag :status="verificationTag(target.verificationStatus)" />
+                <StatusTag :status="verificationTag(targetVerificationStatus(target))" />
               </div>
               <dl class="runtime-detail__grid">
                 <dt>Enabled</dt>
@@ -430,12 +430,18 @@
                 <dt>Restore capability</dt>
                 <dd>{{ formatRestoreReadiness(target.restoreReadiness) }}</dd>
                 <dt>Validation state</dt>
-                <dd>{{ formatVerificationStatus(target.verificationStatus) }}</dd>
+                <dd>{{ validationStateForTarget(target) }}</dd>
                 <dt>Coverage</dt>
                 <dd>{{ formatCoverage(target.sourceScope) }}</dd>
                 <dt>Last test</dt>
-                <dd>{{ target.lastTestResult?.summary ?? "Target validation has not run yet." }}</dd>
+                <dd>{{ validationSummaryForTarget(target) }}</dd>
               </dl>
+              <p
+                v-if="validationDetailForTarget(target)"
+                class="health-card__details"
+              >
+                {{ validationDetailForTarget(target) }}
+              </p>
               <p
                 v-for="warning in target.warnings"
                 :key="`${target.targetId}-${warning}`"
@@ -453,7 +459,7 @@
                   :disabled="backupStore.isValidatingTarget"
                   @click="void backupStore.validateTarget(target.targetId)"
                 >
-                  {{ backupStore.isValidatingTarget && backupStore.selectedTargetId === target.targetId ? "Validating" : "Validate Target" }}
+                  {{ validationButtonLabel(target) }}
                 </button>
                 <button class="runtime-action" type="button" @click="loadTargetIntoDraft(target)">
                   Edit
@@ -556,6 +562,7 @@ import type {
   BackupSnapshotBasicValidity,
   BackupTargetConfig,
   BackupTargetDraft,
+  BackupTargetValidationResponse,
   SecretReferenceSummary,
   BackupTargetType,
   BackupTargetVerificationStatus,
@@ -1141,6 +1148,56 @@ function formatVerificationStatus(status: BackupTargetVerificationStatus): strin
   }
 }
 
+function activeValidationForTarget(target: BackupTargetConfig): BackupTargetValidationResponse | null {
+  return backupStore.activeValidation?.targetId === target.targetId ? backupStore.activeValidation : null;
+}
+
+function targetVerificationStatus(target: BackupTargetConfig): BackupTargetVerificationStatus {
+  return activeValidationForTarget(target)?.verificationStatus ?? target.verificationStatus;
+}
+
+function isTerminalValidationState(state: BackupJobState): boolean {
+  return ["completed", "partial", "failed", "unsupported", "canceled"].includes(state);
+}
+
+function validationStateForTarget(target: BackupTargetConfig): string {
+  const activeValidation = activeValidationForTarget(target);
+  if (activeValidation && !isTerminalValidationState(activeValidation.state)) {
+    return "Validation running";
+  }
+  return formatVerificationStatus(targetVerificationStatus(target));
+}
+
+function validationSummaryForTarget(target: BackupTargetConfig): string {
+  const activeValidation = activeValidationForTarget(target);
+  if (activeValidation) {
+    return activeValidation.summary;
+  }
+  return target.lastTestResult?.summary ?? "Target validation has not run yet.";
+}
+
+function validationDetailForTarget(target: BackupTargetConfig): string | null {
+  const activeValidation = activeValidationForTarget(target);
+  const warnings = activeValidation?.warnings ?? target.lastTestResult?.warnings ?? [];
+  if (warnings.length > 0) {
+    return warnings[0] ?? null;
+  }
+  const checks =
+    activeValidation?.checks ??
+    ((target.lastTestResult?.details.checks as Array<{ status?: string; message?: string }> | undefined) ?? []);
+  const firstProblem = checks.find((check) =>
+    check.status === "fail" || check.status === "warn" || check.status === "skip",
+  );
+  return firstProblem?.message ?? null;
+}
+
+function validationButtonLabel(target: BackupTargetConfig): string {
+  if (backupStore.isValidatingTarget && backupStore.validatingTargetId === target.targetId) {
+    return "Validating";
+  }
+  return "Validate Target";
+}
+
 function executionBlockerForTarget(target: BackupTargetConfig | null): string | null {
   if (!target) {
     return null;
@@ -1149,10 +1206,16 @@ function executionBlockerForTarget(target: BackupTargetConfig | null): string | 
     if (target.transport.mountStrategy === "pre_mounted_path" && target.transport.mountedPath) {
       return null;
     }
-    return "SMB system-mount execution is not implemented in this phase. Only pre-mounted path targets can execute through the current path-like workflow.";
+    return "SMB system mount is planned only and is not executable yet. Only mounted local path targets can execute through the current path-like workflow.";
   }
   if ((target.targetType === "ssh" || target.targetType === "rsync") && target.transport.authMode === "password") {
     return "Password-based SSH/rsync execution is not implemented in this phase.";
+  }
+  const checks =
+    (target.lastTestResult?.details.checks as Array<{ name?: string; status?: string; message?: string }> | undefined) ?? [];
+  const rsyncCheck = checks.find((check) => check.name === "tool_rsync" && check.status !== "pass");
+  if (rsyncCheck?.message && (target.targetType === "ssh" || target.targetType === "rsync")) {
+    return rsyncCheck.message;
   }
   return null;
 }
@@ -1184,7 +1247,7 @@ function targetExecutionSupport(target: BackupTargetConfig): string {
 
 function verificationTag(status: BackupTargetVerificationStatus): "ok" | "warning" | "error" | "unknown" {
   if (status === "ready") {
-    return "warning";
+    return "ok";
   }
   if (status === "warning" || status === "running") {
     return "warning";

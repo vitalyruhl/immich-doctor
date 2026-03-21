@@ -55,6 +55,10 @@ class BackupTransportService:
             str(target.transport.port or 22),
             "-o",
             "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "NumberOfPasswordPrompts=0",
         ]
         warnings: list[str] = []
         key_path: Path | None = None
@@ -82,7 +86,7 @@ class BackupTransportService:
             raise ValueError("Remote target is missing a supported auth mode.")
 
         if target.transport.known_host_mode == BackupTargetKnownHostMode.STRICT:
-            known_hosts_path = self._known_hosts_path(target)
+            known_hosts_path = self.ensure_known_hosts_path(target)
             ssh_args.extend(
                 [
                     "-o",
@@ -92,7 +96,7 @@ class BackupTransportService:
                 ]
             )
         elif target.transport.known_host_mode == BackupTargetKnownHostMode.ACCEPT_NEW:
-            known_hosts_path = self._known_hosts_path(target)
+            known_hosts_path = self.ensure_known_hosts_path(target)
             ssh_args.extend(
                 [
                     "-o",
@@ -153,7 +157,21 @@ class BackupTransportService:
     def quoted_remote_path(self, path: str) -> str:
         return shlex.quote(path)
 
-    def _known_hosts_path(self, target: BackupTargetConfig) -> Path:
+    def known_hosts_path(self, target: BackupTargetConfig) -> Path:
         if target.transport.known_host_reference:
             return Path(target.transport.known_host_reference).expanduser()
         return Path.home() / ".ssh" / "known_hosts"
+
+    def ensure_known_hosts_path(self, target: BackupTargetConfig) -> Path:
+        known_hosts_path = self.known_hosts_path(target)
+        known_hosts_path.parent.mkdir(parents=True, exist_ok=True)
+        known_hosts_path.touch(exist_ok=True)
+        try:
+            os.chmod(known_hosts_path.parent, 0o700)
+        except OSError:
+            pass
+        try:
+            os.chmod(known_hosts_path, 0o600)
+        except OSError:
+            pass
+        return known_hosts_path

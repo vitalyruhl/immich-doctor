@@ -197,6 +197,7 @@ export interface BackupTargetValidationResponse {
   targetId: string;
   targetType?: BackupTargetType;
   state: BackupJobState;
+  verificationStatus?: BackupTargetVerificationStatus;
   summary: string;
   checks: Array<{ name: string; status: string; message: string; details?: Record<string, unknown> }>;
   warnings: string[];

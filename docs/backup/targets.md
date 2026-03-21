@@ -35,6 +35,15 @@ Current remote auth modes:
   local secret store
 - `password`: modelled for future use, but execution remains disabled
 
+Current SSH validation expectations:
+
+- validation runs in the actual doctor runtime context, not in an external host shell
+- `agent` auth requires a usable `SSH_AUTH_SOCK` inside that runtime
+- `strict` and `accept_new` use the configured known-hosts file or the runtime
+  default and prepare that path before probing
+- successful SSH login alone is not the only check: validation also probes the
+  configured remote destination path and reports that failure reason explicitly
+
 ## SMB authentication requirements
 
 SMB keeps two valid transport modes:

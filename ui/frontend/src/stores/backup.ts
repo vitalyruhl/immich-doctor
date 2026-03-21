@@ -79,6 +79,7 @@ export const useBackupStore = defineStore("backup", () => {
   const restoreError = ref<string | null>(null);
   const selectedTargetId = ref<string | null>(null);
   const selectedAssetIds = ref<string[]>([]);
+  const validatingTargetId = ref<string | null>(null);
 
   const snapshotItems = computed<BackupSnapshotSummary[]>(() => snapshots.value?.items ?? []);
   const targets = computed<BackupTargetConfig[]>(() => targetsOverview.value?.items ?? []);
@@ -209,6 +210,7 @@ export const useBackupStore = defineStore("backup", () => {
 
   async function validateTarget(targetId: string): Promise<void> {
     isValidatingTarget.value = true;
+    validatingTargetId.value = targetId;
     validationError.value = null;
     try {
       activeValidation.value = (await startBackupTargetValidation(targetId)).data;
@@ -221,6 +223,7 @@ export const useBackupStore = defineStore("backup", () => {
       validationError.value = errorMessage(caughtError);
     } finally {
       isValidatingTarget.value = false;
+      validatingTargetId.value = null;
     }
   }
 
@@ -377,6 +380,7 @@ export const useBackupStore = defineStore("backup", () => {
     targets,
     targetsOverview,
     validateTarget,
+    validatingTargetId,
     validationError,
     workflowError,
     workflowItems,

@@ -4,8 +4,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from subprocess import CompletedProcess
 
-from immich_doctor.backup.targets.models import BackupTargetType, BackupTargetUpsertPayload
+from immich_doctor.backup.targets.models import (
+    BackupTargetLastTestResult,
+    BackupTargetType,
+    BackupTargetUpsertPayload,
+    BackupTargetVerificationStatus,
+)
 from immich_doctor.core.config import AppSettings
+from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 from immich_doctor.services.backup_target_settings_service import BackupTargetSettingsService
 from immich_doctor.services.backup_target_validation_service import BackupTargetValidationService
@@ -93,8 +99,18 @@ def test_backup_target_validation_service_supports_agent_auth_for_remote_probe(
 
     monkeypatch.setattr(
         "immich_doctor.services.backup_target_validation_service.ExternalToolsAdapter.validate_required_tools",
-        lambda self, names: [],
+        lambda self, names: [
+            CheckResult(
+                name=f"tool_{name}",
+                status=CheckStatus.PASS,
+                message="Required external tool is available.",
+                details={"tool": name, "path": f"/usr/bin/{name}"},
+            )
+            for name in names
+        ],
     )
+    monkeypatch.setenv("SSH_AUTH_SOCK", (tmp_path / "agent.sock").as_posix())
+    (tmp_path / "agent.sock").write_text("", encoding="utf-8")
 
     @contextmanager
     def fake_connection(self, settings, target):  # type: ignore[no-untyped-def]
@@ -130,7 +146,40 @@ def test_backup_target_validation_service_supports_agent_auth_for_remote_probe(
         runtime.shutdown()
 
     assert result["state"] == "completed"
+    assert result["verificationStatus"] == "ready"
     assert any(check["name"] == "remote_write_probe" for check in result["checks"])
+
+
+def test_backup_target_validation_service_returns_actionable_agent_failure(
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
+    service = BackupTargetSettingsService()
+    created = service.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Remote Agent",
+            targetType=BackupTargetType.SSH,
+            connectionString="backup@backup.example",
+            remotePath="/srv/backup",
+            authMode="agent",
+            knownHostMode="strict",
+        ),
+    )
+    target = service.get_target(settings, target_id=created["item"]["targetId"])
+
+    runtime = BackgroundJobRuntime()
+    try:
+        result = BackupTargetValidationService(runtime=runtime).validate_target_now(
+            settings,
+            target=target,
+        )
+    finally:
+        runtime.shutdown()
+
+    assert result["state"] == "failed"
+    assert "SSH_AUTH_SOCK is not available" in result["summary"]
+    assert any(check["name"] == "remote_agent_socket" for check in result["checks"])
 
 
 def test_backup_target_validation_service_marks_smb_pre_mounted_path_executable(
@@ -203,3 +252,43 @@ def test_backup_target_validation_service_keeps_smb_system_mount_unsupported(
 
     assert result["state"] == "unsupported"
     assert any(check["name"] == "smb_execution_mode" for check in result["checks"])
+    assert "planned only" in result["summary"]
+
+
+def test_backup_target_validation_get_validation_maps_ready_to_completed_state(
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
+    service = BackupTargetSettingsService()
+    created = service.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Mounted SMB",
+            targetType=BackupTargetType.SMB,
+            mountStrategy="pre_mounted_path",
+            mountedPath=(tmp_path / "mounted").as_posix(),
+        ),
+    )
+    runtime = BackgroundJobRuntime()
+    try:
+        validator = BackupTargetValidationService(runtime=runtime)
+        target = service.get_target(settings, target_id=created["item"]["targetId"]).model_copy(
+            update={
+                "verification_status": BackupTargetVerificationStatus.READY,
+                "last_test_result": BackupTargetLastTestResult(
+                    checkedAt="2026-03-21T13:00:00+00:00",
+                    status=BackupTargetVerificationStatus.READY,
+                    summary="Target validation completed for currently implemented checks.",
+                    warnings=[],
+                    details={"checks": []},
+                ),
+            }
+        )
+        service.save_target(settings, target)
+
+        result = validator.get_validation(settings, target_id=created["item"]["targetId"])
+    finally:
+        runtime.shutdown()
+
+    assert result["state"] == "completed"
+    assert result["verificationStatus"] == "ready"

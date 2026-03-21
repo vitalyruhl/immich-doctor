@@ -128,6 +128,8 @@ Backup UI rules:
 - SMB `pre_mounted_path` must be presented as a mounted local path, not as a full SMB transport form
 - SSH shorthand may be primary, but separate host/user/port fields must stay visually secondary
 - rsync wording must stay explicit that the current target type is rsync over SSH
+- SSH validation must report the final backend result instead of leaving the UI in a stale running state
+- SSH validation failures must expose an actionable summary from the backend, for example missing `SSH_AUTH_SOCK` in the doctor runtime or an unwritable remote destination
 - target warnings must be visible before execution
 - verification labels must describe the actual assurance level and must not imply end-to-end integrity proof
 - snapshot cards must describe manifest-structure status separately from artifact-content verification
@@ -160,6 +162,7 @@ Canonical backup machine values and UI/doc meanings:
 Terminology rules:
 
 - `ready` in target verification status means validated for currently implemented checks only
+- SMB `system_mount` must stay labeled as planned or unsupported until doctor can actually mount and use it end to end
 - `snapshot` means a persisted backup record with manifest metadata; it is not automatically a full restore point
 - `manifest` means the persisted JSON metadata record; it is not artifact-content verification
 - `stale` means cached size-estimate data is older than the freshness window and should be treated as aged data

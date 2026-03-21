@@ -221,6 +221,8 @@ const backupStore: any = {
   isExecutionRunning: false,
   isSizeCollectionRunning: false,
   isValidatingTarget: false,
+  validatingTargetId: null,
+  activeValidation: null,
   error: null,
   targetError: null,
   executionError: null,
@@ -322,6 +324,8 @@ function resetMockStore(): void {
   backupStore.isExecutionRunning = false;
   backupStore.isSizeCollectionRunning = false;
   backupStore.isValidatingTarget = false;
+  backupStore.validatingTargetId = null;
+  backupStore.activeValidation = null;
   backupStore.error = null;
   backupStore.targetError = null;
   backupStore.executionError = null;
@@ -702,8 +706,89 @@ describe("BackupView", () => {
     expect(wrapper.text()).toContain("Server / Host");
     expect(wrapper.text()).toContain("Share name");
     expect(wrapper.text()).toContain("Subfolder in share");
-    expect(wrapper.text()).toContain("Execution stays disabled in this phase.");
+    expect(wrapper.text()).toContain("not executable in the current safe subset");
     expect(wrapper.text()).not.toContain("Password secret label");
+  });
+
+  it("shows active validation state on the target card without getting stuck", async () => {
+    backupStore.isValidatingTarget = true;
+    backupStore.validatingTargetId = "target-1";
+    backupStore.activeValidation = {
+      generatedAt: "2026-03-21T14:00:00+00:00",
+      jobId: "validation-1",
+      targetId: "target-1",
+      targetType: "ssh",
+      state: "running",
+      verificationStatus: "running",
+      summary: "SSH validation is running.",
+      checks: [],
+      warnings: [],
+    };
+
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Validation running");
+    expect(wrapper.text()).toContain("SSH validation is running.");
+    expect(wrapper.text()).toContain("Validating");
+  });
+
+  it("shows actionable SSH validation failure details from the backend result", async () => {
+    backupStore.targets[0].targetType = "ssh";
+    backupStore.targets[0].transport = { host: "backup.example", username: "backup", remotePath: "/srv/backup", authMode: "agent" };
+    backupStore.targets[0].verificationStatus = "failed";
+    backupStore.targets[0].lastTestResult = {
+      checkedAt: "2026-03-21T14:00:00+00:00",
+      status: "failed",
+      summary: "Target validation failed: SSH agent auth is selected, but SSH_AUTH_SOCK is not available in the doctor runtime.",
+      warnings: [],
+      details: {
+        checks: [
+          {
+            name: "remote_agent_socket",
+            status: "fail",
+            message: "SSH agent auth is selected, but SSH_AUTH_SOCK is not available in the doctor runtime.",
+          },
+        ],
+      },
+    };
+    backupStore.targetsOverview.items = backupStore.targets;
+    backupStore.selectedTarget = backupStore.targets[0];
+
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Validation failed");
+    expect(wrapper.text()).toContain("SSH_AUTH_SOCK is not available in the doctor runtime");
+    expect(wrapper.text()).not.toContain("Validation running");
   });
 
   it("keeps SSH shorthand primary and separate fields secondary", async () => {

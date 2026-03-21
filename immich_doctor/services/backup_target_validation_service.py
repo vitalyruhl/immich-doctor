@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import os
 from pathlib import Path
+import subprocess
 
 from immich_doctor.adapters.external_tools import ExternalToolsAdapter
 from immich_doctor.adapters.filesystem import FilesystemAdapter
@@ -39,21 +41,31 @@ class BackupTargetValidationService:
     def get_validation(self, settings: AppSettings, *, target_id: str) -> dict[str, object]:
         active = self.runtime.active_job(job_type=_validation_job_type(target_id))
         if active is not None:
-            return active.result
+            return self._normalize_validation_result(active.result)
 
         target = self.target_settings.get_target(settings, target_id=target_id)
+        if target.last_test_result is None:
+            state = BackgroundJobState.PENDING.value
+            summary = "Target validation has not run yet."
+            checks: list[dict[str, object]] = []
+            warnings: list[str] = []
+        else:
+            state = self._job_state_from_verification_status(
+                target.last_test_result.status
+            ).value
+            summary = target.last_test_result.summary
+            checks = target.last_test_result.details.get("checks", [])
+            warnings = target.last_test_result.warnings
         return {
             "generatedAt": datetime.now(UTC).isoformat(),
             "jobId": None,
             "targetId": target_id,
-            "state": target.verification_status.value,
-            "summary": target.last_test_result.summary
-            if target.last_test_result
-            else "Target validation has not run yet.",
-            "checks": target.last_test_result.details.get("checks", [])
-            if target.last_test_result
-            else [],
-            "warnings": target.last_test_result.warnings if target.last_test_result else [],
+            "targetType": target.target_type.value,
+            "state": state,
+            "verificationStatus": target.verification_status.value,
+            "summary": summary,
+            "checks": checks,
+            "warnings": warnings,
         }
 
     def start_validation(self, settings: AppSettings, *, target_id: str) -> dict[str, object]:
@@ -68,6 +80,7 @@ class BackupTargetValidationService:
             "targetId": target_id,
             "targetType": target.target_type.value,
             "state": BackgroundJobState.PENDING.value,
+            "verificationStatus": BackupTargetVerificationStatus.RUNNING.value,
             "summary": "Target validation is pending.",
             "checks": [],
             "warnings": [],
@@ -102,6 +115,7 @@ class BackupTargetValidationService:
             "targetId": target.target_id,
             "targetType": target.target_type.value,
             "state": status.value,
+            "verificationStatus": self._verification_status_from_state(status.value).value,
             "summary": summary,
             "checks": [check.to_dict() for check in checks],
             "warnings": warnings,
@@ -210,10 +224,37 @@ class BackupTargetValidationService:
                     message="Known-host verification is disabled for this target.",
                 )
             )
-        checks.extend(self.tools.validate_required_tools(["ssh", "rsync"]))
+        ssh_tool_checks = self.tools.validate_required_tools(["ssh"])
+        checks.extend(ssh_tool_checks)
+        rsync_tool_checks = self.tools.validate_required_tools(["rsync"])
+        if target.target_type == BackupTargetType.RSYNC:
+            checks.extend(rsync_tool_checks)
+        elif rsync_tool_checks[0].status == CheckStatus.FAIL:
+            checks.append(
+                CheckResult(
+                    name="tool_rsync",
+                    status=CheckStatus.WARN,
+                    message=(
+                        "Local rsync is not available on PATH. SSH connectivity can still "
+                        "be validated, but files-only remote execution will not run."
+                    ),
+                    details={"tool": "rsync"},
+                )
+            )
+        else:
+            checks.append(rsync_tool_checks[0])
+
+        transport = BackupTransportService(self.target_settings.secrets)
+        checks.extend(self._agent_checks(target))
+        checks.extend(self._known_hosts_checks(target, transport))
+        if any(
+            check.status == CheckStatus.FAIL
+            for check in checks
+            if check.name in {"tool_ssh", "tool_rsync", "remote_agent_socket", "remote_known_hosts_path"}
+        ):
+            return checks
 
         try:
-            transport = BackupTransportService(self.target_settings.secrets)
             with transport.prepared_remote_connection(settings, target) as material:
                 remote_path = transport.quoted_remote_path(material.remote_path)
                 probe_command = (
@@ -235,8 +276,11 @@ class BackupTargetValidationService:
                         CheckResult(
                             name="remote_write_probe",
                             status=CheckStatus.FAIL,
-                            message="Remote target write probe failed.",
-                            details={"stderr": probe.stderr},
+                            message=(
+                                "SSH connection reached the target, but the configured remote "
+                                "destination could not be created or written."
+                            ),
+                            details={"stderr": probe.stderr, "stdout": probe.stdout},
                         )
                     )
                 free_space_command = f"df -Pk {remote_path} | tail -1"
@@ -256,7 +300,7 @@ class BackupTargetValidationService:
                             name="remote_free_space",
                             status=CheckStatus.WARN,
                             message="Remote free space command failed.",
-                            details={"stderr": free_space.stderr},
+                            details={"stderr": free_space.stderr, "stdout": free_space.stdout},
                         )
                     )
                 for warning in material.warnings:
@@ -267,11 +311,27 @@ class BackupTargetValidationService:
                             message=warning,
                         )
                     )
+        except subprocess.TimeoutExpired:
+            checks.append(
+                CheckResult(
+                    name="remote_transport",
+                    status=CheckStatus.FAIL,
+                    message="SSH validation timed out before the remote probe completed.",
+                )
+            )
+        except OSError as exc:
+            checks.append(
+                CheckResult(
+                    name="remote_transport",
+                    status=CheckStatus.FAIL,
+                    message=f"SSH validation could not start the local ssh process: {exc}",
+                )
+            )
         except ValueError as exc:
             checks.append(
                 CheckResult(
                     name="remote_transport",
-                    status=CheckStatus.SKIP,
+                    status=CheckStatus.FAIL,
                     message=str(exc),
                 )
             )
@@ -339,7 +399,7 @@ class BackupTargetValidationService:
                 name="smb_execution_mode",
                 status=CheckStatus.SKIP,
                 message=(
-                    "SMB system-mount execution is still disabled in this phase. "
+                    "SMB system mount is planned only and is not executable in the current safe subset. "
                     "Only pre-mounted path execution is currently supported."
                 ),
             )
@@ -400,9 +460,18 @@ class BackupTargetValidationService:
         if state == BackgroundJobState.COMPLETED:
             return "Target validation completed for currently implemented checks."
         if state == BackgroundJobState.UNSUPPORTED:
+            reason = self._first_check_message(checks, {CheckStatus.SKIP})
+            if reason:
+                return f"Target validation is unsupported in this phase: {reason}"
             return "Target validation is unsupported for part of this target in the current phase."
         if state == BackgroundJobState.FAILED:
+            reason = self._first_check_message(checks, {CheckStatus.FAIL})
+            if reason:
+                return f"Target validation failed: {reason}"
             return "Target validation failed."
+        reason = self._first_check_message(checks, {CheckStatus.WARN})
+        if reason:
+            return f"Target validation completed with warnings: {reason}"
         return "Target validation completed with warnings for currently implemented checks."
 
     def _verification_status_from_state(
@@ -416,3 +485,101 @@ class BackupTargetValidationService:
         if state == BackgroundJobState.UNSUPPORTED.value:
             return BackupTargetVerificationStatus.UNSUPPORTED
         return BackupTargetVerificationStatus.WARNING
+
+    def _job_state_from_verification_status(
+        self,
+        status: BackupTargetVerificationStatus,
+    ) -> BackgroundJobState:
+        if status == BackupTargetVerificationStatus.READY:
+            return BackgroundJobState.COMPLETED
+        if status == BackupTargetVerificationStatus.WARNING:
+            return BackgroundJobState.PARTIAL
+        if status == BackupTargetVerificationStatus.FAILED:
+            return BackgroundJobState.FAILED
+        if status == BackupTargetVerificationStatus.RUNNING:
+            return BackgroundJobState.RUNNING
+        if status == BackupTargetVerificationStatus.UNSUPPORTED:
+            return BackgroundJobState.UNSUPPORTED
+        return BackgroundJobState.PENDING
+
+    def _normalize_validation_result(
+        self,
+        result: dict[str, object],
+    ) -> dict[str, object]:
+        normalized = dict(result)
+        verification_status = normalized.get("verificationStatus")
+        if verification_status is None:
+            state = str(normalized.get("state") or "")
+            verification_status = self._verification_status_from_state(state).value
+            normalized["verificationStatus"] = verification_status
+        return normalized
+
+    def _first_check_message(
+        self,
+        checks: list[CheckResult],
+        statuses: set[CheckStatus],
+    ) -> str | None:
+        for check in checks:
+            if check.status in statuses:
+                return check.message
+        return None
+
+    def _agent_checks(self, target: BackupTargetConfig) -> list[CheckResult]:
+        if target.transport.auth_mode != BackupTargetAuthMode.AGENT:
+            return []
+        socket_path = os.getenv("SSH_AUTH_SOCK")
+        if not socket_path:
+            return [
+                CheckResult(
+                    name="remote_agent_socket",
+                    status=CheckStatus.FAIL,
+                    message=(
+                        "SSH agent auth is selected, but SSH_AUTH_SOCK is not available in the doctor runtime."
+                    ),
+                )
+            ]
+        socket = Path(socket_path)
+        if not socket.exists():
+            return [
+                CheckResult(
+                    name="remote_agent_socket",
+                    status=CheckStatus.FAIL,
+                    message=(
+                        f"SSH agent auth is selected, but the agent socket path does not exist: {socket_path}"
+                    ),
+                )
+            ]
+        return [
+            CheckResult(
+                name="remote_agent_socket",
+                status=CheckStatus.PASS,
+                message="SSH agent socket is available in the doctor runtime.",
+                details={"socket": socket_path},
+            )
+        ]
+
+    def _known_hosts_checks(
+        self,
+        target: BackupTargetConfig,
+        transport: BackupTransportService,
+    ) -> list[CheckResult]:
+        if target.transport.known_host_mode == BackupTargetKnownHostMode.DISABLED:
+            return []
+        try:
+            known_hosts_path = transport.ensure_known_hosts_path(target)
+        except OSError as exc:
+            return [
+                CheckResult(
+                    name="remote_known_hosts_path",
+                    status=CheckStatus.FAIL,
+                    message=f"Known-hosts file path could not be prepared: {exc}",
+                )
+            ]
+        return [
+            CheckResult(
+                name="remote_known_hosts_path",
+                status=CheckStatus.PASS,
+                message="Known-hosts file path is available to the doctor runtime.",
+                details={"path": known_hosts_path.as_posix()},
+            )
+        ]
