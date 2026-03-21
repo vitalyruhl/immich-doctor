@@ -6,7 +6,7 @@ Status: active
 
 - current scope: non-blocking backup size collection, target validation, asset-aware path-like check/sync/verify plus selective restore, conservative files-only manual execution for safe-subset SSH/rsync targets, persisted snapshot records, and snapshot manifest visibility
 - non-goals: productive SMB system-mount execution, full bidirectional sync, automatic overwrite on mismatch, DB-inclusive backup coverage, metadata backup coverage, aggressive parallel rsync by default
-- safety limits: `completed` does not mean globally deep-verified or disaster-recovery-ready, target validation covers only currently implemented checks, and `stale` size-estimate data must be treated as aged cache data
+- safety limits: `completed` does not mean globally deep-verified or disaster-recovery-ready, target validation covers only currently implemented checks, and `stale` size-estimate data must be treated as aged cache data or as a pre-restart previous result
 
 ## Implemented now
 
@@ -46,6 +46,8 @@ Status: active
 - GUI now also exposes real backup execution actions for:
   - explicit manual target selection
   - non-blocking backup size collection
+  - automatic source-size recalculation on doctor startup
+  - manual source-size refresh with explicit queued/running/stale status
   - target validation state
   - path-like check plus sync-missing execution with asset comparison and review samples
   - path-like representative test copy with real copy plus SHA-256 verification
@@ -104,7 +106,8 @@ Meaning rules:
 - `files_only` must always be shown to humans as `files-only`
 - `snapshot` means the persisted backup record plus its manifest metadata, not an automatic full restore point
 - `manifest` means the persisted JSON metadata record, not artifact-content verification
-- `stale` means a cached size estimate is older than the freshness window
+- `stale` means a cached size estimate is older than the freshness window or predates the current doctor restart
+- a source size estimate from before the current doctor restart must also be treated as `stale`, even if its cache age would otherwise still be fresh
 
 Current verification semantics stay conservative:
 

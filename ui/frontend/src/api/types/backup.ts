@@ -7,6 +7,16 @@ export type BackupJobState =
   | "unsupported"
   | "cancel_requested"
   | "canceled";
+export type BackupSizeEstimateStatus =
+  | "unknown"
+  | "stale"
+  | "queued"
+  | "running"
+  | "partial"
+  | "completed"
+  | "failed"
+  | "unsupported"
+  | "canceled";
 
 export type BackupTargetType = "local" | "smb" | "ssh" | "rsync";
 export type BackupSnapshotCoverage = "files_only" | "db_only" | "paired";
@@ -85,12 +95,14 @@ export interface BackupSizeEstimateResponse {
   generatedAt: string;
   jobId: string | null;
   state: BackupJobState;
+  status: BackupSizeEstimateStatus;
   summary: string;
   sourceScope: string;
   collectedAt?: string | null;
   durationSeconds?: number | null;
   cacheAgeSeconds?: number | null;
   stale: boolean;
+  staleReason?: string | null;
   scopes: BackupSizeScopeEstimate[];
   progress?: {
     scope?: string | null;

@@ -96,6 +96,7 @@ class ManagedJobHandle:
 class BackgroundJobRuntime:
     store: BackgroundJobStore = field(default_factory=BackgroundJobStore)
     max_workers: int = 3
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     _executor: ThreadPoolExecutor = field(init=False, repr=False)
     _lock: Lock = field(init=False, repr=False)
     _active_jobs: dict[str, tuple[ManagedJobHandle, Future[None]]] = field(

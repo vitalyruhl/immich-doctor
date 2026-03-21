@@ -100,7 +100,7 @@ Current backup-related configuration expectations:
 - local secret references for backup targets are stored under `CONFIG_PATH/backup/secrets/` or the same `data/config` fallback
 - API and UI responses must expose only secret references, never raw or masked secret material
 - SMB `pre_mounted_path` targets may execute when the mounted path is already usable; SMB `system_mount` remains planning-only
-- `stale=true` on size-estimate responses means cached estimate data is older than the freshness window
+- `stale=true` on size-estimate responses means cached estimate data is older than the freshness window or was calculated before the current doctor restart
 - later backup phases may add DB artifacts, paired DB + file snapshots, metadata capture, and stronger remote support
 
 ## Notes for Docker and Unraid usage

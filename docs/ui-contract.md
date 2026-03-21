@@ -133,6 +133,9 @@ Backup UI rules:
 - snapshot cards must describe manifest-structure status separately from artifact-content verification
 - pending, running, partial, failed, unsupported, and canceled states must remain visible
 - secret inputs may be sent to the backend on create/update, but UI state and later reads must only show secret references and never masked secret echoes
+- source size estimate must expose whether the shown value is unknown, stale, queued, running, partial, completed, failed, or unsupported
+- source size estimate values from before the current doctor restart must not be presented as fresh
+- source size estimate must trigger a recalculation on startup and must expose a manual refresh action that stays disabled while a run is active
 
 Canonical backup machine values and UI/doc meanings:
 
@@ -160,3 +163,7 @@ Terminology rules:
 - `snapshot` means a persisted backup record with manifest metadata; it is not automatically a full restore point
 - `manifest` means the persisted JSON metadata record; it is not artifact-content verification
 - `stale` means cached size-estimate data is older than the freshness window and should be treated as aged data
+- size-estimate status `unknown`: no current estimate is available yet
+- size-estimate status `queued`: a recalculation was requested but has not started execution yet
+- size-estimate status `running`: a recalculation is in progress
+- size-estimate status `stale`: the shown value is from an older collection and must not be treated as fresh, including values from before the current doctor restart

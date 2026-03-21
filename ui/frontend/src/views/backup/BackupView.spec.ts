@@ -107,8 +107,10 @@ const backupStore: any = {
     updatedAt: "2026-03-18T20:00:00+00:00",
   },
   sizeEstimate: {
-    summary: "Backup size collection completed with partial data for: Storage backup estimate.",
+    summary: "Source size estimate completed with partial data for: Storage backup estimate.",
     state: "partial",
+    status: "partial",
+    staleReason: null,
     warnings: [],
     scopes: [
       {
@@ -243,8 +245,10 @@ function resetMockStore(): void {
   backupStore.selectedTargetId = target.targetId;
   backupStore.selectedTarget = target;
   backupStore.sizeEstimate = {
-    summary: "Backup size collection completed with partial data for: Storage backup estimate.",
+    summary: "Source size estimate completed with partial data for: Storage backup estimate.",
     state: "partial",
+    status: "partial",
+    staleReason: null,
     warnings: [],
     scopes: [
       {
@@ -364,8 +368,86 @@ describe("BackupView", () => {
 
     expect(wrapper.text()).toContain("Source size estimate");
     expect(wrapper.text()).toContain("Local Backup");
+    expect(wrapper.text()).toContain("Source size estimate is partial.");
     expect(wrapper.text()).toContain("Check/sync copied 1 missing assets and verified 1. 0 mismatches, 0 conflicts, and 0 restore candidates still require review.");
     expect(wrapper.text()).toContain("snapshot-1");
+  });
+
+  it("shows stale source-size status after restart and allows manual refresh", async () => {
+    backupStore.sizeEstimate = {
+      ...backupStore.sizeEstimate,
+      state: "completed",
+      status: "stale",
+      stale: true,
+      staleReason: "restart",
+      collectedAt: "2026-03-20T18:00:00+00:00",
+      summary: "Source size estimate completed.",
+    };
+    backupStore.storageEstimate = backupStore.sizeEstimate.scopes[0];
+    backupStore.databaseEstimate = backupStore.sizeEstimate.scopes[1];
+
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Last calculated before doctor restart.");
+    expect(wrapper.text()).toContain("A new calculation starts automatically after restart.");
+
+    const refreshButton = wrapper.findAll("button").find((button) => button.text().includes("Recalculate"));
+    await refreshButton?.trigger("click");
+
+    expect(backupStore.refreshSizeEstimate).toHaveBeenCalledWith(true);
+  });
+
+  it("disables source-size refresh while recalculation is active", async () => {
+    backupStore.isSizeCollectionRunning = true;
+    backupStore.sizeEstimate = {
+      ...backupStore.sizeEstimate,
+      state: "running",
+      status: "running",
+      stale: true,
+      staleReason: "restart",
+      collectedAt: "2026-03-20T18:00:00+00:00",
+      progress: {
+        message: "Source size recalculation is running.",
+      },
+    };
+
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Showing the previous estimate until refresh completes.");
+    const refreshButton = wrapper.findAll("button").find((button) =>
+      button.text().includes("Recalculation Running"),
+    );
+    expect(refreshButton?.attributes("disabled")).toBeDefined();
   });
 
   it("calls save and execution actions through the store", async () => {
@@ -391,8 +473,10 @@ describe("BackupView", () => {
     const form = wrapper.find("form");
     await form.trigger("submit");
 
-    const buttons = wrapper.findAll("button");
-    await buttons[0]?.trigger("click");
+    const executionButton = wrapper.findAll("button").find((button) =>
+      button.text().includes("Start Check / Sync Missing"),
+    );
+    await executionButton?.trigger("click");
 
     expect(backupStore.saveTarget).toHaveBeenCalledTimes(1);
     expect(backupStore.saveTarget).toHaveBeenCalledWith(

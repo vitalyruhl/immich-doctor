@@ -27,19 +27,26 @@
             <div>
               <h3>Source size estimate</h3>
               <p class="health-card__details">
-                {{ backupStore.sizeEstimate?.summary ?? "Backup size collection is pending." }}
+                {{ sourceSizePrimaryMessage }}
               </p>
             </div>
             <StatusTag :status="jobStateTag(backupStore.sizeEstimate?.state ?? 'pending')" />
           </div>
-          <p
-            v-if="backupStore.isSizeCollectionRunning"
-            class="health-card__summary"
-          >
-            {{ backupStore.sizeEstimate?.progress?.message ?? "Backup size collection is running." }}
+          <section class="runtime-actions">
+            <button
+              class="runtime-action runtime-action--secondary"
+              type="button"
+              :disabled="backupStore.isSizeCollectionRunning"
+              @click="void backupStore.refreshSizeEstimate(true)"
+            >
+              {{ backupStore.isSizeCollectionRunning ? "Recalculation Running" : sourceSizeActionLabel }}
+            </button>
+          </section>
+          <p v-if="sourceSizeSecondaryMessage" class="health-card__summary">
+            {{ sourceSizeSecondaryMessage }}
           </p>
-          <p v-if="backupStore.sizeEstimate?.stale" class="health-card__details">
-            Stale cached backup size data is shown until a fresh collection completes.
+          <p v-if="sourceSizeTimestampMessage" class="health-card__details">
+            {{ sourceSizeTimestampMessage }}
           </p>
           <p class="health-card__details">
             Storage values describe the current files-only source scope. Database values are proxy estimates only and do not mean that a DB backup artifact exists.
@@ -544,6 +551,8 @@ import { useBackupStore } from "@/stores/backup";
 import type {
   BackupJobState,
   BackupRestoreReadiness,
+  BackupSizeEstimateResponse,
+  BackupSizeEstimateStatus,
   BackupSnapshotBasicValidity,
   BackupTargetConfig,
   BackupTargetDraft,
@@ -577,6 +586,21 @@ const existingPasswordSecretRef = computed<SecretReferenceSummary | null>(
 );
 const existingPrivateKeySecretRef = computed<SecretReferenceSummary | null>(
   () => editingTarget.value?.transport.privateKeySecretRef ?? null,
+);
+const sourceSizeStatus = computed<BackupSizeEstimateStatus>(
+  () => backupStore.sizeEstimate?.status ?? "unknown",
+);
+const sourceSizeActionLabel = computed(() =>
+  sourceSizeStatus.value === "unknown" ? "Calculate Estimate" : "Recalculate",
+);
+const sourceSizePrimaryMessage = computed(() =>
+  primarySourceSizeMessage(backupStore.sizeEstimate),
+);
+const sourceSizeSecondaryMessage = computed(() =>
+  secondarySourceSizeMessage(backupStore.sizeEstimate),
+);
+const sourceSizeTimestampMessage = computed(() =>
+  sourceSizeTimestampDetail(backupStore.sizeEstimate),
 );
 
 function defaultDraft(): BackupTargetDraft {
@@ -935,6 +959,81 @@ function formatDate(value: string | null | undefined): string {
     return "Unavailable";
   }
   return new Date(value).toLocaleString();
+}
+
+function primarySourceSizeMessage(estimate: BackupSizeEstimateResponse | null): string {
+  if (!estimate) {
+    return "No source size estimate is available yet.";
+  }
+  switch (estimate.status) {
+    case "unknown":
+      return "No current source size estimate is available yet.";
+    case "queued":
+      return "Source size recalculation is queued.";
+    case "running":
+      return "Source size recalculation is in progress.";
+    case "completed":
+      return "Source size estimate completed.";
+    case "partial":
+      return "Source size estimate is partial.";
+    case "failed":
+      return "Source size estimate failed.";
+    case "unsupported":
+      return "Source size estimate is unsupported for the current configuration.";
+    case "canceled":
+      return "Source size recalculation was canceled.";
+    case "stale":
+      return estimate.staleReason === "restart"
+        ? "Last calculated before doctor restart."
+        : "Showing an older source size estimate.";
+    default:
+      return estimate.summary;
+  }
+}
+
+function secondarySourceSizeMessage(estimate: BackupSizeEstimateResponse | null): string | null {
+  if (!estimate) {
+    return "A recalculation starts automatically when doctor starts.";
+  }
+  if (estimate.status === "running") {
+    if (estimate.stale && estimate.collectedAt) {
+      return "Showing the previous estimate until refresh completes.";
+    }
+    return estimate.progress?.message ?? "Source size recalculation is running.";
+  }
+  if (estimate.status === "queued") {
+    return estimate.stale && estimate.collectedAt
+      ? "A fresh recalculation was requested. Previous values stay visible until collection starts."
+      : "A fresh recalculation was requested and will start shortly.";
+  }
+  if (estimate.status === "stale") {
+    return estimate.staleReason === "restart"
+      ? "A new calculation starts automatically after restart. Previous values are not treated as fresh."
+      : "Refresh this estimate before using it for planning.";
+  }
+  if (estimate.status === "partial") {
+    return "Partial estimate. Review warnings before using it for planning.";
+  }
+  if (estimate.status === "failed") {
+    return "Calculation failed. Use Refresh to try again.";
+  }
+  if (estimate.status === "unsupported") {
+    return "One or more required source settings are missing or unsupported.";
+  }
+  return null;
+}
+
+function sourceSizeTimestampDetail(estimate: BackupSizeEstimateResponse | null): string | null {
+  if (!estimate?.collectedAt) {
+    return null;
+  }
+  if (estimate.staleReason === "restart") {
+    return `Last calculated before restart: ${formatDate(estimate.collectedAt)}`;
+  }
+  if (estimate.stale) {
+    return `Showing an older estimate from ${formatDate(estimate.collectedAt)}`;
+  }
+  return `Last calculated: ${formatDate(estimate.collectedAt)}`;
 }
 
 function formatJobState(state: BackupJobState | string | null | undefined): string {

@@ -24,6 +24,7 @@ import type {
   BackupAssetWorkflowOverviewResponse,
   BackupExecutionStatusResponse,
   BackupJobState,
+  BackupSizeEstimateStatus,
   BackupRestoreActionResponse,
   BackupSizeEstimateResponse,
   BackupSnapshotSummary,
@@ -46,6 +47,10 @@ function sleep(ms: number): Promise<void> {
 
 function errorMessage(caughtError: unknown): string {
   return caughtError instanceof ApiClientError ? caughtError.payload.message : "Unknown error.";
+}
+
+function isTerminalJobState(state: BackupJobState | null | undefined): boolean {
+  return state ? TERMINAL_JOB_STATES.includes(state) : false;
 }
 
 export const useBackupStore = defineStore("backup", () => {
@@ -84,7 +89,7 @@ export const useBackupStore = defineStore("backup", () => {
   const databaseEstimate = computed(() => sizeEstimate.value?.scopes.find((scope) => scope.scope === "database") ?? null);
   const hasTargets = computed(() => targets.value.length > 0);
   const isSizeCollectionRunning = computed(() =>
-    sizeEstimate.value ? !TERMINAL_JOB_STATES.includes(sizeEstimate.value.state) : false,
+    sizeEstimate.value ? !isTerminalJobState(sizeEstimate.value.state) : false,
   );
   const isExecutionRunning = computed(() =>
     currentExecution.value ? !TERMINAL_JOB_STATES.includes(currentExecution.value.state) : false,
@@ -120,8 +125,14 @@ export const useBackupStore = defineStore("backup", () => {
       if (selectedTargetId.value) {
         await refreshWorkflowOverview(selectedTargetId.value);
       }
-      if (!sizeEstimate.value || sizeEstimate.value.state === "pending" || sizeEstimate.value.stale) {
+      if (!sizeEstimate.value) {
         void refreshSizeEstimate();
+      } else if (isTerminalJobState(sizeEstimate.value.state)) {
+        if (["unknown", "stale"].includes(sizeEstimate.value.status)) {
+          void refreshSizeEstimate();
+        }
+      } else {
+        void waitForSizeEstimateCompletion();
       }
     } catch (caughtError) {
       error.value = errorMessage(caughtError);
@@ -145,14 +156,21 @@ export const useBackupStore = defineStore("backup", () => {
     snapshots.value = (await fetchBackupSnapshots()).data;
   }
 
-  async function refreshSizeEstimate(force = false): Promise<void> {
-    sizeEstimate.value = (await collectBackupSizeEstimate(force)).data;
-    if (!sizeEstimate.value.jobId) {
-      return;
-    }
-    while (sizeEstimate.value && !TERMINAL_JOB_STATES.includes(sizeEstimate.value.state)) {
+  async function waitForSizeEstimateCompletion(): Promise<void> {
+    while (sizeEstimate.value && !isTerminalJobState(sizeEstimate.value.state)) {
       await sleep(800);
       sizeEstimate.value = (await fetchBackupSizeEstimate()).data;
+    }
+  }
+
+  async function refreshSizeEstimate(force = false): Promise<void> {
+    sizeEstimate.value = (await collectBackupSizeEstimate(force)).data;
+    if (!sizeEstimate.value) {
+      return;
+    }
+    const status = sizeEstimate.value.status as BackupSizeEstimateStatus;
+    if (!isTerminalJobState(sizeEstimate.value.state) || ["unknown", "stale"].includes(status)) {
+      await waitForSizeEstimateCompletion();
     }
   }
 

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import monotonic
+from typing import Literal
 
 from immich_doctor.adapters.filesystem import (
     DirectoryScanCanceledError,
@@ -15,6 +16,7 @@ from immich_doctor.backup.core.job_models import BackgroundJobState
 from immich_doctor.backup.estimation.models import (
     BackupSizeCategory,
     BackupSizeEstimateSnapshot,
+    BackupSizeEstimateStatus,
     BackupSizeProgress,
     BackupSizeScopeEstimate,
 )
@@ -45,7 +47,16 @@ class BackupSizeCollector:
             generatedAt=timestamp,
             jobId=job_id,
             state=BackgroundJobState.PENDING,
-            summary="Backup size collection is pending.",
+            status=(
+                BackupSizeEstimateStatus.QUEUED
+                if job_id is not None
+                else BackupSizeEstimateStatus.UNKNOWN
+            ),
+            summary=(
+                "Backup size recalculation is queued."
+                if job_id is not None
+                else "No source size estimate is available yet."
+            ),
             sourceScope="backup.files",
             scopes=[
                 BackupSizeScopeEstimate(
@@ -72,11 +83,37 @@ class BackupSizeCollector:
             ],
         )
 
+    def queued_snapshot(
+        self,
+        *,
+        previous_snapshot: BackupSizeEstimateSnapshot | None = None,
+        job_id: str | None = None,
+        stale_reason: Literal["restart", "freshness_window", "refresh_requested"] = "refresh_requested",
+    ) -> BackupSizeEstimateSnapshot:
+        if previous_snapshot is None:
+            return self.pending_snapshot(job_id=job_id)
+
+        stale_snapshot = self.mark_stale(previous_snapshot, stale_reason=stale_reason)
+        return stale_snapshot.model_copy(
+            update={
+                "generated_at": self.clock().isoformat(),
+                "job_id": job_id,
+                "state": BackgroundJobState.PENDING,
+                "status": BackupSizeEstimateStatus.QUEUED,
+                "summary": (
+                    "Backup size recalculation is queued. "
+                    "Showing the previous estimate until refresh starts."
+                ),
+                "progress": None,
+            }
+        )
+
     def collect(
         self,
         settings: AppSettings,
         *,
         job_id: str,
+        previous_snapshot: BackupSizeEstimateSnapshot | None = None,
         progress_callback: ProgressCallback | None = None,
         cancel_requested: Callable[[], bool] | None = None,
     ) -> BackupSizeEstimateSnapshot:
@@ -86,13 +123,15 @@ class BackupSizeCollector:
         scope_results: list[BackupSizeScopeEstimate] = []
 
         self._emit(
-            self.pending_snapshot(job_id=job_id).model_copy(
+            self._running_snapshot(
+                job_id=job_id,
+                previous_snapshot=previous_snapshot,
+            ).model_copy(
                 update={
                     "state": BackgroundJobState.RUNNING,
-                    "summary": "Backup size collection is running.",
                     "progress": BackupSizeProgress(
                         scope="database",
-                        message="Backup size collection is running.",
+                        message="Source size recalculation is running.",
                         current=0,
                         unit="scopes",
                     ),
@@ -110,15 +149,15 @@ class BackupSizeCollector:
             self._build_snapshot(
                 job_id=job_id,
                 started_at=started_at,
-                scope_results=scope_results + [self._running_storage_placeholder()],
-                progress=BackupSizeProgress(
-                    scope="storage",
-                    message="Backup size collection is running.",
-                    current=1,
-                    total=2,
-                    unit="scopes",
+                    scope_results=scope_results + [self._running_storage_placeholder()],
+                    progress=BackupSizeProgress(
+                        scope="storage",
+                        message="Source size recalculation is running.",
+                        current=1,
+                        total=2,
+                        unit="scopes",
+                    ),
                 ),
-            ),
             progress_callback,
         )
 
@@ -145,27 +184,50 @@ class BackupSizeCollector:
         snapshot: BackupSizeEstimateSnapshot,
         *,
         now: datetime | None = None,
+        runtime_started_at: datetime | None = None,
     ) -> BackupSizeEstimateSnapshot:
         if snapshot.collected_at is None:
-            return snapshot
+            return self._with_status(snapshot)
 
         current_time = now or self.clock()
         collected_at = datetime.fromisoformat(snapshot.collected_at)
         age_seconds = max((current_time - collected_at).total_seconds(), 0.0)
-        is_stale = age_seconds > self.freshness_seconds
+        stale_reason: str | None = None
+        if runtime_started_at is not None and collected_at < runtime_started_at:
+            stale_reason = "restart"
+        elif age_seconds > self.freshness_seconds:
+            stale_reason = "freshness_window"
 
-        return snapshot.model_copy(
+        refreshed = snapshot.model_copy(
             update={
-                "stale": is_stale,
+                "stale": stale_reason is not None,
+                "stale_reason": stale_reason,
                 "cache_age_seconds": round(age_seconds, 3),
                 "scopes": [
-                    scope.model_copy(update={"stale": is_stale}) for scope in snapshot.scopes
+                    scope.model_copy(update={"stale": stale_reason is not None})
+                    for scope in snapshot.scopes
                 ],
             }
         )
+        return self._with_status(refreshed)
 
     def is_fresh(self, snapshot: BackupSizeEstimateSnapshot) -> bool:
         return not self.apply_freshness(snapshot).stale
+
+    def mark_stale(
+        self,
+        snapshot: BackupSizeEstimateSnapshot,
+        *,
+        stale_reason: Literal["restart", "freshness_window", "refresh_requested"],
+    ) -> BackupSizeEstimateSnapshot:
+        stale_snapshot = snapshot.model_copy(
+            update={
+                "stale": True,
+                "stale_reason": stale_reason,
+                "scopes": [scope.model_copy(update={"stale": True}) for scope in snapshot.scopes],
+            }
+        )
+        return self._with_status(stale_snapshot)
 
     def _collect_database_scope(
         self,
@@ -392,6 +454,7 @@ class BackupSizeCollector:
             generatedAt=self.clock().isoformat(),
             jobId=job_id,
             state=state,
+            status=self._status_for_state(state),
             summary=self._summary_for_state(state, scope_results),
             sourceScope="backup.files",
             collectedAt=self.clock().isoformat() if finished_scopes else None,
@@ -436,24 +499,24 @@ class BackupSizeCollector:
         scope_results: list[BackupSizeScopeEstimate],
     ) -> str:
         if state == BackgroundJobState.PENDING:
-            return "Backup size collection is pending."
+            return "Backup size recalculation is queued."
         if state == BackgroundJobState.RUNNING:
-            return "Backup size collection is running."
+            return "Source size recalculation is running."
         if state == BackgroundJobState.COMPLETED:
-            return "Backup size collection completed."
+            return "Source size estimate completed."
         if state == BackgroundJobState.UNSUPPORTED:
-            return "Backup size collection is unsupported for the current configuration."
+            return "Source size estimate is unsupported for the current configuration."
         if state == BackgroundJobState.CANCELED:
-            return "Backup size collection was canceled."
+            return "Source size recalculation was canceled."
         if state == BackgroundJobState.FAILED:
-            return "Backup size collection failed."
+            return "Source size estimate failed."
         completed_scopes = [
             scope.label for scope in scope_results if scope.state == BackgroundJobState.COMPLETED
         ]
         if completed_scopes:
             scope_list = ", ".join(completed_scopes)
-            return f"Backup size collection completed with partial data for: {scope_list}."
-        return "Backup size collection completed with partial data."
+            return f"Source size estimate completed with partial data for: {scope_list}."
+        return "Source size estimate completed with partial data."
 
     def _category_path_map(self, settings: AppSettings) -> dict[str, tuple[str, str]]:
         library_root = settings.immich_library_root
@@ -493,6 +556,75 @@ class BackupSizeCollector:
             sourceScope="immich_library_root",
             representation="filesystem_usage",
         )
+
+    def _running_snapshot(
+        self,
+        *,
+        job_id: str,
+        previous_snapshot: BackupSizeEstimateSnapshot | None,
+    ) -> BackupSizeEstimateSnapshot:
+        if previous_snapshot is None:
+            return self.pending_snapshot(job_id=job_id).model_copy(
+                update={
+                    "state": BackgroundJobState.RUNNING,
+                    "status": BackupSizeEstimateStatus.RUNNING,
+                    "summary": "Source size recalculation is running.",
+                }
+            )
+
+        stale_reason = previous_snapshot.stale_reason or "refresh_requested"
+        stale_snapshot = self.mark_stale(previous_snapshot, stale_reason=stale_reason).model_copy(
+            update={
+                "generated_at": self.clock().isoformat(),
+                "job_id": job_id,
+                "state": BackgroundJobState.RUNNING,
+                "status": BackupSizeEstimateStatus.RUNNING,
+                "summary": (
+                    "Source size recalculation is running. "
+                    "Showing the previous estimate until refresh completes."
+                ),
+            }
+        )
+        return stale_snapshot
+
+    def _with_status(
+        self,
+        snapshot: BackupSizeEstimateSnapshot,
+    ) -> BackupSizeEstimateSnapshot:
+        return snapshot.model_copy(update={"status": self._status_for_snapshot(snapshot)})
+
+    def _status_for_snapshot(
+        self,
+        snapshot: BackupSizeEstimateSnapshot,
+    ) -> BackupSizeEstimateStatus:
+        if snapshot.state == BackgroundJobState.PENDING:
+            return (
+                BackupSizeEstimateStatus.QUEUED
+                if snapshot.job_id is not None
+                else BackupSizeEstimateStatus.UNKNOWN
+            )
+        if snapshot.state == BackgroundJobState.RUNNING:
+            return BackupSizeEstimateStatus.RUNNING
+        if snapshot.stale:
+            return BackupSizeEstimateStatus.STALE
+        return self._status_for_state(snapshot.state)
+
+    def _status_for_state(self, state: BackgroundJobState) -> BackupSizeEstimateStatus:
+        if state == BackgroundJobState.PARTIAL:
+            return BackupSizeEstimateStatus.PARTIAL
+        if state == BackgroundJobState.COMPLETED:
+            return BackupSizeEstimateStatus.COMPLETED
+        if state == BackgroundJobState.FAILED:
+            return BackupSizeEstimateStatus.FAILED
+        if state == BackgroundJobState.UNSUPPORTED:
+            return BackupSizeEstimateStatus.UNSUPPORTED
+        if state == BackgroundJobState.CANCELED:
+            return BackupSizeEstimateStatus.CANCELED
+        if state == BackgroundJobState.RUNNING:
+            return BackupSizeEstimateStatus.RUNNING
+        if state == BackgroundJobState.PENDING:
+            return BackupSizeEstimateStatus.QUEUED
+        return BackupSizeEstimateStatus.UNKNOWN
 
     def _emit(
         self,

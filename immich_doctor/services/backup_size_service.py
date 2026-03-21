@@ -22,7 +22,13 @@ class BackupSizeEstimationService:
     def get_snapshot(self, settings: AppSettings) -> BackupSizeEstimateSnapshot:
         active = self.runtime.active_job(job_type=BACKUP_SIZE_JOB_TYPE)
         if active is not None:
-            return BackupSizeEstimateSnapshot.model_validate(active.result)
+            snapshot = BackupSizeEstimateSnapshot.model_validate(active.result)
+            if snapshot.job_id is None:
+                snapshot = snapshot.model_copy(update={"job_id": active.job_id})
+            return self.collector.apply_freshness(
+                snapshot,
+                runtime_started_at=self.runtime.started_at,
+            )
 
         latest = self.runtime.store.find_latest_job(
             settings,
@@ -33,7 +39,8 @@ class BackupSizeEstimationService:
             return self.collector.pending_snapshot()
 
         return self.collector.apply_freshness(
-            BackupSizeEstimateSnapshot.model_validate(latest.result)
+            BackupSizeEstimateSnapshot.model_validate(latest.result),
+            runtime_started_at=self.runtime.started_at,
         )
 
     def collect(
@@ -44,7 +51,13 @@ class BackupSizeEstimationService:
     ) -> BackupSizeEstimateSnapshot:
         active = self.runtime.active_job(job_type=BACKUP_SIZE_JOB_TYPE)
         if active is not None:
-            return BackupSizeEstimateSnapshot.model_validate(active.result)
+            snapshot = BackupSizeEstimateSnapshot.model_validate(active.result)
+            if snapshot.job_id is None:
+                snapshot = snapshot.model_copy(update={"job_id": active.job_id})
+            return self.collector.apply_freshness(
+                snapshot,
+                runtime_started_at=self.runtime.started_at,
+            )
 
         latest = self.runtime.store.find_latest_job(
             settings,
@@ -55,22 +68,40 @@ class BackupSizeEstimationService:
                 BackgroundJobState.UNSUPPORTED,
             },
         )
+        latest_snapshot: BackupSizeEstimateSnapshot | None = None
         if latest is not None and not force:
-            snapshot = self.collector.apply_freshness(
-                BackupSizeEstimateSnapshot.model_validate(latest.result)
+            latest_snapshot = self.collector.apply_freshness(
+                BackupSizeEstimateSnapshot.model_validate(latest.result),
+                runtime_started_at=self.runtime.started_at,
             )
-            if not snapshot.stale:
-                return snapshot
+            if not latest_snapshot.stale:
+                return latest_snapshot
+        elif latest is not None:
+            latest_snapshot = self.collector.apply_freshness(
+                BackupSizeEstimateSnapshot.model_validate(latest.result),
+                runtime_started_at=self.runtime.started_at,
+            )
 
-        initial_snapshot = self.collector.pending_snapshot()
+        stale_reason = (
+            latest_snapshot.stale_reason
+            if latest_snapshot is not None and latest_snapshot.stale_reason is not None
+            else "refresh_requested"
+        )
+        initial_snapshot = self.collector.queued_snapshot(
+            previous_snapshot=latest_snapshot,
+            stale_reason=stale_reason,
+        )
         record = self.runtime.start_job(
             settings,
             job_type=BACKUP_SIZE_JOB_TYPE,
             initial_result=initial_snapshot.model_dump(by_alias=True, mode="json"),
             summary=initial_snapshot.summary,
-            runner=lambda handle: self._run_collection(handle),
+            runner=lambda handle: self._run_collection(handle, previous_snapshot=latest_snapshot),
         )
         return initial_snapshot.model_copy(update={"job_id": record.job_id})
+
+    def trigger_startup_refresh(self, settings: AppSettings) -> BackupSizeEstimateSnapshot:
+        return self.collect(settings, force=False)
 
     def request_cancel(self) -> BackupSizeEstimateSnapshot | None:
         record = self.runtime.request_cancel(job_type=BACKUP_SIZE_JOB_TYPE)
@@ -78,10 +109,16 @@ class BackupSizeEstimationService:
             return None
         return BackupSizeEstimateSnapshot.model_validate(record.result)
 
-    def _run_collection(self, handle: ManagedJobHandle) -> dict[str, object]:
+    def _run_collection(
+        self,
+        handle: ManagedJobHandle,
+        *,
+        previous_snapshot: BackupSizeEstimateSnapshot | None,
+    ) -> dict[str, object]:
         result = self.collector.collect(
             handle.settings,
             job_id=handle.record.job_id,
+            previous_snapshot=previous_snapshot,
             progress_callback=lambda snapshot: handle.update(
                 state=snapshot.state,
                 summary=snapshot.summary,

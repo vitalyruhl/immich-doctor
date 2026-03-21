@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from fastapi.testclient import TestClient
 
 from immich_doctor.api.app import create_api_app
@@ -7,8 +8,11 @@ from immich_doctor.api.routes import backup as backup_routes
 from immich_doctor.backup.core.job_models import BackgroundJobState
 from immich_doctor.backup.estimation.models import (
     BackupSizeEstimateSnapshot,
+    BackupSizeEstimateStatus,
     BackupSizeScopeEstimate,
 )
+
+api_app_module = importlib.import_module("immich_doctor.api.app")
 
 
 def test_backup_snapshots_route_returns_expected_shape(monkeypatch) -> None:
@@ -111,7 +115,8 @@ def test_backup_size_estimate_route_returns_expected_shape(monkeypatch) -> None:
             generatedAt="2026-03-18T20:00:00+00:00",
             jobId="job-1",
             state=BackgroundJobState.PARTIAL,
-            summary="Backup size collection completed with partial data.",
+            status=BackupSizeEstimateStatus.PARTIAL,
+            summary="Source size estimate completed with partial data.",
             sourceScope="backup.files",
             collectedAt="2026-03-18T20:00:00+00:00",
             durationSeconds=2.5,
@@ -139,6 +144,7 @@ def test_backup_size_estimate_route_returns_expected_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["jobId"] == "job-1"
     assert payload["data"]["state"] == "partial"
+    assert payload["data"]["status"] == "partial"
 
 
 def test_backup_size_collect_route_returns_pending_job(monkeypatch) -> None:
@@ -149,7 +155,8 @@ def test_backup_size_collect_route_returns_pending_job(monkeypatch) -> None:
             generatedAt="2026-03-18T20:00:00+00:00",
             jobId="job-2",
             state=BackgroundJobState.PENDING,
-            summary="Backup size collection is pending.",
+            status=BackupSizeEstimateStatus.QUEUED,
+            summary="Backup size recalculation is queued.",
             sourceScope="backup.files",
             scopes=[],
             warnings=[],
@@ -164,6 +171,31 @@ def test_backup_size_collect_route_returns_pending_job(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["jobId"] == "job-2"
     assert payload["data"]["state"] == "pending"
+    assert payload["data"]["status"] == "queued"
+
+
+def test_backup_app_triggers_size_refresh_on_startup(monkeypatch) -> None:
+    startup_calls: list[str] = []
+
+    def _trigger(self, settings) -> BackupSizeEstimateSnapshot:
+        startup_calls.append("called")
+        return BackupSizeEstimateSnapshot(
+            generatedAt="2026-03-21T13:00:00+00:00",
+            jobId="startup-job",
+            state=BackgroundJobState.PENDING,
+            status=BackupSizeEstimateStatus.QUEUED,
+            summary="Backup size recalculation is queued.",
+            sourceScope="backup.files",
+        )
+
+    monkeypatch.setattr(
+        api_app_module.BackupSizeEstimationService,
+        "trigger_startup_refresh",
+        _trigger,
+    )
+
+    with TestClient(create_api_app()):
+        assert startup_calls == ["called"]
 
 
 def test_backup_targets_route_returns_expected_shape(monkeypatch) -> None:

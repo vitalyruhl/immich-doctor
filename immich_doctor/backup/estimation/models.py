@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from immich_doctor.backup.core.job_models import BackgroundJobState
+
+
+class BackupSizeEstimateStatus(StrEnum):
+    UNKNOWN = "unknown"
+    STALE = "stale"
+    QUEUED = "queued"
+    RUNNING = "running"
+    PARTIAL = "partial"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    UNSUPPORTED = "unsupported"
+    CANCELED = "canceled"
 
 
 class BackupSizeCategory(BaseModel):
@@ -53,12 +66,14 @@ class BackupSizeEstimateSnapshot(BaseModel):
     generated_at: str = Field(alias="generatedAt")
     job_id: str | None = Field(default=None, alias="jobId")
     state: BackgroundJobState
+    status: BackupSizeEstimateStatus = BackupSizeEstimateStatus.UNKNOWN
     summary: str
     source_scope: str = Field(alias="sourceScope")
     collected_at: str | None = Field(default=None, alias="collectedAt")
     duration_seconds: float | None = Field(default=None, alias="durationSeconds")
     cache_age_seconds: float | None = Field(default=None, alias="cacheAgeSeconds")
     stale: bool = False
+    stale_reason: str | None = Field(default=None, alias="staleReason")
     scopes: list[BackupSizeScopeEstimate] = Field(default_factory=list)
     progress: BackupSizeProgress | None = None
     warnings: list[str] = Field(default_factory=list)
