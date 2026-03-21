@@ -123,12 +123,12 @@ Backup UI rules:
 
 - never show restore-ready or disaster-recovery-ready wording unless the backend says so
 - files-only backup must stay labeled as files-only
-- local plus safe-subset SSH/rsync execution must stay distinct from SMB configuration, validation, and mount-planning only targets
+- path-like execution must stay distinct from transport-prepared SSH/rsync snapshot transfer and from unsupported SMB `system_mount` targets
 - target warnings must be visible before execution
 - verification labels must describe the actual assurance level and must not imply end-to-end integrity proof
 - snapshot cards must describe manifest-structure status separately from artifact-content verification
 - pending, running, partial, failed, unsupported, and canceled states must remain visible
-- secret inputs may be sent to the backend on create/update, but UI state and later reads must only show masked secret references
+- secret inputs may be sent to the backend on create/update, but UI state and later reads must only show secret references and never masked secret echoes
 
 Canonical backup machine values and UI/doc meanings:
 

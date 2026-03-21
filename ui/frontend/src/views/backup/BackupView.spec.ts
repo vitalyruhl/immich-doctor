@@ -2,7 +2,7 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import BackupView from "./BackupView.vue";
 
-const backupStore = {
+const backupStore: any = {
   targetsOverview: {
     items: [
       {
@@ -258,6 +258,8 @@ describe("BackupView", () => {
     await nextTick();
     await nextTick();
 
+    await wrapper.findAll('input[type="text"]')[0]?.setValue("Draft Local");
+    await wrapper.find('input[placeholder="/backups/immich"]').setValue("/backup/draft");
     const form = wrapper.find("form");
     await form.trigger("submit");
 
@@ -265,6 +267,149 @@ describe("BackupView", () => {
     await buttons[0]?.trigger("click");
 
     expect(backupStore.saveTarget).toHaveBeenCalledTimes(1);
+    expect(backupStore.saveTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: "local",
+        path: "/backup/draft",
+      }),
+      undefined,
+    );
     expect(backupStore.startExecution).toHaveBeenCalled();
+  });
+
+  it("parses SSH connection strings and saves secret-safe agent payloads", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("ssh");
+    await nextTick();
+    await wrapper.findAll('input[type="text"]')[0]?.setValue("Draft SSH");
+    await wrapper.find('input[placeholder="root@192.168.2.2"]').setValue("root@192.168.2.2");
+    await wrapper.find('input[placeholder="/srv/backup"]').setValue("/srv/backup");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Parsed username");
+    expect(wrapper.text()).toContain("root");
+    expect(wrapper.text()).toContain("192.168.2.2");
+
+    await wrapper.find("form").trigger("submit");
+
+    expect(backupStore.saveTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: "ssh",
+        connectionString: "root@192.168.2.2",
+        remotePath: "/srv/backup",
+        authMode: "agent",
+        knownHostMode: "strict",
+      }),
+      undefined,
+    );
+    const lastPayload = backupStore.saveTarget.mock.calls[backupStore.saveTarget.mock.calls.length - 1]?.[0];
+    expect(lastPayload).not.toHaveProperty("privateKeySecret");
+  });
+
+  it("parses SSH connection strings with ports", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("ssh");
+    await nextTick();
+    await wrapper.findAll('input[type="text"]')[0]?.setValue("Draft SSH Port");
+    await wrapper.find('input[placeholder="root@192.168.2.2"]').setValue("root@192.168.2.2:2222");
+    await wrapper.find('input[placeholder="/srv/backup"]').setValue("/srv/backup");
+    expect(wrapper.text()).toContain("Parsed port");
+    expect(wrapper.text()).toContain("2222");
+
+    await wrapper.find("form").trigger("submit");
+
+    expect(backupStore.saveTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: "ssh",
+        connectionString: "root@192.168.2.2:2222",
+        port: 2222,
+      }),
+      undefined,
+    );
+  });
+
+  it("shows SMB pre-mounted targets as executable", async () => {
+    backupStore.targetsOverview.items = [
+      {
+        targetId: "target-smb",
+        targetName: "Mounted SMB",
+        targetType: "smb",
+        enabled: true,
+        transport: {
+          host: "nas.local",
+          share: "immich",
+          remotePath: "/backup",
+          mountStrategy: "pre_mounted_path",
+          mountedPath: "/mnt/immich-backup",
+        },
+        verificationStatus: "ready",
+        lastTestResult: null,
+        lastSuccessfulBackup: null,
+        retentionPolicy: { mode: "keep_all", maxVersions: null, pruneAutomatically: false },
+        restoreReadiness: "partial",
+        sourceScope: "files_only",
+        schedulingCompatible: true,
+        warnings: [],
+        createdAt: "2026-03-18T20:00:00+00:00",
+        updatedAt: "2026-03-18T20:00:00+00:00",
+      },
+    ];
+    backupStore.targets = backupStore.targetsOverview.items;
+    backupStore.selectedTargetId = "target-smb";
+    backupStore.selectedTarget = backupStore.targets[0];
+
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Mounted path check / sync is supported");
+    expect(wrapper.text()).not.toContain("SMB system-mount execution is not implemented");
   });
 });

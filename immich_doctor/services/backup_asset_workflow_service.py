@@ -11,7 +11,11 @@ from enum import StrEnum
 from pathlib import Path
 
 from immich_doctor.adapters.filesystem import FilesystemAdapter
-from immich_doctor.backup.targets.models import BackupTargetConfig, BackupTargetType
+from immich_doctor.backup.targets.models import (
+    BackupTargetConfig,
+    BackupTargetMountStrategy,
+    BackupTargetType,
+)
 from immich_doctor.backup.targets.paths import (
     backup_workflow_current_library_root,
     backup_workflow_root,
@@ -150,7 +154,7 @@ class BackupAssetWorkflowService:
             "limitations": [
                 (
                     "Asset-aware check, sync, test copy, preview, and selective "
-                    "restore are currently local-target only."
+                    "restore currently require a usable path-like target destination."
                 ),
                 (
                     "Directory totals are heuristic warning signals and not proof "
@@ -188,7 +192,10 @@ class BackupAssetWorkflowService:
         if source_root is None or backup_root is None:
             return {
                 "state": "unsupported",
-                "summary": "Asset-aware check/sync is only available for local targets.",
+                "summary": (
+                    "Asset-aware check/sync is only available for targets with a usable "
+                    "path-like destination."
+                ),
                 "warnings": warnings,
                 "report": {
                     "statusCounts": {},
@@ -293,7 +300,10 @@ class BackupAssetWorkflowService:
                 "generatedAt": datetime.now(UTC).isoformat(),
                 "targetId": target_id,
                 "supported": False,
-                "summary": "Test copy is only available for local targets.",
+                "summary": (
+                    "Test copy is only available for targets with a usable path-like "
+                    "destination."
+                ),
                 "warnings": warnings,
                 "result": None,
             }
@@ -320,7 +330,7 @@ class BackupAssetWorkflowService:
 
         asset_id = sorted(source_entries.keys())[0]
         source_path = source_root / asset_id
-        test_root = backup_workflow_test_root(Path(target.transport.path))
+        test_root = backup_workflow_test_root(self._path_like_target_root(target))
         test_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         target_path = test_root / test_id / asset_id
         result = self._copy_with_verification(
@@ -372,7 +382,10 @@ class BackupAssetWorkflowService:
                 "targetId": target_id,
                 "apply": apply,
                 "supported": False,
-                "summary": "Selective restore is only available for local targets.",
+                "summary": (
+                    "Selective restore is only available for targets with a usable "
+                    "path-like destination."
+                ),
                 "warnings": warnings,
                 "results": [],
             }
@@ -476,8 +489,6 @@ class BackupAssetWorkflowService:
         source_root, backup_root, warnings = self._resolve_roots(settings, target=target)
         if source_root is None or backup_root is None:
             raise FileNotFoundError("Preview is not supported for this target.")
-        if warnings and target.target_type != BackupTargetType.LOCAL:
-            raise FileNotFoundError("Preview is not supported for this target.")
 
         root = source_root if side == "source" else backup_root
         path = self._safe_child_path(root, asset_id)
@@ -495,10 +506,11 @@ class BackupAssetWorkflowService:
         target: BackupTargetConfig,
     ) -> tuple[Path | None, Path | None, list[str]]:
         warnings = list(target.warnings)
-        if target.target_type != BackupTargetType.LOCAL or target.transport.path is None:
+        target_root = self._path_like_target_root(target)
+        if target_root is None:
             warnings.append(
-                "Asset-aware local workflow is unavailable because the selected "
-                "target is not a local filesystem target."
+                "Asset-aware workflow is unavailable because the selected target does "
+                "not expose a usable path-like destination."
             )
             return None, None, warnings
         if settings.immich_library_root is None:
@@ -506,7 +518,6 @@ class BackupAssetWorkflowService:
             return None, None, warnings
 
         source_root = settings.immich_library_root.expanduser()
-        target_root = Path(target.transport.path).expanduser()
         backup_root = backup_workflow_current_library_root(target_root)
         if self.filesystem.is_child_path(source_root, target_root) or self.filesystem.is_child_path(
             target_root,
@@ -520,6 +531,17 @@ class BackupAssetWorkflowService:
         backup_root.mkdir(parents=True, exist_ok=True)
         backup_workflow_root(target_root).mkdir(parents=True, exist_ok=True)
         return source_root, backup_root, warnings
+
+    def _path_like_target_root(self, target: BackupTargetConfig) -> Path | None:
+        if target.target_type == BackupTargetType.LOCAL and target.transport.path is not None:
+            return Path(target.transport.path).expanduser()
+        if (
+            target.target_type == BackupTargetType.SMB
+            and target.transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH
+            and target.transport.mounted_path is not None
+        ):
+            return Path(target.transport.mounted_path).expanduser()
+        return None
 
     def _unsupported_overview(
         self,
@@ -535,8 +557,8 @@ class BackupAssetWorkflowService:
             "sourceRoot": None,
             "backupRoot": None,
             "summary": (
-                "Asset-aware check / sync / restore is only available for local "
-                "targets in this phase."
+                "Asset-aware check / sync / restore is only available for targets "
+                "with a usable path-like destination in this phase."
             ),
             "warnings": warnings,
             "limitations": [
@@ -544,7 +566,10 @@ class BackupAssetWorkflowService:
                     "Remote targets keep their existing conservative validation "
                     "and files-only execution behavior."
                 ),
-                ("No asset preview or selective restore is claimed for unsupported target types."),
+                (
+                    "No asset preview or selective restore is claimed for targets "
+                    "without a usable path-like destination."
+                ),
             ],
             "comparison": {
                 "totalItems": 0,

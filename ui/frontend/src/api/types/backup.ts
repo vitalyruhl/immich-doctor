@@ -108,7 +108,6 @@ export interface SecretReferenceSummary {
   secretId: string;
   kind: string;
   label: string;
-  maskedValue: string;
   createdAt: string;
 }
 
@@ -119,11 +118,13 @@ export interface BackupTargetTransportSettings {
   share?: string | null;
   remotePath?: string | null;
   username?: string | null;
-  authMode?: "password" | "private_key" | null;
+  authMode?: "agent" | "password" | "private_key" | null;
   mountStrategy?: "system_mount" | "pre_mounted_path" | null;
   mountedPath?: string | null;
-  hostKeyVerification?: "known_hosts" | "pinned_fingerprint" | "insecure_accept_any" | null;
-  hostKeyReference?: string | null;
+  knownHostMode?: "strict" | "accept_new" | "disabled" | null;
+  knownHostReference?: string | null;
+  domain?: string | null;
+  mountOptions?: string | null;
   passwordSecretRef?: SecretReferenceSummary | null;
   privateKeySecretRef?: SecretReferenceSummary | null;
 }
@@ -222,18 +223,21 @@ export interface BackupTargetDraft {
   targetType: BackupTargetType;
   enabled: boolean;
   path?: string;
+  connectionString?: string;
   host?: string;
   port?: number;
   share?: string;
   remotePath?: string;
   username?: string;
-  authMode?: "password" | "private_key";
+  authMode?: "agent" | "password" | "private_key";
   mountStrategy?: "system_mount" | "pre_mounted_path";
   mountedPath?: string;
-  hostKeyVerification?: "known_hosts" | "pinned_fingerprint" | "insecure_accept_any";
-  hostKeyReference?: string;
-  passwordSecret?: { label?: string; material?: string };
-  privateKeySecret?: { label?: string; material?: string };
+  knownHostMode?: "strict" | "accept_new" | "disabled";
+  knownHostReference?: string;
+  domain?: string;
+  mountOptions?: string;
+  passwordSecret?: { label?: string; material?: string; secretId?: string };
+  privateKeySecret?: { label?: string; material?: string; secretId?: string };
   retentionPolicy?: { mode: string; maxVersions?: number | null; pruneAutomatically: boolean };
 }
 

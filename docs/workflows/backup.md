@@ -4,8 +4,8 @@ Status: active
 
 ## Current scope / non-goals / safety limits
 
-- current scope: non-blocking backup size collection, target validation, asset-aware local check/sync/verify plus selective restore, conservative files-only manual execution for safe-subset SSH/rsync targets, persisted snapshot records, and snapshot manifest visibility
-- non-goals: productive SMB execution, full bidirectional sync, automatic overwrite on mismatch, DB-inclusive backup coverage, metadata backup coverage, aggressive parallel rsync by default
+- current scope: non-blocking backup size collection, target validation, asset-aware path-like check/sync/verify plus selective restore, conservative files-only manual execution for safe-subset SSH/rsync targets, persisted snapshot records, and snapshot manifest visibility
+- non-goals: productive SMB system-mount execution, full bidirectional sync, automatic overwrite on mismatch, DB-inclusive backup coverage, metadata backup coverage, aggressive parallel rsync by default
 - safety limits: `completed` does not mean globally deep-verified or disaster-recovery-ready, target validation covers only currently implemented checks, and `stale` size-estimate data must be treated as aged cache data
 
 ## Implemented now
@@ -14,7 +14,7 @@ Status: active
   - validates current backup target-readiness and configured required tools
   - validates persisted backup snapshot manifest structure when manifests exist
 - `backup files`
-  - runs one local, versioned file backup from the configured Immich library root
+  - remains available as one legacy local, versioned file backup from the configured Immich library root
   - uses the backup application layer, not direct CLI subprocess calls
   - uses non-destructive rsync defaults
   - persists one backup snapshot manifest per successful run
@@ -47,24 +47,30 @@ Status: active
   - explicit manual target selection
   - non-blocking backup size collection
   - target validation state
-  - local check plus sync-missing execution with asset comparison and review samples
-  - local representative test copy with real copy plus SHA-256 verification
-  - local selective restore/overwrite from backup to source storage after explicit review
-  - legacy files-only execution for safe-subset SSH/rsync targets
+  - path-like check plus sync-missing execution with asset comparison and review samples
+  - path-like representative test copy with real copy plus SHA-256 verification
+  - path-like selective restore/overwrite from backup to source storage after explicit review
+  - conservative files-only execution for safe-subset SSH/rsync targets
 - GUI also shows quarantine foundation status separately from snapshot coverage
+
+Primary execution ownership now sits with the target-based manual backup flow:
+
+- `ManualBackupExecutionService` is the canonical backup execution orchestrator
+- prepared target access and destination semantics are explicit before dispatch
+- `backup files` remains legacy and must not grow into a competing primary path
 
 Manual backup target behavior now includes:
 
 - local folder targets with absolute path validation
 - local hidden workflow roots under `_immich-doctor/current` and `_immich-doctor/tests`
-- local staged comparison: existence -> size -> mtime -> SHA-256 only when needed
-- local mismatch/conflict visibility with source/backup size, timestamp, and hash details where available
-- local folder-level heuristics for file-count and total-size drift
-- local restore overwrite protection via quarantine-first move before replacement
-- SSH and rsync targets with explicit host key strategy and secret-reference-based private key handling
-- SMB targets as configuration + validation + mount-planning only
+- path-like staged comparison: existence -> size -> mtime -> SHA-256 only when needed
+- path-like mismatch/conflict visibility with source/backup size, timestamp, and hash details where available
+- path-like folder-level heuristics for file-count and total-size drift
+- path-like restore overwrite protection via quarantine-first move before replacement
+- SSH and rsync targets with shared remote auth modelling, connection-string parsing, known-host mode handling, and secret-reference-based key/password storage
+- SMB targets with executable `pre_mounted_path` semantics and `system_mount` planning rules plus authentication requirements for system-mount mode only
 - persisted target validation summary and last successful backup metadata
-- explicit restore-readiness signaling of `partial` for local selective restore and `not_implemented` for remote targets
+- explicit restore-readiness signaling of `partial` for path-like selective restore and `not_implemented` for remote targets
 
 Manual execution reporting now includes:
 
@@ -142,8 +148,8 @@ Current UI limitation:
 - snapshots are visible and linkable from repair history
 - local asset-aware restore is still limited to filesystem copy-back only; no DB repair or DB rollback is implied
 - executable GUI backup coverage is still files-only, even for `pre_repair`
-- productive SMB backup execution is still intentionally disabled
-- password-based SSH execution is still intentionally unsupported
+- SMB `system_mount` execution is still intentionally disabled
+- password-based SSH/rsync execution is still intentionally unsupported
 - snapshot cards report manifest structure only and must not be read as artifact verification
 - remote asset preview and selective restore are intentionally unsupported
 - broad full restore remains simulation-only and targeted undo is not yet exposed as a GUI action

@@ -71,7 +71,6 @@ class LocalSecretStore:
             secretId=record.secret_id,
             kind=record.kind,
             label=record.label,
-            maskedValue="Configured",
             createdAt=record.created_at,
         )
 

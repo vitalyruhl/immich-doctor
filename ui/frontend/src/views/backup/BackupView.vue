@@ -7,7 +7,7 @@
     />
     <RiskNotice
       title="High-risk data path"
-      message="Normal backup now favors check plus sync-missing instead of blunt recopy. Selective restore is local-target only, remains operator-confirmed, and quarantines current source files before overwrite."
+      message="Normal backup now favors check plus sync-missing on usable path-like targets instead of blunt recopy. Selective restore remains operator-confirmed, only applies where a path-like backup mirror exists, and quarantines current source files before overwrite."
     />
 
     <LoadingState
@@ -72,7 +72,7 @@
             <div>
               <h3>Manual check / sync execution</h3>
               <p class="health-card__details">
-                Local targets run an asset-aware check plus sync-missing flow. Remote targets keep their existing conservative files-only behavior and do not expose asset-level restore here.
+                Usable path-like targets run an asset-aware check plus sync-missing flow. SSH and rsync targets keep their conservative files-only snapshot behavior and do not expose asset-level restore here.
               </p>
             </div>
             <StatusTag :status="jobStateTag(backupStore.currentExecution?.state ?? 'pending')" />
@@ -109,7 +109,7 @@
               :disabled="!backupStore.selectedTarget || backupStore.isExecuting || backupStore.isExecutionRunning || Boolean(selectedExecutionBlocker)"
               @click="void backupStore.startExecution(backupStore.selectedTarget!.targetId)"
             >
-              {{ backupStore.isExecutionRunning ? "Sync In Progress" : "Start Check / Sync Missing" }}
+              {{ backupStore.isExecutionRunning ? "Sync In Progress" : selectedExecutionPrimaryLabel }}
             </button>
             <button
               class="runtime-action"
@@ -117,7 +117,7 @@
               :disabled="!backupStore.selectedTarget || backupStore.isExecuting || backupStore.isExecutionRunning || Boolean(selectedExecutionBlocker)"
               @click="void backupStore.startExecution(backupStore.selectedTarget!.targetId, 'pre_repair')"
             >
-              Run Pre-Repair Check / Sync
+              {{ selectedPreRepairLabel }}
             </button>
             <button
               class="runtime-action runtime-action--danger"
@@ -159,7 +159,7 @@
               </select>
             </label>
             <p v-if="draft.targetType === 'smb'" class="health-card__details">
-              SMB targets are planning and validation only in this phase. Productive SMB backup execution is intentionally disabled.
+              SMB targets require authentication. Pre-mounted path targets can execute through the path-like workflow; system-mount execution stays disabled in this phase.
             </p>
             <label class="backup-form__field backup-form__field--toggle">
               <input v-model="draft.enabled" type="checkbox" />
@@ -184,7 +184,7 @@
               </label>
               <label class="backup-form__field">
                 <span>Remote path</span>
-                <input v-model="draft.remotePath" type="text" required />
+                <input v-model="draft.remotePath" type="text" placeholder="/backups" required />
               </label>
               <label class="backup-form__field">
                 <span>Mount strategy</span>
@@ -195,62 +195,133 @@
               </label>
               <label v-if="draft.mountStrategy === 'pre_mounted_path'" class="backup-form__field">
                 <span>Mounted path</span>
-                <input v-model="draft.mountedPath" type="text" placeholder="/mnt/immich-backup" />
+                <input
+                  v-model="draft.mountedPath"
+                  type="text"
+                  placeholder="/mnt/immich-backup"
+                  required
+                />
               </label>
+              <p v-if="draft.mountStrategy === 'pre_mounted_path'" class="health-card__details">
+                Pre-mounted SMB mode uses an already authenticated mount. Leave credential fields empty here.
+              </p>
+              <template v-else>
+                <label class="backup-form__field">
+                  <span>Username</span>
+                  <input v-model="draft.username" type="text" required />
+                </label>
+                <p v-if="existingPasswordSecretRef" class="health-card__details">
+                  Stored secret reference: {{ existingPasswordSecretRef.secretId }}. Leave the password secret field empty to keep it.
+                </p>
+                <label class="backup-form__field">
+                  <span>Password secret label</span>
+                  <input
+                    v-model="draft.passwordSecret!.label"
+                    type="text"
+                    placeholder="SMB credential"
+                  />
+                </label>
+                <label class="backup-form__field">
+                  <span>Password secret</span>
+                  <input
+                    v-model="draft.passwordSecret!.material"
+                    type="password"
+                    :required="!existingPasswordSecretRef"
+                    autocomplete="new-password"
+                  />
+                </label>
+                <label class="backup-form__field">
+                  <span>Domain</span>
+                  <input v-model="draft.domain" type="text" placeholder="WORKGROUP" />
+                </label>
+                <details class="backup-form__details">
+                  <summary>Advanced mount options</summary>
+                  <label class="backup-form__field">
+                    <span>Mount options</span>
+                    <input
+                      v-model="draft.mountOptions"
+                      type="text"
+                      placeholder="vers=3.0,seal"
+                    />
+                  </label>
+                </details>
+              </template>
             </template>
 
             <template v-else>
               <label class="backup-form__field">
-                <span>Host</span>
-                <input v-model="draft.host" type="text" required />
+                <span>Connection string</span>
+                <input
+                  v-model="draft.connectionString"
+                  type="text"
+                  placeholder="root@192.168.2.2"
+                />
               </label>
+              <p v-if="parsedConnection.error" class="runtime-blocking-message">
+                {{ parsedConnection.error }}
+              </p>
+              <dl v-else-if="parsedConnection.username && parsedConnection.host" class="runtime-detail__grid">
+                <dt>Parsed username</dt>
+                <dd>{{ parsedConnection.username }}</dd>
+                <dt>Parsed host</dt>
+                <dd>{{ parsedConnection.host }}</dd>
+                <template v-if="parsedConnection.port">
+                  <dt>Parsed port</dt>
+                  <dd>{{ parsedConnection.port }}</dd>
+                </template>
+              </dl>
+              <template v-if="!trimmedConnectionString">
+                <label class="backup-form__field">
+                  <span>Host</span>
+                  <input v-model="draft.host" type="text" required />
+                </label>
+                <label class="backup-form__field">
+                  <span>Username</span>
+                  <input v-model="draft.username" type="text" required />
+                </label>
+              </template>
               <label class="backup-form__field">
                 <span>Port</span>
                 <input v-model.number="draft.port" type="number" min="1" />
               </label>
               <label class="backup-form__field">
-                <span>Username</span>
-                <input v-model="draft.username" type="text" required />
-              </label>
-              <label class="backup-form__field">
                 <span>Remote path</span>
-                <input v-model="draft.remotePath" type="text" required />
+                <input v-model="draft.remotePath" type="text" placeholder="/srv/backup" required />
               </label>
               <label class="backup-form__field">
                 <span>Auth mode</span>
                 <select v-model="draft.authMode">
+                  <option value="agent">SSH agent</option>
                   <option value="private_key">Private key</option>
-                  <option value="password">Password</option>
+                  <option v-if="sshPasswordAuthEnabled" value="password">Password</option>
                 </select>
               </label>
               <p v-if="draft.authMode === 'password'" class="health-card__details">
-                Password material can be stored as a secret reference, but remote execution currently supports private-key auth only.
+                Password-based SSH execution remains hidden and unsupported for execution in this phase.
               </p>
               <label class="backup-form__field">
-                <span>Host key verification</span>
-                <select v-model="draft.hostKeyVerification">
-                  <option value="known_hosts">Known hosts</option>
-                  <option value="pinned_fingerprint">Pinned fingerprint</option>
-                  <option value="insecure_accept_any">Insecure accept any</option>
+                <span>Known host mode</span>
+                <select v-model="draft.knownHostMode">
+                  <option value="strict">Strict</option>
+                  <option value="accept_new">Accept new</option>
+                  <option value="disabled">Disabled</option>
                 </select>
               </label>
+              <p v-if="draft.knownHostMode === 'disabled'" class="runtime-blocking-message">
+                Disabled known-host mode accepts host changes without verification. Use only for controlled environments.
+              </p>
               <label class="backup-form__field">
-                <span>Host key reference</span>
+                <span>Known host reference</span>
                 <input
-                  v-model="draft.hostKeyReference"
+                  v-model="draft.knownHostReference"
                   type="text"
-                  placeholder="Known hosts path or fingerprint reference"
+                  placeholder="~/.ssh/known_hosts"
                 />
               </label>
-              <label v-if="draft.authMode === 'password'" class="backup-form__field">
-                <span>Password label</span>
-                <input v-model="draft.passwordSecret!.label" type="text" placeholder="SSH Password" />
-              </label>
-              <label v-if="draft.authMode === 'password'" class="backup-form__field">
-                <span>Password</span>
-                <input v-model="draft.passwordSecret!.material" type="password" />
-              </label>
-              <template v-else>
+              <p v-if="draft.authMode === 'private_key' && existingPrivateKeySecretRef" class="health-card__details">
+                Stored secret reference: {{ existingPrivateKeySecretRef.secretId }}. Leave the private key field empty to keep it.
+              </p>
+              <template v-if="draft.authMode === 'private_key'">
                 <label class="backup-form__field">
                   <span>Private key label</span>
                   <input
@@ -261,19 +332,52 @@
                 </label>
                 <label class="backup-form__field">
                   <span>Private key</span>
-                  <textarea v-model="draft.privateKeySecret!.material" rows="5" />
+                  <textarea
+                    v-model="draft.privateKeySecret!.material"
+                    rows="5"
+                    :required="!existingPrivateKeySecretRef"
+                  />
+                </label>
+              </template>
+              <template v-else-if="draft.authMode === 'password'">
+                <p v-if="existingPasswordSecretRef" class="health-card__details">
+                  Stored secret reference: {{ existingPasswordSecretRef.secretId }}. Leave the password field empty to keep it.
+                </p>
+                <label class="backup-form__field">
+                  <span>Password secret label</span>
+                  <input
+                    v-model="draft.passwordSecret!.label"
+                    type="text"
+                    placeholder="SSH password"
+                  />
+                </label>
+                <label class="backup-form__field">
+                  <span>Password secret</span>
+                  <input
+                    v-model="draft.passwordSecret!.material"
+                    type="password"
+                    :required="!existingPasswordSecretRef"
+                    autocomplete="new-password"
+                  />
                 </label>
               </template>
             </template>
 
             <div class="runtime-actions">
-              <button class="runtime-action" type="submit" :disabled="backupStore.isSavingTarget">
+              <button
+                class="runtime-action"
+                type="submit"
+                :disabled="backupStore.isSavingTarget || Boolean(formValidationError)"
+              >
                 {{ backupStore.isSavingTarget ? "Saving" : editingTargetId ? "Save Target" : "Add Target" }}
               </button>
               <button class="runtime-action" type="button" @click="resetDraft()">
                 Reset Form
               </button>
             </div>
+            <p v-if="formValidationError" class="runtime-blocking-message">
+              {{ formValidationError }}
+            </p>
           </form>
           <p v-if="backupStore.targetError" class="runtime-blocking-message">
             {{ backupStore.targetError }}
@@ -290,7 +394,7 @@
           <EmptyState
             v-if="!backupStore.hasTargets"
             title="No targets configured"
-            message="Create a target first. Only local and safe-subset SSH/rsync targets can run manual backups in this phase; SMB stays configuration, validation, and mount-planning only."
+            message="Create a target first. Local targets, SMB pre-mounted path targets, and the safe SSH/rsync subset can run manual backups in this phase; SMB system-mount stays validation and mount-planning only."
           />
           <section v-else class="backup-grid">
             <article
@@ -438,14 +542,36 @@ import type {
   BackupSnapshotBasicValidity,
   BackupTargetConfig,
   BackupTargetDraft,
+  SecretReferenceSummary,
   BackupTargetType,
   BackupTargetVerificationStatus,
   BackupVerificationLevel,
 } from "@/api/types/backup";
 
+const SSH_PASSWORD_AUTH_ENABLED = false;
 const backupStore = useBackupStore();
 const editingTargetId = ref<string | null>(null);
+const editingTarget = computed<BackupTargetConfig | null>(() =>
+  backupStore.targets.find((target) => target.targetId === editingTargetId.value) ?? null,
+);
 const selectedExecutionBlocker = computed(() => executionBlockerForTarget(backupStore.selectedTarget));
+const selectedExecutionPrimaryLabel = computed(() =>
+  targetUsesPathLikeWorkflow(backupStore.selectedTarget)
+    ? "Start Check / Sync Missing"
+    : "Start Files-Only Backup",
+);
+const selectedPreRepairLabel = computed(() =>
+  targetUsesPathLikeWorkflow(backupStore.selectedTarget)
+    ? "Run Pre-Repair Check / Sync"
+    : "Run Pre-Repair Files-Only Backup",
+);
+const sshPasswordAuthEnabled = SSH_PASSWORD_AUTH_ENABLED;
+const existingPasswordSecretRef = computed<SecretReferenceSummary | null>(
+  () => editingTarget.value?.transport.passwordSecretRef ?? null,
+);
+const existingPrivateKeySecretRef = computed<SecretReferenceSummary | null>(
+  () => editingTarget.value?.transport.privateKeySecretRef ?? null,
+);
 
 function defaultDraft(): BackupTargetDraft {
   return {
@@ -453,10 +579,13 @@ function defaultDraft(): BackupTargetDraft {
     targetType: "local",
     enabled: true,
     path: "",
+    connectionString: "",
     port: 22,
-    authMode: "private_key",
+    authMode: "agent",
     mountStrategy: "system_mount",
-    hostKeyVerification: "known_hosts",
+    knownHostMode: "strict",
+    domain: "",
+    mountOptions: "",
     passwordSecret: { label: "", material: "" },
     privateKeySecret: { label: "", material: "" },
     retentionPolicy: { mode: "keep_all", pruneAutomatically: false },
@@ -464,6 +593,14 @@ function defaultDraft(): BackupTargetDraft {
 }
 
 const draft = ref<BackupTargetDraft>(defaultDraft());
+const trimmedConnectionString = computed(() => trimToUndefined(draft.value.connectionString) ?? "");
+const parsedConnection = computed(() => {
+  if (!trimmedConnectionString.value) {
+    return { username: "", host: "", port: null, error: null as string | null };
+  }
+  return parseConnectionString(trimmedConnectionString.value);
+});
+const formValidationError = computed(() => validateDraft(draft.value));
 
 function resetDraft(): void {
   editingTargetId.value = null;
@@ -482,16 +619,22 @@ function loadTargetIntoDraft(target: BackupTargetConfig): void {
     targetType: target.targetType,
     enabled: target.enabled,
     path: target.transport.path ?? "",
+    connectionString:
+      target.transport.username && target.transport.host
+        ? `${target.transport.username}@${target.transport.host}`
+        : "",
     host: target.transport.host ?? "",
     port: target.transport.port ?? 22,
     share: target.transport.share ?? "",
     remotePath: target.transport.remotePath ?? "",
     username: target.transport.username ?? "",
-    authMode: target.transport.authMode ?? "private_key",
+    authMode: target.transport.authMode ?? "agent",
     mountStrategy: target.transport.mountStrategy ?? "system_mount",
     mountedPath: target.transport.mountedPath ?? "",
-    hostKeyVerification: target.transport.hostKeyVerification ?? "known_hosts",
-    hostKeyReference: target.transport.hostKeyReference ?? "",
+    knownHostMode: target.transport.knownHostMode ?? "strict",
+    knownHostReference: target.transport.knownHostReference ?? "",
+    domain: target.transport.domain ?? "",
+    mountOptions: target.transport.mountOptions ?? "",
     passwordSecret: { label: "", material: "" },
     privateKeySecret: { label: "", material: "" },
     retentionPolicy: target.retentionPolicy,
@@ -499,10 +642,232 @@ function loadTargetIntoDraft(target: BackupTargetConfig): void {
 }
 
 async function submitTarget(): Promise<void> {
-  await backupStore.saveTarget(draft.value, editingTargetId.value ?? undefined);
+  const clientValidationError = validateDraft(draft.value);
+  if (clientValidationError) {
+    return;
+  }
+  await backupStore.saveTarget(buildTargetPayload(draft.value), editingTargetId.value ?? undefined);
   if (!backupStore.targetError) {
     resetDraft();
   }
+}
+
+function buildTargetPayload(currentDraft: BackupTargetDraft): BackupTargetDraft {
+  const payload: BackupTargetDraft = {
+    targetName: currentDraft.targetName.trim(),
+    targetType: currentDraft.targetType,
+    enabled: currentDraft.enabled,
+    retentionPolicy: currentDraft.retentionPolicy,
+  };
+  if (currentDraft.targetType === "local") {
+    payload.path = trimToUndefined(currentDraft.path);
+    return payload;
+  }
+  payload.host = trimToUndefined(currentDraft.host);
+  payload.port = parsedConnection.value.port ?? currentDraft.port ?? 22;
+  payload.share = trimToUndefined(currentDraft.share);
+  payload.remotePath = trimToUndefined(currentDraft.remotePath);
+  payload.mountStrategy = currentDraft.mountStrategy;
+  payload.mountedPath = trimToUndefined(currentDraft.mountedPath);
+  payload.username = trimToUndefined(currentDraft.username);
+  payload.domain = trimToUndefined(currentDraft.domain);
+  payload.mountOptions = trimToUndefined(currentDraft.mountOptions);
+  if (currentDraft.targetType === "smb") {
+    const passwordSecret = buildSecretInput(currentDraft.passwordSecret?.label, currentDraft.passwordSecret?.material);
+    if (passwordSecret) {
+      payload.passwordSecret = passwordSecret;
+    }
+    return payload;
+  }
+  payload.connectionString = trimToUndefined(currentDraft.connectionString);
+  payload.authMode = currentDraft.authMode;
+  payload.knownHostMode = currentDraft.knownHostMode;
+  payload.knownHostReference = trimToUndefined(currentDraft.knownHostReference);
+  const passwordSecret = buildSecretInput(currentDraft.passwordSecret?.label, currentDraft.passwordSecret?.material);
+  if (passwordSecret) {
+    payload.passwordSecret = passwordSecret;
+  }
+  const privateKeySecret = buildSecretInput(
+    currentDraft.privateKeySecret?.label,
+    currentDraft.privateKeySecret?.material,
+  );
+  if (privateKeySecret) {
+    payload.privateKeySecret = privateKeySecret;
+  }
+  return payload;
+}
+
+function buildSecretInput(label?: string, material?: string): { label?: string; material?: string } | undefined {
+  const secretMaterial = material ?? "";
+  if (!secretMaterial) {
+    return undefined;
+  }
+  return {
+    label: trimToUndefined(label),
+    material: secretMaterial,
+  };
+}
+
+function validateDraft(currentDraft: BackupTargetDraft): string | null {
+  if (!currentDraft.targetName.trim()) {
+    return "Target name is required.";
+  }
+  if (currentDraft.targetType === "local") {
+    if (!trimToUndefined(currentDraft.path)) {
+      return "Local targets require an absolute destination path.";
+    }
+    return null;
+  }
+  if (currentDraft.targetType === "smb") {
+    if (!trimToUndefined(currentDraft.host) || !trimToUndefined(currentDraft.share) || !trimToUndefined(currentDraft.remotePath)) {
+      return "SMB targets require host, share, and remote path.";
+    }
+    if (currentDraft.mountStrategy === "pre_mounted_path") {
+      if (!trimToUndefined(currentDraft.mountedPath)) {
+        return "SMB pre-mounted targets require a mounted path.";
+      }
+      return null;
+    }
+    if (!trimToUndefined(currentDraft.username)) {
+      return "SMB system-mount targets require a username.";
+    }
+    if (!existingPasswordSecretRef.value && !(currentDraft.passwordSecret?.material ?? "")) {
+      return "SMB system-mount targets require a password secret.";
+    }
+    return null;
+  }
+  if (parsedConnection.value.error) {
+    return parsedConnection.value.error;
+  }
+  if (!trimmedConnectionString.value) {
+    if (!trimToUndefined(currentDraft.host) || !trimToUndefined(currentDraft.username)) {
+      return "SSH and rsync targets require host and username or a connection string.";
+    }
+  }
+  if (!trimToUndefined(currentDraft.remotePath)) {
+    return "SSH and rsync targets require a remote path.";
+  }
+  if (!currentDraft.authMode) {
+    return "SSH and rsync targets require an auth mode.";
+  }
+  if (!currentDraft.knownHostMode) {
+    return "SSH and rsync targets require a known host mode.";
+  }
+  if (currentDraft.authMode === "private_key" && !existingPrivateKeySecretRef.value && !(currentDraft.privateKeySecret?.material ?? "")) {
+    return "Private-key auth requires a private key secret.";
+  }
+  if (currentDraft.authMode === "password" && !existingPasswordSecretRef.value && !(currentDraft.passwordSecret?.material ?? "")) {
+    return "Password auth requires a password secret.";
+  }
+  return null;
+}
+
+function parseConnectionString(connectionString: string): {
+  username: string;
+  host: string;
+  port: number | null;
+  error: string | null;
+} {
+  const trimmed = connectionString.trim();
+  if (!trimmed) {
+    return { username: "", host: "", port: null, error: null };
+  }
+  const separator = trimmed.indexOf("@");
+  if (separator <= 0 || separator === trimmed.length - 1 || trimmed.indexOf("@", separator + 1) !== -1) {
+    return {
+      username: "",
+      host: "",
+      port: null,
+      error: "Connection string must use the form username@host.",
+    };
+  }
+  const username = trimmed.slice(0, separator);
+  const hostReference = trimmed.slice(separator + 1);
+  const parsedHostReference = parseConnectionHostReference(hostReference);
+  if (parsedHostReference.error) {
+    return {
+      username: "",
+      host: "",
+      port: null,
+      error: parsedHostReference.error,
+    };
+  }
+  return {
+    username,
+    host: parsedHostReference.host,
+    port: parsedHostReference.port,
+    error: null,
+  };
+}
+
+function parseConnectionHostReference(hostReference: string): {
+  host: string;
+  port: number | null;
+  error: string | null;
+} {
+  if (hostReference.startsWith("[")) {
+    const closingIndex = hostReference.indexOf("]");
+    if (closingIndex <= 1) {
+      return { host: "", port: null, error: "Connection string contains an invalid bracketed host." };
+    }
+    const host = hostReference.slice(1, closingIndex);
+    const remainder = hostReference.slice(closingIndex + 1);
+    if (!remainder) {
+      return { host, port: null, error: null };
+    }
+    if (!remainder.startsWith(":")) {
+      return {
+        host: "",
+        port: null,
+        error: "Connection string must use the form username@host or username@host:port.",
+      };
+    }
+    const parsedPort = parseConnectionPort(remainder.slice(1));
+    return parsedPort.error
+      ? { host: "", port: null, error: parsedPort.error }
+      : { host, port: parsedPort.port, error: null };
+  }
+  const colonCount = Array.from(hostReference).filter((character) => character === ":").length;
+  if (colonCount === 1) {
+    const separator = hostReference.lastIndexOf(":");
+    const host = hostReference.slice(0, separator);
+    const candidatePort = hostReference.slice(separator + 1);
+    if (candidatePort && /^\d+$/.test(candidatePort)) {
+      if (!host) {
+        return { host: "", port: null, error: "Connection string host is missing." };
+      }
+      const parsedPort = parseConnectionPort(candidatePort);
+      return parsedPort.error
+        ? { host: "", port: null, error: parsedPort.error }
+        : { host, port: parsedPort.port, error: null };
+    }
+  }
+  if (!hostReference) {
+    return { host: "", port: null, error: "Connection string host is missing." };
+  }
+  return { host: hostReference, port: null, error: null };
+}
+
+function parseConnectionPort(candidatePort: string): {
+  port: number | null;
+  error: string | null;
+} {
+  if (!/^\d+$/.test(candidatePort)) {
+    return { port: null, error: "Connection string port must be numeric." };
+  }
+  const port = Number(candidatePort);
+  if (port < 1 || port > 65535) {
+    return { port: null, error: "Connection string port must be between 1 and 65535." };
+  }
+  return { port, error: null };
+}
+
+function trimToUndefined(value: string | null | undefined): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function formatBytes(value: number | null | undefined): string {
@@ -639,7 +1004,10 @@ function executionBlockerForTarget(target: BackupTargetConfig | null): string | 
     return null;
   }
   if (target.targetType === "smb") {
-    return "SMB execution is not implemented in this phase. SMB targets remain configuration, validation, and mount-planning only.";
+    if (target.transport.mountStrategy === "pre_mounted_path" && target.transport.mountedPath) {
+      return null;
+    }
+    return "SMB system-mount execution is not implemented in this phase. Only pre-mounted path targets can execute through the current path-like workflow.";
   }
   if ((target.targetType === "ssh" || target.targetType === "rsync") && target.transport.authMode === "password") {
     return "Password-based SSH/rsync execution is not implemented in this phase.";
@@ -647,8 +1015,29 @@ function executionBlockerForTarget(target: BackupTargetConfig | null): string | 
   return null;
 }
 
+function targetUsesPathLikeWorkflow(target: BackupTargetConfig | null): boolean {
+  if (!target) {
+    return false;
+  }
+  return (
+    target.targetType === "local" ||
+    (target.targetType === "smb" &&
+      target.transport.mountStrategy === "pre_mounted_path" &&
+      Boolean(target.transport.mountedPath))
+  );
+}
+
 function targetExecutionSupport(target: BackupTargetConfig): string {
-  return executionBlockerForTarget(target) ?? "Manual files-only execution is supported";
+  if (target.targetType === "local") {
+    return "Asset-aware check / sync is supported";
+  }
+  if (target.targetType === "smb" && target.transport.mountStrategy === "pre_mounted_path" && target.transport.mountedPath) {
+    return "Mounted path check / sync is supported";
+  }
+  if (target.targetType === "ssh" || target.targetType === "rsync") {
+    return executionBlockerForTarget(target) ?? "Files-only snapshot transfer is supported";
+  }
+  return executionBlockerForTarget(target) ?? "Execution is supported";
 }
 
 function verificationTag(status: BackupTargetVerificationStatus): "ok" | "warning" | "error" | "unknown" {

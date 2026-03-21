@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
@@ -21,7 +22,9 @@ from immich_doctor.backup.core.store import BackupSnapshotStore
 from immich_doctor.backup.files.executor import FileBackupExecutionError
 from immich_doctor.backup.files.transfer import ManagedRsyncTransferExecutor
 from immich_doctor.backup.targets.models import (
+    BackupRestoreReadiness,
     BackupTargetLastBackupMetadata,
+    BackupTargetMountStrategy,
     BackupTargetType,
     VerificationLevel,
 )
@@ -35,6 +38,70 @@ from immich_doctor.services.backup_target_validation_service import BackupTarget
 from immich_doctor.services.backup_transport_service import BackupTransportService
 
 BACKUP_EXECUTION_JOB_TYPE = "backup_manual_execution"
+
+
+class PreparedBackupAccessKind(StrEnum):
+    PATH_LIKE = "path_like"
+    TRANSPORT_PREPARED = "transport_prepared"
+
+
+class PreparedBackupDestinationSemantics(StrEnum):
+    MIRROR_SYNC = "mirror_sync"
+    VERSIONED_SNAPSHOT = "versioned_snapshot"
+
+
+class PreparedBackupExecutionMode(StrEnum):
+    ASSET_AWARE_SYNC = "asset_aware_sync"
+    VERSIONED_TRANSFER = "versioned_transfer"
+
+
+@dataclass(slots=True, frozen=True)
+class PreparedBackupExecutionContext:
+    target_id: str
+    target_type: BackupTargetType
+    access_kind: PreparedBackupAccessKind
+    destination_semantics: PreparedBackupDestinationSemantics
+    execution_mode: PreparedBackupExecutionMode
+    effective_destination_path: str | None
+    prepared_target_reference: str | None
+    restore_readiness: BackupRestoreReadiness
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def is_path_like_usable_destination(self) -> bool:
+        return self.access_kind == PreparedBackupAccessKind.PATH_LIKE
+
+    @property
+    def is_transport_prepared_destination(self) -> bool:
+        return self.access_kind == PreparedBackupAccessKind.TRANSPORT_PREPARED
+
+    @property
+    def is_versioned_snapshot_destination(self) -> bool:
+        return (
+            self.destination_semantics
+            == PreparedBackupDestinationSemantics.VERSIONED_SNAPSHOT
+        )
+
+    @property
+    def is_mirror_sync_destination(self) -> bool:
+        return self.destination_semantics == PreparedBackupDestinationSemantics.MIRROR_SYNC
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "targetId": self.target_id,
+            "targetType": self.target_type.value,
+            "accessKind": self.access_kind.value,
+            "destinationSemantics": self.destination_semantics.value,
+            "executionMode": self.execution_mode.value,
+            "effectiveDestinationPath": self.effective_destination_path,
+            "preparedTargetReference": self.prepared_target_reference,
+            "restoreReadiness": self.restore_readiness.value,
+            "pathLikeUsableDestination": self.is_path_like_usable_destination,
+            "transportPreparedDestination": self.is_transport_prepared_destination,
+            "versionedSnapshotDestination": self.is_versioned_snapshot_destination,
+            "mirrorSyncDestination": self.is_mirror_sync_destination,
+            "warnings": list(self.warnings),
+        }
 
 
 @dataclass(slots=True)
@@ -92,11 +159,7 @@ class ManualBackupExecutionService:
             "coverage": "files_only",
             "restoreReadiness": target.restore_readiness.value,
             "state": "pending",
-            "summary": (
-                "Backup check/sync is pending."
-                if target.target_type == BackupTargetType.LOCAL
-                else "Manual files-only backup is pending."
-            ),
+            "summary": self._pending_summary(target),
             "report": None,
             "snapshot": None,
             "warnings": list(target.warnings),
@@ -173,11 +236,29 @@ class ManualBackupExecutionService:
         version_id = started_at.strftime("%Y%m%dT%H%M%SZ")
         artifact_relative_path = Path("files/immich-library")
         planned = self._planned_metrics(handle.settings)
-        running_summary = (
-            "Backup check/sync is running."
-            if target.target_type == BackupTargetType.LOCAL
-            else "Manual files-only backup is running."
-        )
+        try:
+            prepared_context = self.prepare_execution_context(target)
+        except ValueError as exc:
+            return {
+                "generatedAt": datetime.now(UTC).isoformat(),
+                "jobId": handle.record.job_id,
+                "targetId": target_id,
+                "targetType": target.target_type.value,
+                "requestedKind": snapshot_kind.value,
+                "coverage": "files_only",
+                "restoreReadiness": target.restore_readiness.value,
+                "state": "unsupported",
+                "summary": str(exc),
+                "report": {
+                    "verificationLevel": VerificationLevel.NONE.value,
+                    "details": {
+                        "executionPreparationError": str(exc),
+                    },
+                },
+                "snapshot": None,
+                "warnings": [str(exc)],
+            }
+        running_summary = self._running_summary(prepared_context)
 
         handle.update(
             state=BackgroundJobState.RUNNING,
@@ -194,11 +275,11 @@ class ManualBackupExecutionService:
                 "summary": running_summary,
                 "report": planned,
                 "snapshot": None,
-                "warnings": list(target.warnings),
+                "warnings": list(prepared_context.warnings),
             },
         )
 
-        if target.target_type == BackupTargetType.LOCAL:
+        if prepared_context.execution_mode == PreparedBackupExecutionMode.ASSET_AWARE_SYNC:
             workflow_result = self.asset_workflow_service.sync_missing(
                 handle.settings,
                 target_id=target_id,
@@ -242,19 +323,23 @@ class ManualBackupExecutionService:
                         "transferred": copied_count,
                     },
                     "durationSeconds": None,
-                    "warnings": list(workflow_result["warnings"]),
+                    "warnings": list(prepared_context.warnings),
                     "verificationLevel": VerificationLevel.COPIED_FILES_SHA256.value,
                     "versionId": version_id,
-                    "details": workflow_result["report"],
+                    "details": {
+                        "executionContext": prepared_context.to_dict(),
+                        "workflow": workflow_result["report"],
+                    },
                 },
                 "snapshot": None,
-                "warnings": list(workflow_result["warnings"]),
+                "warnings": list(prepared_context.warnings),
             }
 
         try:
             transfer, backup_root_reference, verification_level = self._execute_transfer(
                 handle,
                 target=target,
+                prepared_context=prepared_context,
                 source_path=source_path,
                 version_id=version_id,
             )
@@ -281,7 +366,10 @@ class ManualBackupExecutionService:
                         "Execution may have left an incomplete destination version behind."
                     ],
                     "verificationLevel": VerificationLevel.NONE.value,
-                    "details": exc.to_dict(),
+                    "details": {
+                        "executionContext": prepared_context.to_dict(),
+                        "transferError": exc.to_dict(),
+                    },
                 },
                 "snapshot": None,
                 "warnings": [exc.message],
@@ -290,6 +378,7 @@ class ManualBackupExecutionService:
         snapshot = self._persist_snapshot(
             handle.settings,
             target=target,
+            prepared_context=prepared_context,
             snapshot_kind=snapshot_kind,
             started_at=started_at,
             backup_root_reference=backup_root_reference,
@@ -336,35 +425,90 @@ class ManualBackupExecutionService:
                 "verificationLevel": verification_level.value,
                 "versionId": version_id,
                 "snapshotId": snapshot.snapshot_id,
+                "details": {
+                    "executionContext": prepared_context.to_dict(),
+                },
             },
             "snapshot": summarize_backup_snapshot(snapshot),
             "warnings": list(target.warnings),
         }
+
+    def prepare_execution_context(
+        self,
+        target,
+    ) -> PreparedBackupExecutionContext:
+        warnings = tuple(target.warnings)
+        if target.target_type == BackupTargetType.LOCAL and target.transport.path is not None:
+            destination_path = Path(target.transport.path).expanduser().as_posix()
+            return PreparedBackupExecutionContext(
+                target_id=target.target_id,
+                target_type=target.target_type,
+                access_kind=PreparedBackupAccessKind.PATH_LIKE,
+                destination_semantics=PreparedBackupDestinationSemantics.MIRROR_SYNC,
+                execution_mode=PreparedBackupExecutionMode.ASSET_AWARE_SYNC,
+                effective_destination_path=destination_path,
+                prepared_target_reference=destination_path,
+                restore_readiness=target.restore_readiness,
+                warnings=warnings,
+            )
+        if (
+            target.target_type == BackupTargetType.SMB
+            and target.transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH
+            and target.transport.mounted_path is not None
+        ):
+            destination_path = Path(target.transport.mounted_path).expanduser().as_posix()
+            return PreparedBackupExecutionContext(
+                target_id=target.target_id,
+                target_type=target.target_type,
+                access_kind=PreparedBackupAccessKind.PATH_LIKE,
+                destination_semantics=PreparedBackupDestinationSemantics.MIRROR_SYNC,
+                execution_mode=PreparedBackupExecutionMode.ASSET_AWARE_SYNC,
+                effective_destination_path=destination_path,
+                prepared_target_reference=destination_path,
+                restore_readiness=target.restore_readiness,
+                warnings=warnings,
+            )
+        if target.target_type in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
+            remote_path = target.transport.remote_path
+            prepared_target_reference = None
+            if (
+                target.transport.username is not None
+                and target.transport.host is not None
+                and remote_path is not None
+            ):
+                prepared_target_reference = (
+                    f"{target.transport.username}@{target.transport.host}:{remote_path}"
+                )
+            return PreparedBackupExecutionContext(
+                target_id=target.target_id,
+                target_type=target.target_type,
+                access_kind=PreparedBackupAccessKind.TRANSPORT_PREPARED,
+                destination_semantics=PreparedBackupDestinationSemantics.VERSIONED_SNAPSHOT,
+                execution_mode=PreparedBackupExecutionMode.VERSIONED_TRANSFER,
+                effective_destination_path=remote_path,
+                prepared_target_reference=prepared_target_reference,
+                restore_readiness=target.restore_readiness,
+                warnings=warnings,
+            )
+        raise ValueError(
+            "Selected target does not expose a prepared execution context for the currently implemented backup flow."
+        )
 
     def _execute_transfer(
         self,
         handle: ManagedJobHandle,
         *,
         target,
+        prepared_context: PreparedBackupExecutionContext,
         source_path: Path,
         version_id: str,
     ):
         backup_root_reference: str
         verification_level = VerificationLevel.TRANSPORT_SUCCESS_ONLY
-        if target.target_type == BackupTargetType.LOCAL:
-            backup_root_path = Path(target.transport.path) / version_id
-            destination_path = backup_root_path / "files" / "immich-library"
-            transfer = self.transfer_executor.execute(
-                source_path=source_path,
-                destination_reference=destination_path.as_posix(),
-                create_local_parent=destination_path.parent,
-                cancel_requested=handle.cancel_requested,
+        if not prepared_context.is_transport_prepared_destination:
+            raise FileBackupExecutionError(
+                "Prepared backup execution context does not support transport-based versioned transfer."
             )
-            backup_root_reference = backup_root_path.as_posix()
-            if destination_path.exists():
-                verification_level = VerificationLevel.DESTINATION_EXISTS
-            return transfer, backup_root_reference, verification_level
-
         transport = BackupTransportService(self.target_settings.secrets)
         with transport.prepared_remote_connection(handle.settings, target) as material:
             backup_root_path = f"{material.remote_path.rstrip('/')}/{version_id}"
@@ -389,6 +533,7 @@ class ManualBackupExecutionService:
         settings: AppSettings,
         *,
         target,
+        prepared_context: PreparedBackupExecutionContext,
         snapshot_kind: SnapshotKind,
         started_at: datetime,
         backup_root_reference: str,
@@ -396,7 +541,7 @@ class ManualBackupExecutionService:
         total_size_bytes: int | None,
     ) -> BackupSnapshot:
         artifact_target = BackupTarget(
-            kind="local" if target.target_type == BackupTargetType.LOCAL else "remote",
+            kind="local" if prepared_context.is_path_like_usable_destination else "remote",
             reference=backup_root_reference,
             display_name=target.target_name,
         )
@@ -431,6 +576,28 @@ class ManualBackupExecutionService:
                 "fileCount": scope.file_count,
             }
         return {"bytesPlanned": None, "fileCount": None}
+
+    def _pending_summary(self, target) -> str:
+        return (
+            "Backup check/sync is pending."
+            if self._uses_asset_aware_sync(target)
+            else "Manual files-only backup is pending."
+        )
+
+    def _running_summary(self, prepared_context: PreparedBackupExecutionContext) -> str:
+        return (
+            "Backup check/sync is running."
+            if prepared_context.execution_mode
+            == PreparedBackupExecutionMode.ASSET_AWARE_SYNC
+            else "Manual files-only backup is running."
+        )
+
+    def _uses_asset_aware_sync(self, target) -> bool:
+        return target.target_type == BackupTargetType.LOCAL or (
+            target.target_type == BackupTargetType.SMB
+            and target.transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH
+            and target.transport.mounted_path is not None
+        )
 
     def _failed_result(
         self,

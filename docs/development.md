@@ -42,3 +42,8 @@ Container-oriented work should additionally validate:
 
 - `docker build -f docker/Dockerfile .`
 - `docker compose -f docker/docker-compose.yml up --build`
+
+Note:
+
+- `backup files` is legacy
+- the primary backup workflow under active development is the target-based manual execution path in the backup UI/API

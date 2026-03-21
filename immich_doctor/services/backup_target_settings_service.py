@@ -8,11 +8,13 @@ from uuid import uuid4
 from immich_doctor.backup.targets.models import (
     BackupRestoreReadiness,
     BackupTargetConfig,
+    BackupTargetAuthMode,
+    BackupTargetKnownHostMode,
+    BackupTargetMountStrategy,
     BackupTargetTransportSettings,
     BackupTargetType,
     BackupTargetUpsertPayload,
     BackupTargetVerificationStatus,
-    HostKeyVerificationStrategy,
     RetentionPolicy,
     SecretReferenceSummary,
 )
@@ -40,11 +42,11 @@ class BackupTargetSettingsService:
             "limitations": [
                 "Target configuration is persisted locally under the configured "
                 "config path or data/config when CONFIG_PATH is unset.",
-                "SMB targets are configuration, validation, and mount-planning "
-                "only in this phase; productive SMB backup execution is "
-                "intentionally disabled.",
+                "SMB pre-mounted path targets may execute through the path-like "
+                "workflow when the mounted path is already available. SMB system-mount "
+                "execution remains disabled in this phase.",
                 "Local targets provide partial asset-aware selective restore "
-                "only after explicit review and confirmation; remote targets "
+                "only after explicit review and confirmation; SSH/rsync targets "
                 "still do not imply restore readiness.",
             ],
         }
@@ -137,28 +139,29 @@ class BackupTargetSettingsService:
                 else None
             ),
             host=payload.host,
-            port=payload.port,
+            port=payload.port or 22,
             share=payload.share,
             remotePath=payload.remote_path,
             username=payload.username,
             authMode=payload.auth_mode,
             mountStrategy=payload.mount_strategy,
             mountedPath=payload.mounted_path,
-            hostKeyVerification=payload.host_key_verification,
-            hostKeyReference=payload.host_key_reference,
-            passwordSecretRef=self._resolve_secret_reference(
+            knownHostMode=payload.known_host_mode,
+            knownHostReference=payload.known_host_reference,
+            domain=payload.domain,
+            mountOptions=payload.mount_options,
+            passwordSecretRef=self._password_secret_reference(
                 settings,
-                secret_kind="password",
-                requested=payload.password_secret,
-                current=existing.transport.password_secret_ref if existing else None,
+                payload=payload,
+                existing=existing,
             ),
-            privateKeySecretRef=self._resolve_secret_reference(
+            privateKeySecretRef=self._private_key_secret_reference(
                 settings,
-                secret_kind="private_key",
-                requested=payload.private_key_secret,
-                current=existing.transport.private_key_secret_ref if existing else None,
+                payload=payload,
+                existing=existing,
             ),
         )
+        self._validate_resolved_transport(payload=payload, transport=transport)
         created_at = existing.created_at if existing is not None else datetime.now(UTC).isoformat()
         return BackupTargetConfig(
             targetId=existing.target_id if existing else uuid4().hex,
@@ -170,11 +173,7 @@ class BackupTargetSettingsService:
             lastTestResult=existing.last_test_result if existing else None,
             lastSuccessfulBackup=existing.last_successful_backup if existing else None,
             retentionPolicy=retention_policy,
-            restoreReadiness=(
-                BackupRestoreReadiness.PARTIAL
-                if payload.target_type == BackupTargetType.LOCAL
-                else BackupRestoreReadiness.NOT_IMPLEMENTED
-            ),
+            restoreReadiness=self._restore_readiness_for_payload(payload),
             sourceScope="files_only",
             schedulingCompatible=True,
             warnings=self._warnings_for_payload(payload),
@@ -208,6 +207,51 @@ class BackupTargetSettingsService:
             return self.secrets.reuse_secret(settings, secret_id=secret_id)
         return current
 
+    def _password_secret_reference(
+        self,
+        settings: AppSettings,
+        *,
+        payload: BackupTargetUpsertPayload,
+        existing: BackupTargetConfig | None,
+    ) -> SecretReferenceSummary | None:
+        if payload.target_type == BackupTargetType.SMB:
+            if payload.mount_strategy != BackupTargetMountStrategy.SYSTEM_MOUNT:
+                return None
+            return self._resolve_secret_reference(
+                settings,
+                secret_kind="password",
+                requested=payload.password_secret,
+                current=existing.transport.password_secret_ref if existing else None,
+            )
+        if payload.target_type not in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
+            return None
+        if payload.auth_mode != BackupTargetAuthMode.PASSWORD:
+            return None
+        return self._resolve_secret_reference(
+            settings,
+            secret_kind="password",
+            requested=payload.password_secret,
+            current=existing.transport.password_secret_ref if existing else None,
+        )
+
+    def _private_key_secret_reference(
+        self,
+        settings: AppSettings,
+        *,
+        payload: BackupTargetUpsertPayload,
+        existing: BackupTargetConfig | None,
+    ) -> SecretReferenceSummary | None:
+        if payload.target_type not in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
+            return None
+        if payload.auth_mode != BackupTargetAuthMode.PRIVATE_KEY:
+            return None
+        return self._resolve_secret_reference(
+            settings,
+            secret_kind="private_key",
+            requested=payload.private_key_secret,
+            current=existing.transport.private_key_secret_ref if existing else None,
+        )
+
     def _validated_path(self, payload: BackupTargetUpsertPayload) -> str:
         if payload.path is None:
             raise ValueError("Local targets require a path.")
@@ -219,10 +263,17 @@ class BackupTargetSettingsService:
     def _warnings_for_payload(self, payload: BackupTargetUpsertPayload) -> list[str]:
         warnings: list[str] = []
         if payload.target_type == BackupTargetType.SMB:
-            warnings.append(
-                "SMB targets are configuration, validation, and mount-planning "
-                "only in this phase; productive execution is disabled."
-            )
+            if payload.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH:
+                warnings.append(
+                    "SMB pre-mounted targets rely on an already authenticated mount. "
+                    "When the mounted path is usable, execution follows the same "
+                    "path-like check/sync workflow as other mounted destinations."
+                )
+            else:
+                warnings.append(
+                    "SMB targets require authentication for system mount. "
+                    "Execution still disabled in this phase."
+                )
         if payload.target_type == BackupTargetType.LOCAL:
             warnings.append(
                 "Local targets allow asset-aware check/sync, test copy, and "
@@ -233,9 +284,13 @@ class BackupTargetSettingsService:
                 "Remote targets currently provide files-only backup scope and do "
                 "not imply restore readiness."
             )
-            if payload.host_key_verification == HostKeyVerificationStrategy.INSECURE_ACCEPT_ANY:
+            if payload.auth_mode == BackupTargetAuthMode.PASSWORD:
                 warnings.append(
-                    "Host key verification is explicitly configured as insecure_accept_any."
+                    "Password-based SSH/rsync execution is not implemented in this phase."
+                )
+            if payload.known_host_mode == BackupTargetKnownHostMode.DISABLED:
+                warnings.append(
+                    "Known-host verification is explicitly disabled for this target."
                 )
         if payload.retention_policy and payload.retention_policy.prune_automatically:
             warnings.append(
@@ -243,3 +298,50 @@ class BackupTargetSettingsService:
                 "never deleted automatically."
             )
         return warnings
+
+    def _validate_resolved_transport(
+        self,
+        *,
+        payload: BackupTargetUpsertPayload,
+        transport: BackupTargetTransportSettings,
+    ) -> None:
+        if payload.target_type in {BackupTargetType.SSH, BackupTargetType.RSYNC}:
+            if transport.auth_mode == BackupTargetAuthMode.PRIVATE_KEY:
+                if transport.private_key_secret_ref is None:
+                    raise ValueError(
+                        "SSH and rsync targets using private_key auth require a private key secret reference."
+                    )
+            elif transport.auth_mode == BackupTargetAuthMode.PASSWORD:
+                if transport.password_secret_ref is None:
+                    raise ValueError(
+                        "SSH and rsync targets using password auth require a password secret reference."
+                    )
+            elif transport.auth_mode != BackupTargetAuthMode.AGENT:
+                raise ValueError("SSH and rsync targets require a supported auth mode.")
+        if payload.target_type != BackupTargetType.SMB:
+            return
+        if transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH:
+            if transport.mounted_path is None:
+                raise ValueError("SMB pre-mounted targets require a mounted path.")
+            return
+        if transport.mount_strategy != BackupTargetMountStrategy.SYSTEM_MOUNT:
+            raise ValueError("SMB targets require a supported mount strategy.")
+        if not transport.username:
+            raise ValueError("SMB system-mount targets require a username.")
+        if transport.password_secret_ref is None:
+            raise ValueError(
+                "SMB system-mount targets require a password secret reference."
+            )
+
+    def _restore_readiness_for_payload(
+        self,
+        payload: BackupTargetUpsertPayload,
+    ) -> BackupRestoreReadiness:
+        if payload.target_type == BackupTargetType.LOCAL:
+            return BackupRestoreReadiness.PARTIAL
+        if (
+            payload.target_type == BackupTargetType.SMB
+            and payload.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH
+        ):
+            return BackupRestoreReadiness.PARTIAL
+        return BackupRestoreReadiness.NOT_IMPLEMENTED

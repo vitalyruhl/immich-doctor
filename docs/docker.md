@@ -119,6 +119,7 @@ The backend serves:
 
 Additional canonical commands:
 
+- target-based manual backup execution now lives in the backup UI/API
 - `backup files`
 - `storage paths check`
 - `storage permissions check`
@@ -128,9 +129,11 @@ Additional canonical commands:
 
 Current backup status in Docker:
 
-- implemented: `backup files` for one local, versioned rsync-based file backup plus persisted snapshot metadata
+- primary: target-based manual backup execution through the HTTP UI/API
+- implemented legacy path: `backup files` for one local, versioned rsync-based file backup plus persisted snapshot metadata
 - implemented: `backup verify` for current target-readiness checks plus snapshot-manifest structure checks
-- not implemented yet: DB backup, metadata backup, remote targets, retention, restore, backup-all orchestration
+- implemented safe subset: local targets, SMB `pre_mounted_path`, and supported SSH/rsync manual execution
+- not implemented yet: DB backup, metadata backup, SMB `system_mount` execution, retention, full restore, backup-all orchestration
 
 ## Non-root vs root
 

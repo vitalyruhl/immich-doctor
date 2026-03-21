@@ -34,6 +34,22 @@ def _create_local_target(settings: AppSettings, tmp_path: Path) -> str:
     return str(created["item"]["targetId"])
 
 
+def _create_smb_pre_mounted_target(settings: AppSettings, tmp_path: Path) -> str:
+    created = BackupTargetSettingsService().create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Mounted SMB",
+            targetType=BackupTargetType.SMB,
+            host="nas.local",
+            share="immich",
+            remotePath="/backup",
+            mountStrategy="pre_mounted_path",
+            mountedPath=(tmp_path / "mounted-backup").as_posix(),
+        ),
+    )
+    return str(created["item"]["targetId"])
+
+
 def test_backup_asset_workflow_overview_reports_statuses_and_folder_hints(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     source_root = settings.immich_library_root
@@ -111,3 +127,27 @@ def test_backup_asset_workflow_restore_uses_quarantine_before_overwrite(tmp_path
     assert result["results"][0]["quarantinePath"] is not None
     assert (source_root / "photos" / "asset.jpg").read_bytes() == b"backup-good"
     assert Path(str(result["results"][0]["quarantinePath"])).read_bytes() == b"broken-source"
+
+
+def test_backup_asset_workflow_supports_smb_pre_mounted_targets(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    source_root = settings.immich_library_root
+    assert source_root is not None
+    source_root.mkdir(parents=True)
+    (source_root / "album").mkdir()
+    (source_root / "album" / "same.jpg").write_bytes(b"same")
+    (source_root / "album" / "missing.jpg").write_bytes(b"missing")
+    target_id = _create_smb_pre_mounted_target(settings, tmp_path)
+
+    backup_root = backup_workflow_current_library_root(tmp_path / "mounted-backup")
+    (backup_root / "album").mkdir(parents=True)
+    (backup_root / "album" / "same.jpg").write_bytes(b"same")
+
+    service = BackupAssetWorkflowService()
+    overview = service.get_overview(settings, target_id=target_id)
+    sync_result = service.sync_missing(settings, target_id=target_id)
+
+    assert overview["supported"] is True
+    assert overview["comparison"]["statusCounts"][BackupAssetComparisonStatus.MISSING_IN_BACKUP.value] == 1
+    assert sync_result["state"] == "completed"
+    assert (backup_root / "album" / "missing.jpg").read_bytes() == b"missing"

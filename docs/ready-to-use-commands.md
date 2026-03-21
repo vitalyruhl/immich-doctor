@@ -29,6 +29,11 @@ docker exec -it immich-doctor python -m immich_doctor storage permissions check
 
 ## Backup
 
+Primary manual backup execution currently runs through the backup UI/API target
+workflow.
+
+`backup files` remains available, but it is legacy.
+
 ```bash
 docker exec -it immich-doctor python -m immich_doctor backup files
 docker exec -it immich-doctor python -m immich_doctor backup verify

@@ -12,7 +12,7 @@ from pathlib import Path
 from immich_doctor.backup.targets.models import (
     BackupTargetAuthMode,
     BackupTargetConfig,
-    HostKeyVerificationStrategy,
+    BackupTargetKnownHostMode,
 )
 from immich_doctor.backup.targets.secrets import LocalSecretStore
 from immich_doctor.core.config import AppSettings
@@ -39,49 +39,50 @@ class BackupTransportService:
         settings: AppSettings,
         target: BackupTargetConfig,
     ) -> Iterator[RemoteConnectionMaterial]:
-        if target.transport.auth_mode != BackupTargetAuthMode.PRIVATE_KEY:
+        if target.transport.auth_mode == BackupTargetAuthMode.PASSWORD:
             raise ValueError(
-                "Only private_key auth mode is implemented for SSH and rsync execution."
+                "Password auth mode is not implemented for SSH and rsync execution."
             )
-        if target.transport.private_key_secret_ref is None:
-            raise ValueError("Remote target is missing a private key secret reference.")
-
-        private_key_material = self.secrets.load_secret_material(
-            settings,
-            secret_id=target.transport.private_key_secret_ref.secret_id,
-        )
         host = target.transport.host
         username = target.transport.username
         remote_path = target.transport.remote_path
         if host is None or username is None or remote_path is None:
             raise ValueError("Remote target is missing host, username, or remote path.")
 
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            prefix="immich-doctor-key-",
-            delete=False,
-        ) as handle:
-            handle.write(private_key_material)
-            key_path = Path(handle.name)
-
-        try:
-            os.chmod(key_path, 0o600)
-        except OSError:
-            pass
-
-        known_hosts_path = self._known_hosts_path(target)
         ssh_args = [
             "ssh",
             "-p",
             str(target.transport.port or 22),
-            "-i",
-            key_path.as_posix(),
             "-o",
             "BatchMode=yes",
         ]
         warnings: list[str] = []
-        if target.transport.host_key_verification == HostKeyVerificationStrategy.KNOWN_HOSTS:
+        key_path: Path | None = None
+        if target.transport.auth_mode == BackupTargetAuthMode.PRIVATE_KEY:
+            if target.transport.private_key_secret_ref is None:
+                raise ValueError("Remote target is missing a private key secret reference.")
+            private_key_material = self.secrets.load_secret_material(
+                settings,
+                secret_id=target.transport.private_key_secret_ref.secret_id,
+            )
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                prefix="immich-doctor-key-",
+                delete=False,
+            ) as handle:
+                handle.write(private_key_material)
+                key_path = Path(handle.name)
+            try:
+                os.chmod(key_path, 0o600)
+            except OSError:
+                pass
+            ssh_args.extend(["-i", key_path.as_posix()])
+        elif target.transport.auth_mode != BackupTargetAuthMode.AGENT:
+            raise ValueError("Remote target is missing a supported auth mode.")
+
+        if target.transport.known_host_mode == BackupTargetKnownHostMode.STRICT:
+            known_hosts_path = self._known_hosts_path(target)
             ssh_args.extend(
                 [
                     "-o",
@@ -90,25 +91,29 @@ class BackupTransportService:
                     f"UserKnownHostsFile={known_hosts_path.as_posix()}",
                 ]
             )
-        elif (
-            target.transport.host_key_verification
-            == HostKeyVerificationStrategy.INSECURE_ACCEPT_ANY
-        ):
+        elif target.transport.known_host_mode == BackupTargetKnownHostMode.ACCEPT_NEW:
+            known_hosts_path = self._known_hosts_path(target)
+            ssh_args.extend(
+                [
+                    "-o",
+                    "StrictHostKeyChecking=accept-new",
+                    "-o",
+                    f"UserKnownHostsFile={known_hosts_path.as_posix()}",
+                ]
+            )
+        elif target.transport.known_host_mode == BackupTargetKnownHostMode.DISABLED:
             warnings.append(
-                "Host key verification is explicitly configured as insecure_accept_any."
+                "Known-host verification is explicitly disabled for this target."
             )
             ssh_args.extend(
                 [
                     "-o",
                     "StrictHostKeyChecking=no",
-                    "-o",
-                    f"UserKnownHostsFile={os.devnull}",
                 ]
             )
         else:
-            key_path.unlink(missing_ok=True)
             raise ValueError(
-                "Pinned fingerprint host verification is not implemented for execution yet."
+                "Remote target is missing a supported known-host mode."
             )
 
         try:
@@ -119,7 +124,8 @@ class BackupTransportService:
                 warnings=tuple(warnings),
             )
         finally:
-            key_path.unlink(missing_ok=True)
+            if key_path is not None:
+                key_path.unlink(missing_ok=True)
 
     def run_remote_command(
         self,
@@ -148,6 +154,6 @@ class BackupTransportService:
         return shlex.quote(path)
 
     def _known_hosts_path(self, target: BackupTargetConfig) -> Path:
-        if target.transport.host_key_reference:
-            return Path(target.transport.host_key_reference).expanduser()
+        if target.transport.known_host_reference:
+            return Path(target.transport.known_host_reference).expanduser()
         return Path.home() / ".ssh" / "known_hosts"

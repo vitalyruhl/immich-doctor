@@ -8,6 +8,8 @@ from immich_doctor.adapters.external_tools import ExternalToolsAdapter
 from immich_doctor.adapters.filesystem import FilesystemAdapter
 from immich_doctor.backup.core.job_models import BackgroundJobState
 from immich_doctor.backup.targets.models import (
+    BackupTargetAuthMode,
+    BackupTargetKnownHostMode,
     BackupTargetConfig,
     BackupTargetLastTestResult,
     BackupTargetMountStrategy,
@@ -191,15 +193,23 @@ class BackupTargetValidationService:
                 )
             )
             return checks
-        if target.transport.auth_mode.value != "private_key":
+        if target.transport.auth_mode == BackupTargetAuthMode.PASSWORD:
             checks.append(
                 CheckResult(
                     name="remote_auth_mode",
                     status=CheckStatus.SKIP,
-                    message="Only private_key auth mode is implemented for remote execution.",
+                    message="Password auth mode is not implemented for remote execution.",
                 )
             )
             return checks
+        if target.transport.known_host_mode == BackupTargetKnownHostMode.DISABLED:
+            checks.append(
+                CheckResult(
+                    name="remote_known_host_mode",
+                    status=CheckStatus.WARN,
+                    message="Known-host verification is disabled for this target.",
+                )
+            )
         checks.extend(self.tools.validate_required_tools(["ssh", "rsync"]))
 
         try:
@@ -268,17 +278,8 @@ class BackupTargetValidationService:
         return checks
 
     def _smb_checks(self, target: BackupTargetConfig) -> list[CheckResult]:
-        checks = [
-            CheckResult(
-                name="smb_execution_mode",
-                status=CheckStatus.SKIP,
-                message=(
-                    "SMB targets are configuration, validation, and mount-planning "
-                    "only in this phase; productive SMB execution is disabled."
-                ),
-            )
-        ]
         if target.transport.mount_strategy == BackupTargetMountStrategy.PRE_MOUNTED_PATH:
+            checks: list[CheckResult] = []
             if target.transport.mounted_path is None:
                 checks.append(
                     CheckResult(
@@ -294,14 +295,94 @@ class BackupTargetValidationService:
                         Path(target.transport.mounted_path),
                     )
                 )
+                free_space = self.filesystem.free_space_bytes(
+                    Path(target.transport.mounted_path)
+                )
+                if free_space is not None:
+                    checks.append(
+                        CheckResult(
+                            name="smb_mounted_path_free_space",
+                            status=CheckStatus.PASS,
+                            message="Free space could be inspected on the mounted SMB path.",
+                            details={"free_space_bytes": free_space},
+                        )
+                    )
+                else:
+                    checks.append(
+                        CheckResult(
+                            name="smb_mounted_path_free_space",
+                            status=CheckStatus.WARN,
+                            message="Free space could not be determined for the mounted SMB path.",
+                        )
+                    )
+            checks.append(
+                CheckResult(
+                    name="smb_execution_mode",
+                    status=CheckStatus.PASS,
+                    message=(
+                        "SMB pre-mounted mode is executable as a path-like mounted "
+                        "destination when the mounted path is usable."
+                    ),
+                )
+            )
+            checks.append(
+                CheckResult(
+                    name="smb_auth_mode",
+                    status=CheckStatus.PASS,
+                    message="SMB pre-mounted mode relies on an already authenticated mount.",
+                )
+            )
+            return checks
+
+        checks = [
+            CheckResult(
+                name="smb_execution_mode",
+                status=CheckStatus.SKIP,
+                message=(
+                    "SMB system-mount execution is still disabled in this phase. "
+                    "Only pre-mounted path execution is currently supported."
+                ),
+            )
+        ]
+        if target.transport.username:
+            checks.append(
+                CheckResult(
+                    name="smb_username",
+                    status=CheckStatus.PASS,
+                    message="SMB system-mount username is configured.",
+                )
+            )
         else:
             checks.append(
                 CheckResult(
-                    name="smb_mount_plan",
-                    status=CheckStatus.WARN,
-                    message="SMB system mount checks are mount-planning only in this phase.",
+                    name="smb_username",
+                    status=CheckStatus.FAIL,
+                    message="SMB system-mount targets require a username.",
                 )
             )
+        if target.transport.password_secret_ref is None:
+            checks.append(
+                CheckResult(
+                    name="smb_password_secret_ref",
+                    status=CheckStatus.FAIL,
+                    message="SMB system-mount targets require a password secret reference.",
+                )
+            )
+        else:
+            checks.append(
+                CheckResult(
+                    name="smb_password_secret_ref",
+                    status=CheckStatus.PASS,
+                    message="SMB system-mount credentials are stored via a secret reference.",
+                )
+            )
+        checks.append(
+            CheckResult(
+                name="smb_mount_plan",
+                status=CheckStatus.PASS,
+                message="SMB system-mount checks remain mount-planning only in this phase.",
+            )
+        )
         return checks
 
     def _status_from_checks(self, checks: list[CheckResult]) -> BackgroundJobState:

@@ -5,7 +5,7 @@
         <div>
           <h3>Check / sync / verify / selective restore</h3>
           <p>
-            Compare source assets against the local backup mirror first, sync only missing files, and keep restore as an explicit reviewed action.
+            Compare source assets against the current path-like backup mirror first, sync only missing files, and keep restore as an explicit reviewed action.
           </p>
         </div>
         <span :class="statusBadgeClass(workflowStatusLabel)">
@@ -44,7 +44,7 @@
         <button
           class="runtime-action"
           type="button"
-          :disabled="!backupStore.selectedTargetId || backupStore.isLoadingWorkflow"
+          :disabled="!selectedTargetSupportsPathWorkflow || backupStore.isLoadingWorkflow"
           @click="void refreshOverview()"
         >
           {{ backupStore.isLoadingWorkflow ? "Checking" : "Refresh Check" }}
@@ -52,7 +52,7 @@
         <button
           class="runtime-action"
           type="button"
-          :disabled="!backupStore.selectedTargetId || backupStore.isExecuting || backupStore.isExecutionRunning"
+          :disabled="!selectedTargetSupportsPathWorkflow || backupStore.isExecuting || backupStore.isExecutionRunning"
           @click="void backupStore.startExecution(backupStore.selectedTargetId!)"
         >
           {{ backupStore.isExecutionRunning ? "Sync Running" : "Sync Missing" }}
@@ -60,7 +60,7 @@
         <button
           class="runtime-action"
           type="button"
-          :disabled="!backupStore.selectedTargetId || backupStore.isRunningTestCopy"
+          :disabled="!selectedTargetSupportsPathWorkflow || backupStore.isRunningTestCopy"
           @click="void startTestCopy()"
         >
           {{ backupStore.isRunningTestCopy ? "Testing" : "Test Copy" }}
@@ -286,6 +286,18 @@ import { useBackupStore } from "@/stores/backup";
 
 const backupStore = useBackupStore();
 const restorePlanAssetIds = ref<string[]>([]);
+const selectedTargetSupportsPathWorkflow = computed(() => {
+  const target = backupStore.selectedTarget;
+  if (!target) {
+    return false;
+  }
+  return (
+    target.targetType === "local" ||
+    (target.targetType === "smb" &&
+      target.transport.mountStrategy === "pre_mounted_path" &&
+      Boolean(target.transport.mountedPath))
+  );
+});
 
 const workflowStatusLabel = computed(() => {
   const counts = backupStore.workflowOverview?.comparison.statusCounts ?? {};
@@ -314,7 +326,7 @@ const restorePreviewItems = computed(() =>
 const restorePreviewNotes = computed(() => [
   "Current source files are quarantined before overwrite.",
   "Only the selected reviewed items are applied.",
-  "Bulk restore stays high-risk and is limited to local targets.",
+  "Bulk restore stays high-risk and is limited to path-like targets.",
 ]);
 
 function formatBytes(value: number | null | undefined): string {
