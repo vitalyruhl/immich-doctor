@@ -42,6 +42,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=backup,enable=${{ github.ref == 'refs/heads/feature/backup' }}
             type=raw,value=db,enable=${{ github.ref == 'refs/heads/feature/db' }}
             type=raw,value=rt,enable=${{ github.ref == 'refs/heads/feature/runtime-integrity' }}
             type=sha,format=short
