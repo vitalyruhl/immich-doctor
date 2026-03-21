@@ -33,6 +33,14 @@ Branch model:
 - chore branches must merge back into their feature first
 - Only completed and runnable features may merge to main
 
+Branch-model drift note:
+
+- `fix/*` is non-canonical under the current governance
+- if `fix/*` branches are encountered during audit or cleanup:
+  - retain them by default
+  - report them as branch-model drift
+  - do not auto-delete unless their integration target is clearly verified
+
 ==================================================
 SHORTCUT COMMANDS
 ==================================================
@@ -183,14 +191,21 @@ If `<topic>` is provided:
 
 If no `<topic>` is provided:
 - generate a short checkpoint topic from:
-  - current branch purpose
-  - changed files
-  - current task context
+  - current branch name
+  - changed file paths
+  - dominant changed subsystem
+  - dominant changed file group or directory
+- use repository-observable state only
+- do not derive from:
+  - vague conversational context
+  - inferred intention not grounded in repository state
 - prefer concrete scope over generic wording
 - avoid vague messages such as:
   - update
   - changes
   - work in progress
+- if no honest derived topic can be produced from repository-observable state:
+  - STOP and explain that the changes are too mixed for a safe checkpoint topic
 - use:
   - `checkpoint: <derived-topic>`
   - or `wip(checkpoint): <derived-topic>` if clearly incomplete
@@ -487,7 +502,7 @@ Pre-action checkpoint behavior:
 STOP if:
 
 - local or remote branch state cannot be verified safely
-- branch ancestry or target relation is unclear
+- repository-wide branch verification is not possible
 - repository contains unresolved conflicts
 - branch deletion would rely on guessing instead of verified integration
 
@@ -499,6 +514,10 @@ Deterministic outcome:
 
 2. evaluate `chore/*` branches
 - determine the canonical parent `feature/*` branch
+- if the target relation for a specific branch is unclear:
+  - retain the branch
+  - report it under `unresolved relation`
+  - continue evaluating other branches
 - check whether the chore branch is already fully integrated into its parent feature branch
 - if fully integrated and deletion is safe:
   - delete local chore branch
@@ -508,6 +527,10 @@ Deterministic outcome:
   - include it in the final report
 
 3. evaluate `feature/*` branches
+- if a `feature/*` branch has unclear integration status against `main`:
+  - retain the branch
+  - report it under `unresolved relation`
+  - continue evaluating other branches
 - check whether the feature branch is already fully integrated into `main`
 - if fully integrated and deletion is safe:
   - delete local feature branch
@@ -519,6 +542,8 @@ Deterministic outcome:
 4. report remaining active branches
 - list all non-integrated `chore/*` branches
 - list all non-integrated `feature/*` branches
+- list all retained non-canonical `fix/*` branches under:
+  - branch-model drift
 - if target relation is unclear, list branch under:
   - unresolved relation
 
@@ -528,6 +553,7 @@ Verification rules:
 - merged, squashed, or rebased history must be checked carefully
 - do not assume ancestry alone proves integration if squash/rebase may hide it
 - if verification is ambiguous -> keep branch and report ambiguity
+- non-canonical `fix/*` branches must be treated as retained drift unless a clear verified integration target exists
 
 Disallowed:
 
@@ -541,6 +567,7 @@ Required reporting:
 - deleted local branches
 - deleted remote branches
 - retained non-integrated branches
+- retained non-canonical drift branches
 - retained branches with unresolved relation
 - brief reason for each retained branch
 
