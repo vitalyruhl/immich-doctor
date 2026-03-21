@@ -45,6 +45,7 @@ SHORTCUT COMMANDS
 .ready
 .promoteMain
 .toMain
+.cleanBranches
 .end
 
 ==================================================
@@ -77,6 +78,43 @@ If contradiction is detected:
 - explain the conflict briefly
 - recommend consolidation first when directions diverge
 - recommend `refactor.agent` when consolidation is structural
+
+==================================================
+PRE-ACTION CHECKPOINT RULE
+==================================================
+
+Before executing any shortcut that may delete branches, rewrite structure, or affect merge topology, check the working tree first.
+
+Applies to:
+
+- .ready
+- .promoteMain
+- .toMain
+- .cleanBranches
+- any shortcut that may delete branches, rewrite structure, or affect merge topology
+
+Required behavior:
+
+- a dirty working tree is not an automatic STOP
+- if changes are coherent and belong to the current branch scope:
+  - stage and create a checkpoint or finalization commit
+  - optionally split into coherent commits if that improves clarity
+  - then continue with the requested workflow
+
+STOP if:
+
+- changes are unrelated or mixed across conflicting scopes
+- file ownership is unclear
+- unresolved conflicts exist
+- safe merge or promotion cannot be described honestly
+
+Does not apply to:
+
+- .audit
+- .docs
+- .checkpoint
+- .end
+- .ship
 
 ==================================================
 .begin
@@ -115,6 +153,7 @@ Create safe intermediate development checkpoint.
 
 Input grammar:
 
+use workflow.checkpoint
 use workflow.checkpoint <topic>
 
 Preconditions:
@@ -126,6 +165,7 @@ STOP if:
 
 - merge conflicts are unresolved
 - repository state is unclear
+- the current changes are too mixed to describe honestly in one checkpoint commit
 
 Deterministic outcome:
 
@@ -134,7 +174,33 @@ Deterministic outcome:
 - push branch if configured
 - DO NOT merge
 - DO NOT change project completion status
-- commit message is `checkpoint: <topic>` or `wip(checkpoint): <topic>`
+
+Commit message rules:
+
+If `<topic>` is provided:
+- use `checkpoint: <topic>`
+- or `wip(checkpoint): <topic>` if the state is clearly incomplete
+
+If no `<topic>` is provided:
+- generate a short checkpoint topic from:
+  - current branch purpose
+  - changed files
+  - current task context
+- prefer concrete scope over generic wording
+- avoid vague messages such as:
+  - update
+  - changes
+  - work in progress
+- use:
+  - `checkpoint: <derived-topic>`
+  - or `wip(checkpoint): <derived-topic>` if clearly incomplete
+
+Preferred derived-topic examples:
+
+- `checkpoint: workflow-agent-cleanup`
+- `checkpoint: backup-target-validation`
+- `wip(checkpoint): governance-agent-rules`
+- `checkpoint: docs-command-sync`
 
 ==================================================
 .docs
@@ -248,6 +314,11 @@ Preconditions:
 - the parent `feature/*` branch must be determinable from branch ancestry
 - required verification for the chore scope must be complete
 
+Pre-action checkpoint behavior:
+
+- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any branch-topology change
+- finalize coherent uncommitted branch-local changes before continuing
+
 STOP if:
 
 - the parent feature relation is unclear
@@ -268,7 +339,7 @@ Deterministic outcome:
 ==================================================
 
 Purpose:
-Promote the current stable subset of an active feature branch into `main` without closing or deleting the feature branch.
+Merge the current active `feature/*` branch, or a clearly isolatable stable subset of it, into `main` while keeping the feature branch active for further work.
 
 Input grammar:
 
@@ -277,35 +348,55 @@ use workflow.promoteMain
 Preconditions:
 
 - current branch must be `feature/*`
-- the current branch contains a stable, runnable, and clearly mergeable subset
-- the promoted subset must improve `main` compared to its current state
-- the remaining unfinished feature work must stay isolated and must not be dragged into `main`
+- the current feature state or a clearly isolatable stable subset must be runnable and validated
+- the promoted scope must improve `main` compared to its current state
+- unfinished scope must be explicitly known and acceptable
+- documentation and status messaging must not imply feature completion
+
+Pre-action checkpoint behavior:
+
+- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any promotion work
+- finalize coherent uncommitted changes on the current feature branch before continuing
+- optionally split coherent commits if that improves clarity between promoted scope and remaining feature scope
 
 STOP if:
 
+- the branch or promotable subset is not runnable
 - the stable subset cannot be separated clearly from unfinished work
 - the promotion would introduce partial architecture drift or competing implementation paths
 - important tests are failing
 - critical checks are not green
 - the branch contains mixed commits that would make selective promotion unsafe
+- mergeability cannot be explained clearly
+- the merge would mix experimental and production-ready scope without clear boundary
 
 Deterministic outcome:
 
-- identify the mergeable subset of the current feature work
-- promote only the stable subset into `main`
+- finalize coherent uncommitted changes
+- verify current feature state against `main`
+- if the full current feature state is safe and improves `main`, merge the full current feature state into `main`
+- if only a stable subset is promotable, isolate the safe subset, including a temporary clean extraction branch if needed, and merge only that safe subset into `main`
 - keep the current `feature/*` branch active for continued development
 - ensure unfinished work remains outside `main`
+- push the current branch
+- push any temporary promotion branch if one is used
 - update PR or integration path as needed
+- merge the safe scope into `main`
 - push `main` if promotion succeeds
-- report clearly:
-  - what was promoted
-  - what remains on the feature branch
-  - whether follow-up consolidation is recommended
+
+Reporting requirements:
+
+- what was merged
+- what remains on the feature branch
+- whether follow-up consolidation is recommended
+- that the feature remains in progress
 
 Disallowed:
 
 - silently merging unfinished feature scope
 - using this shortcut as a replacement for full feature completion
+- claiming feature completion
+- hiding known limitations
 - refactors unrelated to the promoted subset
 
 Fallback:
@@ -317,7 +408,7 @@ If the stable subset cannot be isolated safely → recommend `.end` or `refactor
 ==================================================
 
 Purpose:
-Merge feature into main only if fully merge-ready.
+Merge `feature/*` into `main` only when the feature is complete and fully merge-ready.
 
 Input grammar:
 
@@ -327,29 +418,135 @@ Preconditions:
 
 - current branch must be `feature/*`
 - all related chore branches must already be merged
-- the feature must be runnable and validated
+- the feature must be complete, runnable, and validated
+
+Pre-action checkpoint behavior:
+
+- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any merge work
+- finalize coherent uncommitted changes on the current feature branch before continuing
+- do not use selective subset promotion in this shortcut
 
 STOP if:
 
 - functional uncertainty remains
 - important tests are failing
 - critical checks are not green
+- the feature is incomplete
+- the scope is unclear
+- selective subset promotion would be required
 
 Deterministic outcome:
 
-- verify CI/tests
+- finalize coherent uncommitted changes
+- verify full feature state and CI/tests
 - fix only trivial safe issues
+- push the current branch
 - update PR
 - merge only if critical checks are green
 - push main
 
+Reporting requirements:
+
+- that the full feature scope was merged
+- that `.toMain` was used as the full-completion path
+- whether any post-merge cleanup is recommended
+
 Disallowed:
 
+- selective subset promotion
 - feature work
 - refactors
 
 Fallback:
 If not mergeable → recommend .end
+
+==================================================
+.cleanBranches
+==================================================
+
+Purpose:
+Delete local and remote branches that are already fully integrated into their canonical target branch, and report all remaining non-integrated branches.
+
+Input grammar:
+
+use workflow.cleanBranches
+
+Preconditions:
+
+- repository state must be readable
+- local and remote branch state must be fetchable
+- canonical branch model must be:
+  - `chore/*` -> `feature/*`
+  - `feature/*` -> `main`
+
+Pre-action checkpoint behavior:
+
+- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any branch deletion
+- finalize coherent uncommitted current-branch changes before continuing
+
+STOP if:
+
+- local or remote branch state cannot be verified safely
+- branch ancestry or target relation is unclear
+- repository contains unresolved conflicts
+- branch deletion would rely on guessing instead of verified integration
+
+Deterministic outcome:
+
+1. refresh branch knowledge
+- fetch remote state
+- inspect local and remote branches
+
+2. evaluate `chore/*` branches
+- determine the canonical parent `feature/*` branch
+- check whether the chore branch is already fully integrated into its parent feature branch
+- if fully integrated and deletion is safe:
+  - delete local chore branch
+  - delete remote chore branch if it exists
+- if not fully integrated:
+  - keep it
+  - include it in the final report
+
+3. evaluate `feature/*` branches
+- check whether the feature branch is already fully integrated into `main`
+- if fully integrated and deletion is safe:
+  - delete local feature branch
+  - delete remote feature branch if it exists
+- if not fully integrated:
+  - keep it
+  - include it in the final report
+
+4. report remaining active branches
+- list all non-integrated `chore/*` branches
+- list all non-integrated `feature/*` branches
+- if target relation is unclear, list branch under:
+  - unresolved relation
+
+Verification rules:
+
+- deletion is allowed only when integration is verified clearly
+- merged, squashed, or rebased history must be checked carefully
+- do not assume ancestry alone proves integration if squash/rebase may hide it
+- if verification is ambiguous -> keep branch and report ambiguity
+
+Disallowed:
+
+- deleting branches based on naming alone
+- deleting branches with unclear target relation
+- deleting active branches with unmerged work
+- deleting `main`
+
+Required reporting:
+
+- deleted local branches
+- deleted remote branches
+- retained non-integrated branches
+- retained branches with unresolved relation
+- brief reason for each retained branch
+
+Fallback:
+
+If integration cannot be verified safely -> retain the branch and report it instead of deleting it
 
 ==================================================
 .end
@@ -390,6 +587,7 @@ use workflow.begin backup/ssh-fix
 use workflow.begin backup/ssh-fix
 
 # intermediate save
+use workflow.checkpoint
 use workflow.checkpoint agents-workflow
 
 # small documentation sync
@@ -408,8 +606,11 @@ use workflow.ready
 # promote stable subset of current feature into `main`, but keep feature active
 use workflow.promoteMain
 
-# merge current feature branch into `main`
+# merge current feature branch into `main` only when fully complete
 use workflow.toMain
+
+# delete integrated branches and report retained active branches
+use workflow.cleanBranches
 
 # end current session without merge
 use workflow.end
