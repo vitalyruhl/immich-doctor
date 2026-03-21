@@ -27,7 +27,7 @@ RUN groupadd --gid 1000 app && \
 
 COPY pyproject.toml uv.lock README.md /opt/immich-doctor/
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends rsync && \
+    apt-get install -y --no-install-recommends openssh-client rsync && \
     rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen --no-dev --no-install-project
 
@@ -49,7 +49,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/immich-doctor-entrypoint && \
       /data/quarantine \
       /data/logs \
       /data/tmp \
-      /config && \
+      /config \
+      /home/app/.ssh && \
     uv sync --frozen --no-dev && \
     chown -R app:app /app /opt/immich-doctor /data /config
 

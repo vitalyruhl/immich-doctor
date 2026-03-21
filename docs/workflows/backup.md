@@ -72,6 +72,7 @@ Manual backup target behavior now includes:
 - SSH and rsync targets with shared remote auth modelling, connection-string parsing, known-host mode handling, and secret-reference-based key/password storage
 - SSH validation now reports doctor-runtime-specific causes such as missing agent socket, known-hosts path preparation, unwritable remote destinations, and SSH probe timeout
 - SSH and rsync validation now separate connectivity/path success from execution readiness; local `rsync` is required in the doctor runtime before files-only remote execution is treated as runnable
+- SSH agent auth is intended to work in Docker by forwarding the host SSH agent socket into the container; host SSH success alone does not imply matching container auth
 - SMB targets with executable `pre_mounted_path` semantics and `system_mount` planning rules plus authentication requirements for system-mount mode only
 - persisted target validation summary and last successful backup metadata
 - explicit restore-readiness signaling of `partial` for path-like selective restore and `not_implemented` for remote targets

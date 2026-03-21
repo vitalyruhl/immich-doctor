@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-import os
 from pathlib import Path
 import subprocess
 
@@ -549,34 +548,29 @@ class BackupTargetValidationService:
     def _agent_checks(self, target: BackupTargetConfig) -> list[CheckResult]:
         if target.transport.auth_mode != BackupTargetAuthMode.AGENT:
             return []
-        socket_path = os.getenv("SSH_AUTH_SOCK")
-        if not socket_path:
+        snapshot = BackupRuntimeCapabilityService(runtime=self.runtime).probe_ssh_agent()
+        details = snapshot.get("details")
+        if snapshot.get("available") is True:
             return [
                 CheckResult(
                     name="remote_agent_socket",
-                    status=CheckStatus.FAIL,
-                    message=(
-                        "SSH agent auth is selected, but SSH_AUTH_SOCK is not available in the doctor runtime."
-                    ),
-                )
-            ]
-        socket = Path(socket_path)
-        if not socket.exists():
-            return [
-                CheckResult(
-                    name="remote_agent_socket",
-                    status=CheckStatus.FAIL,
-                    message=(
-                        f"SSH agent auth is selected, but the agent socket path does not exist: {socket_path}"
-                    ),
+                    status=CheckStatus.PASS,
+                    message="Forwarded SSH agent is available in the doctor runtime.",
+                    details=details if isinstance(details, dict) else None,
                 )
             ]
         return [
             CheckResult(
                 name="remote_agent_socket",
-                status=CheckStatus.PASS,
-                message="SSH agent socket is available in the doctor runtime.",
-                details={"socket": socket_path},
+                status=CheckStatus.FAIL,
+                message=(
+                    "SSH agent auth is selected, but no usable forwarded SSH agent is available "
+                    "in the doctor runtime. Host SSH success does not automatically carry into "
+                    "the container. Mount the agent socket and set SSH_AUTH_SOCK, or use a private key secret."
+                )
+                if not isinstance(snapshot.get("summary"), str)
+                else f"{snapshot['summary']} Host SSH success does not automatically carry into the container.",
+                details=details if isinstance(details, dict) else None,
             )
         ]
 

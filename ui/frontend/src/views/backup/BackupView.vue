@@ -321,6 +321,12 @@
                   <option v-if="sshPasswordAuthEnabled" value="password">Password</option>
                 </select>
               </label>
+              <p class="health-card__details">
+                Username is always required for SSH login. SSH agent mode uses a forwarded host SSH agent in the container, while private key mode uses a stored secret.
+              </p>
+              <p v-if="sshAgentHelpMessage" class="health-card__details">
+                {{ sshAgentHelpMessage }}
+              </p>
               <p v-if="draft.authMode === 'password'" class="health-card__details">
                 Password-based SSH execution remains hidden and unsupported for execution in this phase.
               </p>
@@ -372,6 +378,9 @@
                     placeholder="~/.ssh/known_hosts"
                   />
                 </label>
+                <p class="health-card__details">
+                  Host known_hosts files are not shared into the container automatically. Mount one explicitly if you want strict or accept-new mode to reuse host trust.
+                </p>
               </details>
             </template>
 
@@ -556,6 +565,7 @@ import BackupWorkflowPanel from "./BackupWorkflowPanel.vue";
 import { useBackupStore } from "@/stores/backup";
 import type {
   BackupJobState,
+  BackupRuntimeCapability,
   BackupRestoreReadiness,
   BackupSizeEstimateResponse,
   BackupSizeEstimateStatus,
@@ -594,6 +604,9 @@ const existingPasswordSecretRef = computed<SecretReferenceSummary | null>(
 const existingPrivateKeySecretRef = computed<SecretReferenceSummary | null>(
   () => editingTarget.value?.transport.privateKeySecretRef ?? null,
 );
+const sshAgentRuntimeCapability = computed<BackupRuntimeCapability | null>(
+  () => backupStore.targetsOverview?.runtimeCapabilities?.sshAgent ?? null,
+);
 const sourceSizeStatus = computed<BackupSizeEstimateStatus>(
   () => backupStore.sizeEstimate?.status ?? "unknown",
 );
@@ -609,6 +622,25 @@ const sourceSizeSecondaryMessage = computed(() =>
 const sourceSizeTimestampMessage = computed(() =>
   sourceSizeTimestampDetail(backupStore.sizeEstimate),
 );
+const sshAgentHelpMessage = computed(() => {
+  if (draft.value.targetType !== "ssh" && draft.value.targetType !== "rsync") {
+    return null;
+  }
+  if (draft.value.authMode === "private_key") {
+    return "Private key mode uses a stored secret reference and does not depend on a forwarded SSH agent.";
+  }
+  if (draft.value.authMode === "password") {
+    return "Password mode still needs a stored secret and remains unsupported for execution in this phase.";
+  }
+  const capability = sshAgentRuntimeCapability.value;
+  if (capability?.available) {
+    return `Forwarded SSH agent is available in this doctor runtime. ${capability.summary}`;
+  }
+  if (capability?.summary) {
+    return `${capability.summary} Host SSH success does not automatically mean container SSH success.`;
+  }
+  return "SSH agent mode expects a forwarded host SSH agent inside the container runtime. Host SSH success does not automatically mean container SSH success.";
+});
 
 function defaultDraft(): BackupTargetDraft {
   return {

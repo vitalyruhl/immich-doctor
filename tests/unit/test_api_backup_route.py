@@ -257,6 +257,27 @@ def test_backup_targets_route_returns_expected_shape(monkeypatch) -> None:
             "limitations": [],
         },
     )
+    monkeypatch.setattr(
+        backup_routes.BackupRuntimeCapabilityService,
+        "probe_rsync",
+        lambda self: {
+            "capability": "rsync",
+            "checkedAt": "2026-03-21T13:00:00+00:00",
+            "available": True,
+            "summary": "Local rsync is available in the doctor runtime.",
+        },
+    )
+    monkeypatch.setattr(
+        backup_routes.BackupRuntimeCapabilityService,
+        "probe_ssh_agent",
+        lambda self: {
+            "capability": "sshAgent",
+            "checkedAt": "2026-03-21T13:00:00+00:00",
+            "available": False,
+            "summary": "No forwarded SSH agent is available in the doctor runtime.",
+            "details": {"state": "missing_env"},
+        },
+    )
     client = TestClient(create_api_app())
 
     response = client.get("/api/backup/targets")
@@ -265,6 +286,8 @@ def test_backup_targets_route_returns_expected_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["items"][0]["targetId"] == "target-1"
     assert payload["data"]["items"][0]["targetType"] == "local"
+    assert payload["data"]["runtimeCapabilities"]["rsync"]["available"] is True
+    assert payload["data"]["runtimeCapabilities"]["sshAgent"]["available"] is False
 
 
 def test_backup_target_validation_route_returns_expected_shape(monkeypatch) -> None:

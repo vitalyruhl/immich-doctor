@@ -1,0 +1,9 @@
+services:
+  immich-doctor:
+    environment:
+      SSH_AUTH_SOCK: /tmp/host-ssh-agent.sock
+    volumes:
+      - ${HOST_SSH_AUTH_SOCK}:/tmp/host-ssh-agent.sock
+      # Optional: mount a host known_hosts file when strict or accept_new mode
+      # should reuse an existing trust file inside the container runtime.
+      # - ${HOST_SSH_KNOWN_HOSTS_PATH}:/home/app/.ssh/known_hosts:ro

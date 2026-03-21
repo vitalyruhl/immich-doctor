@@ -182,6 +182,24 @@ export interface BackupTargetsOverviewResponse {
   configRoot: string;
   items: BackupTargetConfig[];
   limitations: string[];
+  runtimeCapabilities?: {
+    rsync?: BackupRuntimeCapability;
+    sshAgent?: BackupRuntimeCapability;
+  };
+}
+
+export interface BackupRuntimeCapability {
+  capability?: string;
+  checkedAt: string;
+  available: boolean;
+  summary: string;
+  details?: Record<string, unknown>;
+  check?: {
+    name: string;
+    status: string;
+    message: string;
+    details?: Record<string, unknown>;
+  };
 }
 
 export interface BackupTargetMutationResponse {

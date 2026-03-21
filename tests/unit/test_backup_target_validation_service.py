@@ -112,8 +112,16 @@ def test_backup_target_validation_service_supports_agent_auth_for_remote_probe(
             for name in names
         ],
     )
-    monkeypatch.setenv("SSH_AUTH_SOCK", (tmp_path / "agent.sock").as_posix())
-    (tmp_path / "agent.sock").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        BackupRuntimeCapabilityService,
+        "probe_ssh_agent",
+        lambda self: {
+            "capability": "sshAgent",
+            "available": True,
+            "summary": "Forwarded SSH agent is available in the doctor runtime.",
+            "details": {"state": "available", "socket": "/tmp/agent.sock"},
+        },
+    )
     monkeypatch.setattr(
         BackupRuntimeCapabilityService,
         "probe_rsync",
@@ -200,8 +208,16 @@ def test_backup_target_validation_service_keeps_ssh_validation_ready_when_local_
             for name in names
         ],
     )
-    monkeypatch.setenv("SSH_AUTH_SOCK", (tmp_path / "agent.sock").as_posix())
-    (tmp_path / "agent.sock").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        BackupRuntimeCapabilityService,
+        "probe_ssh_agent",
+        lambda self: {
+            "capability": "sshAgent",
+            "available": True,
+            "summary": "Forwarded SSH agent is available in the doctor runtime.",
+            "details": {"state": "available", "socket": "/tmp/agent.sock"},
+        },
+    )
     monkeypatch.setattr(
         BackupRuntimeCapabilityService,
         "probe_rsync",
@@ -288,8 +304,93 @@ def test_backup_target_validation_service_returns_actionable_agent_failure(
         runtime.shutdown()
 
     assert result["state"] == "failed"
-    assert "SSH_AUTH_SOCK is not available" in result["summary"]
+    assert "no forwarded ssh agent" in result["summary"].lower()
     assert any(check["name"] == "remote_agent_socket" for check in result["checks"])
+
+
+def test_backup_target_validation_service_keeps_private_key_mode_independent_from_agent(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
+    service = BackupTargetSettingsService()
+    created = service.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Remote Key",
+            targetType=BackupTargetType.SSH,
+            connectionString="backup@backup.example",
+            remotePath="/srv/backup",
+            authMode="private_key",
+            knownHostMode="strict",
+            privateKeySecret={"label": "SSH key", "material": "PRIVATE KEY MATERIAL"},
+        ),
+    )
+    target = service.get_target(settings, target_id=created["item"]["targetId"])
+
+    monkeypatch.setattr(
+        "immich_doctor.services.backup_target_validation_service.ExternalToolsAdapter.validate_required_tools",
+        lambda self, names: [
+            CheckResult(
+                name=f"tool_{name}",
+                status=CheckStatus.PASS,
+                message="Required external tool is available.",
+                details={"tool": name, "path": f"/usr/bin/{name}"},
+            )
+            for name in names
+        ],
+    )
+    monkeypatch.setattr(
+        BackupRuntimeCapabilityService,
+        "probe_rsync",
+        lambda self: {
+            "tool": "rsync",
+            "available": True,
+            "summary": "Local rsync is available in the doctor runtime.",
+            "check": CheckResult(
+                name="tool_rsync",
+                status=CheckStatus.PASS,
+                message="Local rsync is available in the doctor runtime.",
+                details={"tool": "rsync", "path": "/usr/bin/rsync", "version": "rsync 3.2.7"},
+            ).to_dict(),
+        },
+    )
+
+    @contextmanager
+    def fake_connection(self, settings, target):  # type: ignore[no-untyped-def]
+        del self, settings, target
+        yield RemoteConnectionMaterial(
+            remote_host_reference="backup@backup.example",
+            remote_shell_argv=("ssh",),
+            remote_path="/srv/backup",
+            warnings=(),
+        )
+
+    monkeypatch.setattr(
+        "immich_doctor.services.backup_transport_service.BackupTransportService.prepared_remote_connection",
+        fake_connection,
+    )
+    monkeypatch.setattr(
+        "immich_doctor.services.backup_transport_service.BackupTransportService.run_remote_command",
+        lambda self, material, command: CompletedProcess(
+            args=(command,),
+            returncode=0,
+            stdout="ok\n",
+            stderr="",
+        ),
+    )
+
+    runtime = BackgroundJobRuntime()
+    try:
+        result = BackupTargetValidationService(runtime=runtime).validate_target_now(
+            settings,
+            target=target,
+        )
+    finally:
+        runtime.shutdown()
+
+    assert result["state"] == "completed"
+    assert all(check["name"] != "remote_agent_socket" for check in result["checks"])
 
 
 def test_backup_target_validation_service_marks_smb_pre_mounted_path_executable(

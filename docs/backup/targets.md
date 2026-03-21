@@ -30,7 +30,7 @@ Minimal SSH configuration is meant to match real operators:
 
 Current remote auth modes:
 
-- `agent`: supported for validation and execution
+- `agent`: preferred for containerized runtime when a host SSH agent is forwarded
 - `private_key`: supported for validation and execution through the existing
   local secret store
 - `password`: modelled for future use, but execution remains disabled
@@ -38,9 +38,10 @@ Current remote auth modes:
 Current SSH validation expectations:
 
 - validation runs in the actual doctor runtime context, not in an external host shell
-- `agent` auth requires a usable `SSH_AUTH_SOCK` inside that runtime
+- `agent` auth requires a usable forwarded `SSH_AUTH_SOCK` inside that runtime
 - `strict` and `accept_new` use the configured known-hosts file or the runtime
   default and prepare that path before probing
+- host `known_hosts` files are not shared into the container automatically
 - successful SSH login alone is not the only check: validation also probes the
   configured remote destination path and reports that failure reason explicitly
 - SSH connectivity and remote-path validation are not the same thing as remote
@@ -87,6 +88,8 @@ already mounted usable path.
 - SSH target:
   Prefer the SSH connection shorthand such as `backup@example-host` or
   `backup@example-host:2222`. Separate host/user/port fields are secondary.
+  SSH agent auth is the preferred container path, but it only works when the
+  host agent socket is forwarded into doctor.
 - Rsync over SSH:
   Uses the same connection model as SSH. This is SSH-based transport, not a
   mounted filesystem or NFS-style path.
@@ -122,6 +125,15 @@ Stored backup target records must never contain:
 
 - `password`
 - raw private key material
+
+Authentication reminder:
+
+- username is always required for SSH login
+- username alone is never enough for SSH authentication
+- without forwarded agent auth, SSH targets still need real credentials such as
+  a private key secret
+- host-side SSH success must never be treated as proof that the container runtime
+  has the same auth or trust context
 
 ## Future execution phases
 

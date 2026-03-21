@@ -10,6 +10,7 @@ backend and the built Vue frontend from the same container.
 
 - `docker/Dockerfile`
 - `docker/docker-compose.yml`
+- `docker/docker-compose.ssh-agent.override.yml`
 - `docker/docker-compose.dev.yml`
 - `docker/docker-compose.unraid.yml`
 
@@ -24,6 +25,44 @@ docker build -f docker/Dockerfile -t immich-doctor:local .
 ```bash
 docker compose -f docker/docker-compose.yml up --build
 ```
+
+## SSH agent forwarding for backup targets
+
+Preferred path for SSH backup targets in Docker:
+
+- forward the host SSH agent socket into the container
+- set `SSH_AUTH_SOCK` inside the container
+- optionally mount a host `known_hosts` file when `strict` or `accept_new` mode
+  should reuse existing trust
+
+Template override:
+
+```bash
+docker compose \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.ssh-agent.override.yml \
+  up --build
+```
+
+Required host environment:
+
+```bash
+export HOST_SSH_AUTH_SOCK="$SSH_AUTH_SOCK"
+```
+
+Optional host environment for known-host reuse:
+
+```bash
+export HOST_SSH_KNOWN_HOSTS_PATH="$HOME/.ssh/known_hosts"
+```
+
+Important:
+
+- host SSH success does not automatically mean container SSH success
+- host `known_hosts` files are not available in the container unless you mount them
+- without agent forwarding, SSH targets still need real credentials such as a
+  private key secret
+- username alone is never enough for SSH auth
 
 This publishes:
 

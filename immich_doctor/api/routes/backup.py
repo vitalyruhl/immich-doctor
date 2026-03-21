@@ -23,6 +23,9 @@ from immich_doctor.core.config import load_settings
 from immich_doctor.services.backup_asset_workflow_service import BackupAssetWorkflowService
 from immich_doctor.services.backup_execution_service import BackupExecutionService
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
+from immich_doctor.services.backup_runtime_capability_service import (
+    BackupRuntimeCapabilityService,
+)
 from immich_doctor.services.backup_size_service import BackupSizeEstimationService
 from immich_doctor.services.backup_snapshot_service import BackupSnapshotVisibilityService
 from immich_doctor.services.backup_target_settings_service import BackupTargetSettingsService
@@ -97,8 +100,13 @@ def cancel_backup_size_estimate(request: Request) -> BackupSizeEstimateApiRespon
 
 
 @backup_router.get("/targets", response_model=BackupTargetsApiResponse)
-def list_backup_targets() -> BackupTargetsApiResponse:
+def list_backup_targets(request: Request) -> BackupTargetsApiResponse:
     data = BackupTargetSettingsService().list_targets(load_settings())
+    runtime_capabilities = BackupRuntimeCapabilityService(runtime=_job_runtime(request))
+    data["runtimeCapabilities"] = {
+        "rsync": runtime_capabilities.probe_rsync(),
+        "sshAgent": runtime_capabilities.probe_ssh_agent(),
+    }
     return BackupTargetsApiResponse(data=data)
 
 

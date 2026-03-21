@@ -56,6 +56,19 @@ const backupStore: any = {
       },
     ],
     limitations: [],
+    runtimeCapabilities: {
+      sshAgent: {
+        checkedAt: "2026-03-21T14:00:00+00:00",
+        available: false,
+        summary:
+          "No forwarded SSH agent is available in the doctor runtime. Mount the host agent socket and set SSH_AUTH_SOCK, or use a private key secret.",
+      },
+      rsync: {
+        checkedAt: "2026-03-21T14:00:00+00:00",
+        available: true,
+        summary: "Local rsync is available in the doctor runtime.",
+      },
+    },
   },
   targets: [
     {
@@ -242,6 +255,19 @@ function resetMockStore(): void {
   backupStore.targetsOverview = {
     items: [target],
     limitations: [],
+    runtimeCapabilities: {
+      sshAgent: {
+        checkedAt: "2026-03-21T14:00:00+00:00",
+        available: false,
+        summary:
+          "No forwarded SSH agent is available in the doctor runtime. Mount the host agent socket and set SSH_AUTH_SOCK, or use a private key secret.",
+      },
+      rsync: {
+        checkedAt: "2026-03-21T14:00:00+00:00",
+        available: true,
+        summary: "Local rsync is available in the doctor runtime.",
+      },
+    },
   };
   backupStore.targets = [target];
   backupStore.selectedTargetId = target.targetId;
@@ -889,6 +915,34 @@ describe("BackupView", () => {
 
     expect(wrapper.text()).toContain("Server / Host");
     expect(wrapper.text()).toContain("Port");
+  });
+
+  it("explains forwarded SSH agent expectations in the backup form", async () => {
+    const wrapper = mount(BackupView, {
+      global: {
+        stubs: {
+          BackupWorkflowPanel: { template: "<div />" },
+          PageHeader: { template: "<div />" },
+          RiskNotice: { template: "<div />" },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div />" },
+          EmptyState: { template: "<div />" },
+          StatusTag: { template: "<span />", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    const selects = wrapper.findAll("select");
+    await selects[0]?.setValue("ssh");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Username is always required for SSH login.");
+    expect(wrapper.text()).toContain("Host SSH success does not automatically mean container SSH success.");
+    expect(wrapper.text()).toContain("Known hosts file");
+    expect(wrapper.text()).toContain("Host known_hosts files are not shared into the container automatically.");
   });
 
   it("uses rsync over SSH wording", async () => {
