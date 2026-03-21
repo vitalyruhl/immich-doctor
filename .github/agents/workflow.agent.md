@@ -10,10 +10,10 @@ This agent is responsible for:
 - session hygiene
 - artifact shipping coordination
 
-This agent MUST respect global safety rules from AGENTS.md.
+This agent MUST respect rules from .github/AGENTS.md.
 
 ==================================================
-GLOBAL WORKFLOW PRINCIPLES
+BRANCH MODEL
 ==================================================
 
 - main is protected
@@ -23,61 +23,15 @@ GLOBAL WORKFLOW PRINCIPLES
 Branch types:
 
 feature/*
-fix/*
 chore/*
 
 Branch model:
 
 - Large topics belong to feature branches
 - Short-lived work branches belong under the relevant feature branch
-- chore/fix branches must merge back into their feature first
+- Bugfix work is handled as chore work under the relevant feature
+- chore branches must merge back into their feature first
 - Only completed and runnable features may merge to main
-
-Branch freshness:
-
-Before starting work:
-
-- verify current branch matches task scope
-- verify base branch is up to date (local + remote)
-- if mismatch → STOP and report:
-  - current branch
-  - expected branch
-  - recommended correction
-
-Before commit/push/PR:
-
-- verify correct branch
-- verify working tree is clean or intentionally changed
-- verify no unrelated changes included
-- verify correct merge target
-
-Feature dependency rule:
-
-If work depends on another open feature:
-
-- do not silently stack changes
-- present options:
-  - merge dependency first
-  - branch intentionally from dependency
-  - split work
-
-Feature completion rule:
-
-Before merging feature to main:
-
-- all related chore/fix branches must be merged
-- no temporary branches may remain
-- feature must be runnable and validated
-
-Merge verification:
-
-Before claiming work is in main verify:
-
-- local branch state
-- remote branch state
-- merged vs non-merged state
-- open PRs
-- squash/rebase cases
 
 ==================================================
 SHORTCUT COMMANDS
@@ -89,7 +43,8 @@ SHORTCUT COMMANDS
 .audit
 .ship
 .ready
-.inMain
+.promoteMain
+.toMain
 .end
 
 ==================================================
@@ -102,7 +57,26 @@ GENERAL RULES
 - Never perform large refactors during workflow shortcuts
 - Prefer small, safe, reviewable changes
 - Always report what was done, what was skipped, and why
-- If a shortcut is not safely applicable → STOP and explain
+- If a shortcut is not safely applicable -> STOP and explain
+
+==================================================
+SHORTCUT COLLISION CHECK
+==================================================
+
+Before executing any shortcut, check for contradictions with:
+
+- current branch purpose
+- open feature/chore scope
+- recent subsystem strategy
+- recent workflow decisions
+
+If contradiction is detected:
+
+- WARN before execution if the collision is informational but non-destructive
+- STOP before execution if the collision would create competing implementation paths, duplicate strategy, or partially invalidate recent unfinished work
+- explain the conflict briefly
+- recommend consolidation first when directions diverge
+- recommend `refactor.agent` when consolidation is structural
 
 ==================================================
 .begin
@@ -111,22 +85,26 @@ GENERAL RULES
 Purpose:
 Start new work on the correct branch level.
 
-Inputs:
+Input grammar:
 
-use workflow.begin <topic>
-use workflow.begin <parent>/<topic>
+use workflow.begin <feature>/<subtask>
 
-Rules:
+Preconditions:
 
-If on main → create feature/<topic>  
-If on feature/* → create chore/<topic>  
-If on chore/* → STOP (nested chore branches forbidden)
+- input must contain exactly two non-empty path segments
+- both segments are normalized to lowercase kebab-case
+- current branch must be `main` or `feature/<feature>`
 
-Behavior:
+STOP if:
 
-- normalize names to lowercase kebab-case
-- replace spaces/underscores with "-"
-- reject empty topics
+- current branch is `chore/*`
+- the current feature branch does not match `<feature>`
+- the topic cannot be normalized safely
+
+Deterministic outcome:
+
+- if current branch is `main` -> create `feature/<feature>`
+- if current branch is `feature/<feature>` -> create `chore/<subtask>`
 
 ==================================================
 .checkpoint
@@ -135,24 +113,28 @@ Behavior:
 Purpose:
 Create safe intermediate development checkpoint.
 
-Behavior:
+Input grammar:
+
+use workflow.checkpoint <topic>
+
+Preconditions:
+
+- current branch must not be `main`
+- working tree state must be readable
+
+STOP if:
+
+- merge conflicts are unresolved
+- repository state is unclear
+
+Deterministic outcome:
 
 - stage current work
 - create checkpoint commit
 - push branch if configured
 - DO NOT merge
 - DO NOT change project completion status
-
-Commit style:
-
-checkpoint: <topic>  
-or  
-wip(checkpoint): <topic>
-
-STOP if:
-
-- merge conflicts unresolved
-- repository state unclear
+- commit message is `checkpoint: <topic>` or `wip(checkpoint): <topic>`
 
 ==================================================
 .docs
@@ -161,28 +143,29 @@ STOP if:
 Purpose:
 Synchronize and repair minor documentation inconsistencies.
 
-Behavior:
+Input grammar:
+
+use workflow.docs
+
+Preconditions:
+
+- scope is documentation-only
+- scope is limited to small typo fixes, minor CLI option sync, or small drift correction
+
+STOP if:
+
+- implementation truth is unclear
+- the requested work is a README rewrite, architecture documentation, new subsystem documentation, release notes, or UX/system documentation
+
+Deterministic outcome:
 
 - detect documentation drift
 - update only necessary scope
 - preserve factual correctness
 - remove misleading statements
-
-Allowed:
-
-- markdown/docs
-- examples/snippets
-
-Disallowed:
-
-- product logic changes
-- speculative documentation
-
-STOP if:
-
-- implementation truth unclear
-
-Major documentation work → use docs.agent
+- touch only markdown/docs/examples
+- do not change product logic
+- for broader documentation scope, hand off to `docs.agent`
 
 ==================================================
 .audit
@@ -191,7 +174,21 @@ Major documentation work → use docs.agent
 Purpose:
 Perform repository consistency and risk audit.
 
-Behavior:
+Input grammar:
+
+use workflow.audit
+use workflow.audit <scope>
+
+Preconditions:
+
+- repository state must be readable
+- requested scope must be inspectable without changing behavior
+
+STOP if:
+
+- audit scope is unverifiable
+
+Deterministic outcome:
 
 - inspect naming, architecture, workflow, CI, docs
 - produce structured audit report
@@ -200,20 +197,10 @@ Behavior:
   - likely
   - unknown
 - prioritize risks
-
-Allowed:
-
-- audit markdown creation/update
-- trivial mechanical fixes
-
-Disallowed:
-
-- large refactors
-- feature work
-
-STOP if:
-
-- audit scope unverifiable
+- perform read-only analysis only
+- do not make structural changes
+- do not refactor
+- do not modify behavior
 
 ==================================================
 .ship
@@ -222,19 +209,27 @@ STOP if:
 Purpose:
 Build and verify release artifacts or images.
 
-Behavior:
+Input grammar:
+
+use workflow.ship
+
+Preconditions:
+
+- repository state must be safe for build and packaging work
+
+STOP if:
+
+- build fails
+- verification fails
+- repository state is unsafe
+
+Deterministic outcome:
 
 - verify repository state
 - execute build/package
 - verify outputs
 - report exact artifact names/tags
 - DO NOT merge or publish implicitly
-
-STOP if:
-
-- build fails
-- verification fails
-- repository state unsafe
 
 ==================================================
 .ready
@@ -243,7 +238,23 @@ STOP if:
 Purpose:
 Promote completed chore branch to its feature parent.
 
-Behavior:
+Input grammar:
+
+use workflow.ready
+
+Preconditions:
+
+- current branch must be `chore/*`
+- the parent `feature/*` branch must be determinable from branch ancestry
+- required verification for the chore scope must be complete
+
+STOP if:
+
+- the parent feature relation is unclear
+- conflicts exist
+- critical checks are failing
+
+Deterministic outcome:
 
 - detect correct feature target
 - ensure clean branch state
@@ -252,20 +263,79 @@ Behavior:
 - push feature branch
 - run required verification
 
+==================================================
+.promoteMain
+==================================================
+
+Purpose:
+Promote the current stable subset of an active feature branch into `main` without closing or deleting the feature branch.
+
+Input grammar:
+
+use workflow.promoteMain
+
+Preconditions:
+
+- current branch must be `feature/*`
+- the current branch contains a stable, runnable, and clearly mergeable subset
+- the promoted subset must improve `main` compared to its current state
+- the remaining unfinished feature work must stay isolated and must not be dragged into `main`
+
 STOP if:
 
-- relation unclear
-- conflicts exist
-- critical checks failing
+- the stable subset cannot be separated clearly from unfinished work
+- the promotion would introduce partial architecture drift or competing implementation paths
+- important tests are failing
+- critical checks are not green
+- the branch contains mixed commits that would make selective promotion unsafe
+
+Deterministic outcome:
+
+- identify the mergeable subset of the current feature work
+- promote only the stable subset into `main`
+- keep the current `feature/*` branch active for continued development
+- ensure unfinished work remains outside `main`
+- update PR or integration path as needed
+- push `main` if promotion succeeds
+- report clearly:
+  - what was promoted
+  - what remains on the feature branch
+  - whether follow-up consolidation is recommended
+
+Disallowed:
+
+- silently merging unfinished feature scope
+- using this shortcut as a replacement for full feature completion
+- refactors unrelated to the promoted subset
+
+Fallback:
+
+If the stable subset cannot be isolated safely → recommend `.end` or `refactor.agent`
 
 ==================================================
-.inMain
+.toMain
 ==================================================
 
 Purpose:
 Merge feature into main only if fully merge-ready.
 
-Behavior:
+Input grammar:
+
+use workflow.toMain
+
+Preconditions:
+
+- current branch must be `feature/*`
+- all related chore branches must already be merged
+- the feature must be runnable and validated
+
+STOP if:
+
+- functional uncertainty remains
+- important tests are failing
+- critical checks are not green
+
+Deterministic outcome:
 
 - verify CI/tests
 - fix only trivial safe issues
@@ -278,11 +348,6 @@ Disallowed:
 - feature work
 - refactors
 
-STOP if:
-
-- functional uncertainty
-- failing important tests
-
 Fallback:
 If not mergeable → recommend .end
 
@@ -293,48 +358,58 @@ If not mergeable → recommend .end
 Purpose:
 Safely end work session without claiming merge readiness.
 
-Behavior:
+Input grammar:
+
+use workflow.end
+
+Preconditions:
+
+- repository state must be readable
+
+STOP if:
+
+- unresolved conflicts remain
+- repository state is unclear
+
+Deterministic outcome:
 
 - stage + commit if needed
 - push current branch
 - summarize state
 - DO NOT merge
-
-Allowed:
-
-- minor documentation sync
-- metadata cleanup
-
-STOP if:
-
-- unresolved conflicts
-- unclear repository state
+- only minor documentation sync or metadata cleanup may be included opportunistically
 
 ==================================================
 COMMAND EXAMPLES
 ==================================================
 
-# start work
-use workflow.begin backup
-use workflow.begin backup/bugfix-ssh-connection
+# from `main`
+use workflow.begin backup/ssh-fix
+
+# from `feature/backup`
+use workflow.begin backup/ssh-fix
 
 # intermediate save
 use workflow.checkpoint agents-workflow
-use workflow.checkpoint before-refactor
 
-# repository hygiene
+# small documentation sync
 use workflow.docs
+
+# read-only audit
 use workflow.audit
 use workflow.audit naming
 
 # build artifacts
 use workflow.ship
 
-# branch promotion
+# promote current chore branch into its parent feature branch
 use workflow.ready
 
-# merge to main
-use workflow.inMain
+# promote stable subset of current feature into `main`, but keep feature active
+use workflow.promoteMain
 
-# end session
+# merge current feature branch into `main`
+use workflow.toMain
+
+# end current session without merge
 use workflow.end

@@ -40,11 +40,11 @@ Assume:
 Never assume Immich correctness.
 
 ========================================
-WORKFLOW BASELINE
+MUTATION POLICY
 ========================================
 
 Default flow:
-inspect → plan → change → verify → summarize
+inspect -> plan -> change -> verify -> summarize
 
 User changes are sacred:
 - Never overwrite user edits without asking
@@ -58,13 +58,49 @@ Ask clarification when:
 
 Autonomy levels:
 
-A → read-only
-B → small safe change
-C → risky mutation or broad refactor
+A -> read-only
+B -> small safe change
+C -> risky mutation or broad refactor
 
 Level C requires explicit user approval.
 
-Prefer minimal safe change over maximal redesign.
+========================================
+CONSISTENCY AND COLLISION GUARD
+========================================
+
+Before proposing or applying changes, the agent must check whether the new task conflicts with:
+- recent architectural decisions
+- active branch intent
+- existing subsystem strategies
+- open feature or chore scopes
+- documented plans, audits, TODOs, or prompts
+
+Treat as collision when:
+- a new solution contradicts or replaces a recent unfinished solution
+- multiple strategies exist for the same subsystem
+- workflow direction diverges without consolidation
+- new work would partially undo recent work without explicit acknowledgment
+
+Required behavior on collision:
+
+- Do NOT continue silently
+- Emit a clear warning before proceeding
+- Name the previous direction
+- Name the new direction
+- State the contradiction
+- If collision is informational but non-destructive:
+  - WARN before continuing
+- If collision would create competing implementation paths, duplicate strategy, or partially invalidate recent unfinished work:
+  - STOP before continuing
+- Recommend one of:
+  - continue intentionally and supersede old direction
+  - stop and consolidate first
+  - use refactor.agent if consolidation is structural
+
+If uncertainty exists:
+Prefer warning over silence.
+
+One warning too many is safer than silent strategy drift.
 
 ========================================
 ARCHITECTURE LAW
@@ -95,7 +131,7 @@ REPAIR SYSTEM LAW
 ========================================
 
 Repair phases:
-scan → report → decision → execution
+scan -> report -> decision -> execution
 
 Never mix scan + mutate.
 
@@ -118,10 +154,10 @@ DATABASE SAFETY
 ========================================
 
 - Never change schema
-- Prefer detect → report → suggest
+- Prefer detect -> report -> suggest
 
 ========================================
-PYTHON RULES
+ENGINEERING RULES
 ========================================
 
 - Type hints everywhere
@@ -133,23 +169,29 @@ PYTHON RULES
 Tooling:
 Use uv only.
 
-========================================
-TESTING
-========================================
-
+Testing:
 - pytest required
 - repair logic must be tested
 - mocked data marked [MOCKED]
 
 ========================================
-AGENT SPECIALIZATION
+AGENT TOPOLOGY
 ========================================
 
-Use specialized agents when appropriate:
+Specialized agents live in:
+.github/agents/*.agent.md
 
-- workflow.agent → branch / lifecycle operations
-- docs.agent → documentation work
-- refactor.agent → structural improvements
+Specialized agents must contain only:
+- operational deltas
+- workflow-specific rules
+
+Use specialized agents when appropriate:
+- workflow.agent -> branch / lifecycle operations
+- docs.agent -> documentation work
+- refactor.agent -> structural improvements
+
+UI rules are subsystem-local and defined in:
+ui/agents.ui.md
 
 ========================================
 FINAL RULE

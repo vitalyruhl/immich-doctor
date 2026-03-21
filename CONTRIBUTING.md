@@ -65,8 +65,9 @@ Reviewers must reject non-canonical naming or placement before merge.
 
 - `main`: protected, stable baseline
 - `feature/*`: new functionality
-- `fix/*`: bug fixes
 - `chore/*`: documentation, tooling, CI, maintenance
+
+Bug fixes belong in the relevant `chore/*` branch under the active feature.
 
 Do not push directly to `main`.
 
