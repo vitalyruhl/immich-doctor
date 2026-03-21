@@ -46,6 +46,8 @@ Current SSH validation expectations:
   configured remote destination path and reports that failure reason explicitly
 - SSH connectivity and remote-path validation are not the same thing as remote
   execution readiness
+- stored private-key secrets are normalized to runtime-safe LF line endings
+  before they are materialized as temporary SSH key files
 - rsync-based remote execution additionally requires local `rsync` in the
   doctor runtime; if SSH/path probes succeed but local `rsync` is missing, the
   target stays validated while execution remains blocked

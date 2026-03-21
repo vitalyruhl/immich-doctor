@@ -70,12 +70,11 @@ class BackupTransportService:
                 secret_id=target.transport.private_key_secret_ref.secret_id,
             )
             with tempfile.NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
+                "wb",
                 prefix="immich-doctor-key-",
                 delete=False,
             ) as handle:
-                handle.write(private_key_material)
+                handle.write(private_key_material.encode("utf-8"))
                 key_path = Path(handle.name)
             try:
                 os.chmod(key_path, 0o600)

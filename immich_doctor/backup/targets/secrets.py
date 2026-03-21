@@ -39,7 +39,7 @@ class LocalSecretStore:
             kind=kind,
             label=label,
             createdAt=datetime.now(UTC).isoformat(),
-            material=material,
+            material=self._normalize_material(kind=kind, material=material),
         )
         path = backup_secret_path(settings, secret_id)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,7 +61,8 @@ class LocalSecretStore:
         return StoredSecretRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
     def load_secret_material(self, settings: AppSettings, *, secret_id: str) -> str:
-        return self.load_secret(settings, secret_id=secret_id).material
+        record = self.load_secret(settings, secret_id=secret_id)
+        return self._normalize_material(kind=record.kind, material=record.material)
 
     def root_exists(self, settings: AppSettings) -> bool:
         return backup_secret_root(settings).exists()
@@ -79,3 +80,11 @@ class LocalSecretStore:
             os.chmod(path, 0o600)
         except OSError:
             return
+
+    def _normalize_material(self, *, kind: str, material: str) -> str:
+        if kind != "private_key":
+            return material
+        normalized = material.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+        if normalized and not normalized.endswith("\n"):
+            normalized = f"{normalized}\n"
+        return normalized

@@ -393,6 +393,92 @@ def test_backup_target_validation_service_keeps_private_key_mode_independent_fro
     assert all(check["name"] != "remote_agent_socket" for check in result["checks"])
 
 
+def test_backup_target_validation_service_accepts_stored_private_key_secret_material(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
+    service = BackupTargetSettingsService()
+    created = service.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Remote Key",
+            targetType=BackupTargetType.SSH,
+            connectionString="backup@backup.example",
+            remotePath="/srv/backup",
+            authMode="private_key",
+            knownHostMode="strict",
+            knownHostReference=(tmp_path / "known_hosts").as_posix(),
+            privateKeySecret={
+                "label": "SSH key",
+                "material": (
+                    "-----BEGIN OPENSSH PRIVATE KEY-----\r\n"
+                    "KEYDATA\r\n"
+                    "-----END OPENSSH PRIVATE KEY-----"
+                ),
+            },
+        ),
+    )
+    target = service.get_target(settings, target_id=created["item"]["targetId"])
+
+    monkeypatch.setattr(
+        "immich_doctor.services.backup_target_validation_service.ExternalToolsAdapter.validate_required_tools",
+        lambda self, names: [
+            CheckResult(
+                name=f"tool_{name}",
+                status=CheckStatus.PASS,
+                message="Required external tool is available.",
+                details={"tool": name, "path": f"/usr/bin/{name}"},
+            )
+            for name in names
+        ],
+    )
+    monkeypatch.setattr(
+        BackupRuntimeCapabilityService,
+        "probe_rsync",
+        lambda self: {
+            "tool": "rsync",
+            "available": True,
+            "summary": "Local rsync is available in the doctor runtime.",
+            "check": CheckResult(
+                name="tool_rsync",
+                status=CheckStatus.PASS,
+                message="Local rsync is available in the doctor runtime.",
+                details={"tool": "rsync", "path": "/usr/bin/rsync", "version": "rsync 3.2.7"},
+            ).to_dict(),
+        },
+    )
+
+    def fake_run_remote_command(self, material, command):  # type: ignore[no-untyped-def]
+        del command
+        key_index = material.remote_shell_argv.index("-i")
+        key_path = Path(material.remote_shell_argv[key_index + 1])
+        assert key_path.read_bytes() == (
+            b"-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            b"KEYDATA\n"
+            b"-----END OPENSSH PRIVATE KEY-----\n"
+        )
+        return CompletedProcess(args=tuple(material.remote_shell_argv), returncode=0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(
+        "immich_doctor.services.backup_transport_service.BackupTransportService.run_remote_command",
+        fake_run_remote_command,
+    )
+
+    runtime = BackgroundJobRuntime()
+    try:
+        result = BackupTargetValidationService(runtime=runtime).validate_target_now(
+            settings,
+            target=target,
+        )
+    finally:
+        runtime.shutdown()
+
+    assert result["state"] == "completed"
+    assert result["verificationStatus"] == "ready"
+    assert any(check["name"] == "remote_write_probe" for check in result["checks"])
+
+
 def test_backup_target_validation_service_marks_smb_pre_mounted_path_executable(
     tmp_path: Path,
 ) -> None:

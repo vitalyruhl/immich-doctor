@@ -108,6 +108,36 @@ def test_backup_target_service_returns_secret_reference_without_secret_echo(
     assert "PRIVATE KEY DATA" not in str(item)
 
 
+def test_backup_target_service_normalizes_private_key_secret_material(
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(_env_file=None, config_path=tmp_path / "config")
+    service = BackupTargetSettingsService()
+    private_key_material = "-----BEGIN OPENSSH PRIVATE KEY-----\r\nKEYDATA\r\n-----END OPENSSH PRIVATE KEY-----"
+
+    result = service.create_target(
+        settings,
+        BackupTargetUpsertPayload(
+            targetName="Remote SSH",
+            targetType=BackupTargetType.SSH,
+            connectionString="backup@backup.example",
+            remotePath="/srv/backup/immich",
+            authMode="private_key",
+            knownHostMode="strict",
+            privateKeySecret={"label": "Main SSH key", "material": private_key_material},
+        ),
+    )
+
+    secret_id = result["item"]["transport"]["privateKeySecretRef"]["secretId"]
+    stored_material = service.secrets.load_secret_material(settings, secret_id=secret_id)
+
+    assert stored_material == (
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+        "KEYDATA\n"
+        "-----END OPENSSH PRIVATE KEY-----\n"
+    )
+
+
 def test_backup_target_service_accepts_smb_pre_mounted_mode_without_credentials(
     tmp_path: Path,
 ) -> None:
