@@ -72,6 +72,9 @@ Expected behavior:
 - the dump path comes from `.env` or `--dump`
 - PowerShell and Bash both use `.env` dump settings when `--dump` / `-Dump` and format flags are omitted
 - relative dump paths are resolved from `dev/testbed/`
+- plain SQL `.sql` dumps are handled explicitly
+- canonical PostgreSQL cluster dumps are replayed from the maintenance database `postgres`
+- bootstrap role statements for the active testbed login role are skipped intentionally to avoid self-drop conflicts and to preserve local testbed access
 
 Example:
 
@@ -158,6 +161,22 @@ Export behavior:
   - `dev/testbed/exports/immich-testbed-export.sql` for `plain`
 - the export directory is created automatically
 - `dev/testbed/exports/` is ignored by git
+
+Restore result classification:
+
+- `success`
+  - no meaningful restore errors were observed
+- `partial success`
+  - replay completed and the target database exists, but one or more SQL errors were reported
+  - this is still usable for debugging when the remaining errors come from source-data inconsistencies or extension/index compatibility issues
+- `failure`
+  - replay is still structurally wrong, the command failed, or the target database was not recreated
+
+Known plain SQL handling notes:
+
+- Windows CRLF line endings are normalized before replay inside the container
+- cluster dumps are not replayed into an already-open target database session
+- remaining restore errors are surfaced honestly and are not reported as full success
 
 ## Reset
 

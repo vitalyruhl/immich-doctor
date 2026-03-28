@@ -29,12 +29,26 @@ function Get-ComposeArgs {
 }
 
 function Invoke-Compose {
-    param(
-        [string[]]$CommandArgs
-    )
+    param([string[]]$CommandArgs)
     & docker compose @(Get-ComposeArgs) @CommandArgs
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose command failed."
+    }
+}
+
+function Invoke-ComposeExecCapture {
+    param([string[]]$CommandArgs)
+    $previousNativePreference = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+    try {
+        $output = & docker compose @(Get-ComposeArgs) exec -T (Get-DbServiceName) @CommandArgs 2>&1
+        return [pscustomobject]@{
+            Output = @($output)
+            ExitCode = $LASTEXITCODE
+        }
+    }
+    finally {
+        $PSNativeCommandUseErrorActionPreference = $previousNativePreference
     }
 }
 
@@ -151,6 +165,27 @@ function Get-DefaultExportPath {
     return Join-Path $TestbedDir (Join-Path "exports" $fileName)
 }
 
+function Resolve-DumpFormat {
+    param(
+        [string]$DumpPath,
+        [string]$DumpFormat
+    )
+    if ($DumpFormat -eq "auto") {
+        switch -Regex ($DumpPath) {
+            "\.(dump|backup|bin)$" { return "custom" }
+            "\.sql$" { return "plain" }
+            default { throw "Could not infer dump format for $DumpPath. Set TESTBED_DUMP_FORMAT to plain or custom." }
+        }
+    }
+    return $DumpFormat
+}
+
+function Test-PlainSqlClusterDump {
+    param([string]$DumpPath)
+    $header = Get-Content -Path $DumpPath -TotalCount 80
+    return ($header -match "PostgreSQL database cluster dump")
+}
+
 function Ensure-ParentDirectory {
     param([string]$Path)
     $parent = Split-Path -Parent $Path
@@ -205,6 +240,23 @@ function Copy-VolumeContents {
     }
 }
 
+function Test-DatabaseExists {
+    param([string]$DatabaseName)
+    $dbUser = Get-EnvOrDefault -Name "TESTBED_DB_USER" -Default "postgres"
+    $query = "SELECT 1 FROM pg_database WHERE datname = '$DatabaseName';"
+    $result = Invoke-ComposeExecCapture -CommandArgs @(
+        "psql",
+        "--username=$dbUser",
+        "--dbname=postgres",
+        "-Atqc",
+        $query
+    )
+    if ($result.ExitCode -ne 0) {
+        throw "Failed to verify database existence for $DatabaseName."
+    }
+    return (($result.Output -join "`n").Trim() -eq "1")
+}
+
 function Restore-DumpIntoDatabase {
     param(
         [string]$DumpPath,
@@ -215,52 +267,174 @@ function Restore-DumpIntoDatabase {
         throw "Dump file not found: $resolvedDumpPath"
     }
 
+    $resolvedDumpFormat = Resolve-DumpFormat -DumpPath $resolvedDumpPath -DumpFormat $DumpFormat
     $containerId = Get-DbContainerId
     if (-not $containerId) {
         throw "PostgreSQL container is not running."
     }
 
     $containerDumpPath = "/tmp/immich-testbed.dump"
+    $containerPreparedDumpPath = "/tmp/immich-testbed-prepared.sql"
+    $containerRestoreLogPath = "/tmp/immich-testbed-restore.log"
     $dbUser = Get-EnvOrDefault -Name "TESTBED_DB_USER" -Default "postgres"
     $dbName = Get-EnvOrDefault -Name "TESTBED_DB_NAME" -Default "immich"
+    $hostPreparedDumpPath = $null
+
     Write-Host "Copying dump into container..."
     & docker cp $resolvedDumpPath "${containerId}:${containerDumpPath}"
     if ($LASTEXITCODE -ne 0) {
         throw "docker cp failed."
     }
 
-    Write-Host "Recreating target database..."
-    $recreateCommand = "psql --username='$dbUser' --dbname=postgres -c `"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName' AND pid <> pg_backend_pid();`" >/dev/null; dropdb --if-exists --force --username='$dbUser' '$dbName'; createdb --username='$dbUser' '$dbName'"
-    & docker compose @(Get-ComposeArgs) exec -T (Get-DbServiceName) sh -eu -c $recreateCommand
-    if ($LASTEXITCODE -ne 0) {
-        throw "Database recreate failed."
-    }
+    $classification = "failure"
+    $meaningfulErrorCount = 0
+    $structuralErrorCount = 0
+    $expectedSkippedStatements = 0
 
-    if ($DumpFormat -eq "auto") {
-        switch -Regex ($resolvedDumpPath) {
-            "\.(dump|backup|bin)$" { $DumpFormat = "custom"; break }
-            "\.sql$" { $DumpFormat = "plain"; break }
-            default { throw "Could not infer dump format for $resolvedDumpPath. Set TESTBED_DUMP_FORMAT to plain or custom." }
-        }
-    }
+    try {
+        switch ($resolvedDumpFormat) {
+            "custom" {
+                Write-Host "Recreating target database for custom-format restore..."
+                $recreateCommand = "psql --username='$dbUser' --dbname=postgres -c `"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName' AND pid <> pg_backend_pid();`" >/dev/null; dropdb --if-exists --force --username='$dbUser' '$dbName'; createdb --username='$dbUser' '$dbName'"
+                $recreateResult = Invoke-ComposeExecCapture -CommandArgs @("sh", "-eu", "-c", $recreateCommand)
+                if ($recreateResult.ExitCode -ne 0) {
+                    throw "Database recreate failed."
+                }
 
-    Write-Host "Restoring database using format: $DumpFormat"
-    switch ($DumpFormat) {
-        "custom" {
-            & docker compose @(Get-ComposeArgs) exec -T (Get-DbServiceName) pg_restore --clean --if-exists --no-owner --no-privileges "--username=$dbUser" "--dbname=$dbName" $containerDumpPath
-        }
-        "plain" {
-            $restoreCommand = "psql --username='$dbUser' --dbname='$dbName' -f '$containerDumpPath'"
-            & docker compose @(Get-ComposeArgs) exec -T (Get-DbServiceName) sh -eu -c $restoreCommand
-        }
-        default {
-            throw "Unsupported dump format: $DumpFormat"
-        }
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Database restore failed."
-    }
+                Write-Host "Restoring database using format: custom"
+                $restoreCommand = "pg_restore --clean --if-exists --no-owner --no-privileges --username='$dbUser' --dbname='$dbName' '$containerDumpPath' > '$containerRestoreLogPath' 2>&1; status=`$?; grep -E 'ERROR:|FATAL:' '$containerRestoreLogPath' || true; exit `$status"
+                $restoreResult = Invoke-ComposeExecCapture -CommandArgs @("sh", "-eu", "-c", $restoreCommand)
+                $restoreOutput = @($restoreResult.Output)
+                foreach ($line in $restoreOutput) { Write-Host $line }
 
-    & docker compose @(Get-ComposeArgs) exec -T (Get-DbServiceName) rm -f $containerDumpPath *> $null
-    Write-Host "Database restore completed."
+                $meaningfulErrorCount = @($restoreOutput | Where-Object { $_ -match "(?i)\berror:" }).Count
+                $structuralErrorCount = 0
+
+                Wait-ForPostgres
+                if ($restoreResult.ExitCode -ne 0 -or -not (Test-DatabaseExists -DatabaseName $dbName)) {
+                    $classification = "failure"
+                }
+                elseif ($meaningfulErrorCount -gt 0) {
+                    $classification = "partial success"
+                }
+                else {
+                    $classification = "success"
+                }
+            }
+            "plain" {
+                if (Test-PlainSqlClusterDump -DumpPath $resolvedDumpPath) {
+                    Write-Host "Detected plain SQL cluster dump. Restoring from maintenance database without pre-creating the target DB."
+                    $hostPreparedDumpPath = [System.IO.Path]::GetTempFileName()
+                    $reader = [System.IO.File]::OpenText($resolvedDumpPath)
+                    $writer = [System.IO.StreamWriter]::new($hostPreparedDumpPath, $false, [System.Text.UTF8Encoding]::new($false))
+                    $writer.NewLine = "`n"
+                    try {
+                        while (($line = $reader.ReadLine()) -ne $null) {
+                            if ($line -eq "DROP ROLE IF EXISTS $dbUser;") {
+                                $writer.WriteLine("-- immich-doctor skipped bootstrap role drop: $line")
+                                $expectedSkippedStatements++
+                                continue
+                            }
+                            if ($line -eq "CREATE ROLE $dbUser;") {
+                                $writer.WriteLine("-- immich-doctor skipped bootstrap role create: $line")
+                                $expectedSkippedStatements++
+                                continue
+                            }
+                            if ($line.StartsWith("ALTER ROLE $dbUser WITH ")) {
+                                $writer.WriteLine("-- immich-doctor skipped bootstrap role alter: $line")
+                                $expectedSkippedStatements++
+                                continue
+                            }
+                            $writer.WriteLine($line)
+                        }
+                    }
+                    finally {
+                        $reader.Dispose()
+                        $writer.Dispose()
+                    }
+
+                    & docker cp $hostPreparedDumpPath "${containerId}:${containerPreparedDumpPath}"
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "Failed to copy prepared plain SQL dump into container."
+                    }
+                    if ($expectedSkippedStatements -gt 0) {
+                        Write-Host "Skipped bootstrap-role statements for the active testbed login role: $expectedSkippedStatements"
+                    }
+
+                    Write-Host "Restoring database using format: plain (cluster-aware mode)"
+                    $restoreCommand = "psql --username='$dbUser' --dbname=postgres -v ON_ERROR_STOP=0 -f '$containerPreparedDumpPath' > '$containerRestoreLogPath' 2>&1; status=`$?; grep -E 'ERROR:|FATAL:' '$containerRestoreLogPath' || true; exit `$status"
+                }
+                else {
+                    Write-Host "Detected plain SQL database dump. Recreating target database before restore."
+                    $recreateCommand = "psql --username='$dbUser' --dbname=postgres -c `"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$dbName' AND pid <> pg_backend_pid();`" >/dev/null; dropdb --if-exists --force --username='$dbUser' '$dbName'; createdb --username='$dbUser' '$dbName'"
+                    $recreateResult = Invoke-ComposeExecCapture -CommandArgs @("sh", "-eu", "-c", $recreateCommand)
+                    if ($recreateResult.ExitCode -ne 0) {
+                        throw "Database recreate failed."
+                    }
+                    Write-Host "Restoring database using format: plain (database-only mode)"
+                    $restoreCommand = "psql --username='$dbUser' --dbname='$dbName' -v ON_ERROR_STOP=0 -f '$containerDumpPath' > '$containerRestoreLogPath' 2>&1; status=`$?; grep -E 'ERROR:|FATAL:' '$containerRestoreLogPath' || true; exit `$status"
+                }
+
+                $restoreResult = Invoke-ComposeExecCapture -CommandArgs @("sh", "-eu", "-c", $restoreCommand)
+                $restoreOutput = @($restoreResult.Output)
+                foreach ($line in $restoreOutput) { Write-Host $line }
+
+                $meaningfulErrorCount = @($restoreOutput | Where-Object { $_ -match "(?i)\berror:" }).Count
+                $structuralPatterns = @(
+                    "cannot drop the currently open database",
+                    "current user cannot be dropped",
+                    "role `"$dbUser`" already exists",
+                    "database `"$dbName`" already exists"
+                )
+                $structuralErrorCount = @(
+                    foreach ($pattern in $structuralPatterns) {
+                        $restoreOutput | Where-Object { $_ -match [regex]::Escape($pattern) }
+                    }
+                ).Count
+
+                Wait-ForPostgres
+                if ($restoreResult.ExitCode -ne 0 -or $structuralErrorCount -gt 0 -or -not (Test-DatabaseExists -DatabaseName $dbName)) {
+                    $classification = "failure"
+                }
+                elseif ($meaningfulErrorCount -gt 0) {
+                    $classification = "partial success"
+                }
+                else {
+                    $classification = "success"
+                }
+            }
+            default {
+                throw "Unsupported dump format: $resolvedDumpFormat"
+            }
+        }
+
+        Write-Host "Restore classification: $classification"
+        if ($expectedSkippedStatements -gt 0) {
+            Write-Host "Expected skipped statements: $expectedSkippedStatements"
+        }
+        if ($structuralErrorCount -gt 0) {
+            Write-Host "Structural restore errors: $structuralErrorCount"
+        }
+        if ($meaningfulErrorCount -gt 0) {
+            Write-Host "Meaningful restore errors: $meaningfulErrorCount"
+        }
+
+        if ($classification -eq "failure") {
+            throw "Restore classification: failure"
+        }
+
+        return [pscustomobject]@{
+            Classification = $classification
+            DumpFormat = $resolvedDumpFormat
+            ExpectedSkippedStatements = $expectedSkippedStatements
+            StructuralErrorCount = $structuralErrorCount
+            MeaningfulErrorCount = $meaningfulErrorCount
+        }
+    }
+    finally {
+        if ($hostPreparedDumpPath -and (Test-Path $hostPreparedDumpPath)) {
+            Remove-Item -LiteralPath $hostPreparedDumpPath -Force
+        }
+        Invoke-ComposeExecCapture -CommandArgs @("rm", "-f", $containerDumpPath, $containerPreparedDumpPath, $containerRestoreLogPath) *> $null
+    }
 }
