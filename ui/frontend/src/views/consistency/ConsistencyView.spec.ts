@@ -1,6 +1,6 @@
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
-import { vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import ConsistencyView from "./ConsistencyView.vue";
 
 const findings = [
@@ -17,6 +17,7 @@ const findings = [
     scan_timestamp: "2026-03-28T08:00:00+00:00",
     repair_readiness: "ready",
     repair_blockers: [],
+    repair_blocker_details: [],
     message: "Missing file on disk.",
   },
   {
@@ -32,6 +33,7 @@ const findings = [
     scan_timestamp: "2026-03-28T08:00:00+00:00",
     repair_readiness: "ready",
     repair_blockers: [],
+    repair_blocker_details: [],
     message: "Missing file on disk.",
   },
   {
@@ -46,7 +48,27 @@ const findings = [
     updated_at: "2026-03-22T10:00:00+00:00",
     scan_timestamp: "2026-03-28T08:00:00+00:00",
     repair_readiness: "blocked",
-    repair_blockers: ["unsupported scope"],
+    repair_blockers: ["Unsupported dependency tables detected"],
+    repair_blocker_details: [
+      {
+        blocker_code: "unsupported_dependency_tables",
+        blocker_type: "schema",
+        summary: "Unsupported dependency tables detected",
+        details: {
+          reason: "Repair is intentionally blocked when unsupported dependent tables exist.",
+          unsupported_tables: ["public.activity", "public.asset_exif"],
+          repair_blocked: true,
+        },
+        affected_tables: ["public.activity", "public.asset_exif"],
+        repair_covered_tables: [
+          "public.album_asset",
+          "public.asset_file",
+          "public.asset_job_status",
+        ],
+        blocking_severity: "error",
+        is_repairable: false,
+      },
+    ],
     message: "Unsupported reference type.",
   },
 ];
@@ -148,11 +170,22 @@ function createStore() {
       findings,
       metadata: {
         supportedScope: {
-          scanTables: ["assets"],
-          scanPathField: "file_path",
-          repairRestoreTables: ["repair_runs", "restore_points"],
-          blockingIssues: ["permission denied"],
+          scanTables: ["public.asset"],
+          scanPathField: "public.asset.originalPath",
+          repairRestoreTables: [
+            "public.asset",
+            "public.album_asset",
+            "public.asset_file",
+            "public.asset_job_status",
+          ],
+          repairCoveredDependencyTables: [
+            "public.album_asset",
+            "public.asset_file",
+            "public.asset_job_status",
+          ],
+          scanBlockers: findings[2].repair_blocker_details,
         },
+        blockingIssues: ["Unsupported dependency tables detected"],
       },
       recommendations: [],
     },
@@ -198,7 +231,7 @@ function createStore() {
   };
 }
 
-const store = createStore();
+let store = createStore();
 
 vi.mock("@/stores/consistency", () => ({
   useConsistencyStore: () => store,
@@ -246,7 +279,42 @@ async function settle() {
 
 describe("ConsistencyView", () => {
   beforeEach(() => {
+    store = createStore();
     vi.clearAllMocks();
+  });
+
+  it("renders compact blocker summaries and expands precise blocker details on demand", async () => {
+    const wrapper = mountView();
+    await settle();
+
+    const findingsTable = wrapper.findAll("table.consistency-table")[0];
+    const blockedRow = findingsTable
+      .findAll("tbody tr")
+      .find((row) => row.text().includes("asset-3"));
+
+    expect(blockedRow?.text()).toContain("Blocked");
+    expect(blockedRow?.text()).toContain("unsupported dependency tables (2)");
+    expect(blockedRow?.text()).not.toContain(
+      "Repair is intentionally blocked when unsupported dependent tables exist.",
+    );
+
+    expect(wrapper.text()).toContain("Blocked findings");
+    expect(wrapper.text()).toContain("Unsupported tables detected");
+    expect(wrapper.text()).toContain("public.activity, public.asset_exif");
+    expect(wrapper.text()).toContain("public.album_asset, public.asset_file, public.asset_job_status");
+
+    const detailsButton = blockedRow?.findAll("button").find((button) => button.text() === "View details");
+    expect(detailsButton).toBeTruthy();
+    await detailsButton!.trigger("click");
+    await settle();
+
+    expect(wrapper.text()).toContain("Unsupported dependency tables detected");
+    expect(wrapper.text()).toContain(
+      "Repair is intentionally blocked when unsupported dependent tables exist.",
+    );
+    expect(wrapper.text()).toContain("public.activity");
+    expect(wrapper.text()).toContain("public.asset_exif");
+    expect(wrapper.text()).toContain("Repair currently covers");
   });
 
   it("renders preview flows and requires both disclaimer checks before apply", async () => {
@@ -254,7 +322,15 @@ describe("ConsistencyView", () => {
     await settle();
 
     const findingsTable = wrapper.findAll("table.consistency-table")[0];
-    await findingsTable.findAll("tbody tr")[0].get("button").trigger("click");
+    const readyRow = findingsTable
+      .findAll("tbody tr")
+      .find((row) => row.text().includes("asset-2"));
+    const previewSingleButton = readyRow
+      ?.findAll("button")
+      .find((button) => button.text() === "Preview single");
+
+    expect(previewSingleButton).toBeTruthy();
+    await previewSingleButton!.trigger("click");
     await settle();
 
     expect(store.preview).toHaveBeenCalledWith({
@@ -300,7 +376,8 @@ describe("ConsistencyView", () => {
     await settle();
 
     const findingsTable = wrapper.findAll("table.consistency-table")[0];
-    expect(findingsTable.findAll("tbody tr")).toHaveLength(1);
+    const visibleRowsAfterSearch = findingsTable.findAll("tbody tr");
+    expect(visibleRowsAfterSearch).toHaveLength(1);
     expect(findingsTable.text()).toContain("asset-1");
 
     await searchInput.setValue("");

@@ -37,6 +37,50 @@ class MissingAssetRestorePointStatus(StrEnum):
     RESTORED = "restored"
 
 
+class MissingAssetRepairBlockerType(StrEnum):
+    PATH = "path"
+    FILESYSTEM = "filesystem"
+    SCOPE = "scope"
+    SCHEMA = "schema"
+
+
+class MissingAssetBlockingSeverity(StrEnum):
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass(slots=True, frozen=True)
+class MissingAssetRepairBlocker:
+    blocker_code: str
+    blocker_type: MissingAssetRepairBlockerType | str
+    summary: str
+    details: dict[str, Any] = field(default_factory=dict)
+    affected_tables: tuple[str, ...] = ()
+    repair_covered_tables: tuple[str, ...] = ()
+    blocking_severity: MissingAssetBlockingSeverity | str = MissingAssetBlockingSeverity.ERROR
+    is_repairable: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "blocker_code": self.blocker_code,
+            "blocker_type": (
+                self.blocker_type.value
+                if isinstance(self.blocker_type, MissingAssetRepairBlockerType)
+                else self.blocker_type
+            ),
+            "summary": self.summary,
+            "details": self.details,
+            "affected_tables": list(self.affected_tables),
+            "repair_covered_tables": list(self.repair_covered_tables),
+            "blocking_severity": (
+                self.blocking_severity.value
+                if isinstance(self.blocking_severity, MissingAssetBlockingSeverity)
+                else self.blocking_severity
+            ),
+            "is_repairable": self.is_repairable,
+        }
+
+
 @dataclass(slots=True, frozen=True)
 class MissingAssetReferenceFinding:
     finding_id: str
@@ -51,6 +95,7 @@ class MissingAssetReferenceFinding:
     scan_timestamp: str
     repair_readiness: RepairReadinessStatus
     repair_blockers: tuple[str, ...] = ()
+    repair_blocker_details: tuple[MissingAssetRepairBlocker, ...] = ()
     message: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +112,9 @@ class MissingAssetReferenceFinding:
             "scan_timestamp": self.scan_timestamp,
             "repair_readiness": self.repair_readiness.value,
             "repair_blockers": list(self.repair_blockers),
+            "repair_blocker_details": [
+                blocker.to_dict() for blocker in self.repair_blocker_details
+            ],
             "message": self.message,
         }
 

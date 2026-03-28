@@ -4,8 +4,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from immich_doctor.consistency.missing_asset_models import (
+    MissingAssetBlockingSeverity,
     MissingAssetOperationStatus,
     MissingAssetReferenceStatus,
+    MissingAssetRepairBlockerType,
     RepairReadinessStatus,
 )
 from immich_doctor.consistency.missing_asset_service import MissingAssetReferenceService
@@ -317,6 +319,13 @@ def test_scan_detects_missing_asset_reference(tmp_path: Path) -> None:
     assert result.findings[0].asset_id == "asset-missing"
     assert result.findings[0].status == MissingAssetReferenceStatus.MISSING_ON_DISK
     assert result.findings[0].repair_readiness == RepairReadinessStatus.READY
+    assert result.findings[0].repair_blocker_details == ()
+    assert result.metadata["supportedScope"]["scanBlockers"] == []
+    assert result.metadata["supportedScope"]["repairCoveredDependencyTables"] == [
+        "public.album_asset",
+        "public.asset_file",
+        "public.asset_job_status",
+    ]
 
 
 def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> None:
@@ -348,6 +357,21 @@ def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> 
 
     assert result.findings[0].repair_readiness == RepairReadinessStatus.BLOCKED
     assert "unsupported" in result.findings[0].repair_blockers[0].lower()
+    blocker = result.findings[0].repair_blocker_details[0]
+    assert blocker.blocker_code == "unsupported_dependency_tables"
+    assert blocker.blocker_type == MissingAssetRepairBlockerType.SCHEMA
+    assert blocker.summary == "Unsupported dependency tables detected"
+    assert blocker.details["repair_blocked"] is True
+    assert blocker.affected_tables == ("public.person_asset",)
+    assert blocker.repair_covered_tables == (
+        "public.album_asset",
+        "public.asset_file",
+        "public.asset_job_status",
+    )
+    assert blocker.blocking_severity == MissingAssetBlockingSeverity.ERROR
+    assert blocker.is_repairable is False
+    assert result.metadata["blockingIssues"] == ["Unsupported dependency tables detected"]
+    assert result.metadata["supportedScope"]["scanBlockers"] == [blocker.to_dict()]
 
 
 def test_preview_and_apply_create_restore_point_and_delete_rows(tmp_path: Path) -> None:

@@ -10,12 +10,15 @@ from immich_doctor.adapters.filesystem import FilesystemAdapter
 from immich_doctor.adapters.postgres import PostgresAdapter
 from immich_doctor.consistency.missing_asset_models import (
     MissingAssetApplyResult,
+    MissingAssetBlockingSeverity,
     MissingAssetOperationItem,
     MissingAssetOperationStatus,
     MissingAssetPreviewResult,
     MissingAssetReferenceFinding,
     MissingAssetReferenceScanResult,
     MissingAssetReferenceStatus,
+    MissingAssetRepairBlocker,
+    MissingAssetRepairBlockerType,
     MissingAssetRestorePoint,
     MissingAssetRestorePointDeleteResult,
     MissingAssetRestorePointsResult,
@@ -50,6 +53,9 @@ SUPPORTED_RELATION_TABLES = {
     ("public", "album_asset"),
     ("public", "asset_job_status"),
 }
+SUPPORTED_RELATION_TABLE_NAMES = tuple(
+    sorted(f"{schema}.{table}" for schema, table in SUPPORTED_RELATION_TABLES)
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +78,7 @@ class MissingAssetProfile:
     detected_asset_columns: tuple[str, ...]
     supported_optional_columns: tuple[str, ...]
     relations: tuple[AssetReferenceRelation, ...]
-    blocking_issues: tuple[str, ...]
+    blocking_issues: tuple[MissingAssetRepairBlocker, ...]
 
     @property
     def supported(self) -> bool:
@@ -196,8 +202,10 @@ class MissingAssetReferenceService:
                         "public.asset",
                         *[relation.qualified_name for relation in profile.relations],
                     ],
+                    "repairCoveredDependencyTables": list(SUPPORTED_RELATION_TABLE_NAMES),
+                    "scanBlockers": [blocker.to_dict() for blocker in profile.blocking_issues],
                 },
-                "blockingIssues": list(profile.blocking_issues),
+                "blockingIssues": [blocker.summary for blocker in profile.blocking_issues],
             },
             recommendations=recommendations,
         )
@@ -545,7 +553,9 @@ class MissingAssetReferenceService:
             )
 
         relations: list[AssetReferenceRelation] = []
-        blockers: list[str] = []
+        blockers: list[MissingAssetRepairBlocker] = []
+        unsupported_tables: set[str] = set()
+        unsupported_foreign_keys: list[dict[str, object]] = []
         for table in tables:
             schema = str(table["table_schema"])
             name = str(table["table_name"])
@@ -564,17 +574,16 @@ class MissingAssetReferenceService:
                 source_columns = tuple(str(item) for item in foreign_key["column_names"])
                 target_columns = tuple(str(item) for item in foreign_key["referenced_column_names"])
                 if (schema, name) not in SUPPORTED_RELATION_TABLES:
-                    blockers.append(
-                        f"Unsupported asset dependency table {schema}.{name}: "
-                        "only album_asset, asset_file, and asset_job_status are "
-                        "repair-covered."
-                    )
+                    unsupported_tables.add(f"{schema}.{name}")
                     continue
                 if len(source_columns) != 1 or target_columns != ("id",):
-                    blockers.append(
-                        f"Unsupported FK `{foreign_key['constraint_name']}` on "
-                        f"{schema}.{name}: only single-column references to "
-                        "public.asset.id are supported."
+                    unsupported_foreign_keys.append(
+                        {
+                            "constraint_name": str(foreign_key["constraint_name"]),
+                            "table": f"{schema}.{name}",
+                            "column_names": list(source_columns),
+                            "referenced_column_names": list(target_columns),
+                        }
                     )
                     continue
                 relations.append(
@@ -589,7 +598,54 @@ class MissingAssetReferenceService:
                 )
 
         relations.sort(key=lambda item: item.qualified_name)
-        blockers = list(dict.fromkeys(blockers))
+        if unsupported_tables:
+            blockers.append(
+                MissingAssetRepairBlocker(
+                    blocker_code="unsupported_dependency_tables",
+                    blocker_type=MissingAssetRepairBlockerType.SCHEMA,
+                    summary="Unsupported dependency tables detected",
+                    details={
+                        "reason": (
+                            "Repair is intentionally blocked when unsupported dependent "
+                            "tables exist."
+                        ),
+                        "unsupported_tables": sorted(unsupported_tables),
+                        "repair_blocked": True,
+                    },
+                    affected_tables=tuple(sorted(unsupported_tables)),
+                    repair_covered_tables=SUPPORTED_RELATION_TABLE_NAMES,
+                    blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                    is_repairable=False,
+                )
+            )
+        if unsupported_foreign_keys:
+            blockers.append(
+                MissingAssetRepairBlocker(
+                    blocker_code="unsupported_dependency_foreign_keys",
+                    blocker_type=MissingAssetRepairBlockerType.SCHEMA,
+                    summary="Unsupported asset foreign key definitions detected",
+                    details={
+                        "reason": (
+                            "Repair only covers single-column foreign keys that point to "
+                            "public.asset.id."
+                        ),
+                        "constraints": unsupported_foreign_keys,
+                        "repair_blocked": True,
+                    },
+                    affected_tables=tuple(
+                        sorted(
+                            {
+                                str(item["table"])
+                                for item in unsupported_foreign_keys
+                                if item.get("table")
+                            }
+                        )
+                    ),
+                    repair_covered_tables=SUPPORTED_RELATION_TABLE_NAMES,
+                    blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                    is_repairable=False,
+                )
+            )
         return MissingAssetProfile(
             asset_table_present=asset_table_present,
             detected_asset_columns=detected_asset_columns,
@@ -609,6 +665,7 @@ class MissingAssetReferenceService:
                     "direct_asset_relations": [
                         relation.qualified_name for relation in profile.relations
                     ],
+                    "scan_blockers": [blocker.to_dict() for blocker in profile.blocking_issues],
                 },
             )
         return CheckResult(
@@ -625,20 +682,32 @@ class MissingAssetReferenceService:
         row: dict[str, object],
         *,
         scan_timestamp: str,
-        blocking_issues: tuple[str, ...],
+        blocking_issues: tuple[MissingAssetRepairBlocker, ...],
     ) -> MissingAssetReferenceFinding:
         asset_id = str(row["id"])
         logical_path = str(row.get("originalPath") or "")
         asset_path = Path(logical_path)
         repair_readiness = RepairReadinessStatus.READY
         repair_blockers: list[str] = []
+        repair_blocker_details: list[MissingAssetRepairBlocker] = []
         status = MissingAssetReferenceStatus.PRESENT
         message = "Original asset path exists in the current runtime filesystem."
 
         if not logical_path.strip():
             status = MissingAssetReferenceStatus.UNSUPPORTED
             repair_readiness = RepairReadinessStatus.BLOCKED
-            repair_blockers.append("Asset originalPath is empty and cannot be resolved safely.")
+            repair_blocker_details.append(
+                MissingAssetRepairBlocker(
+                    blocker_code="empty_original_path",
+                    blocker_type=MissingAssetRepairBlockerType.PATH,
+                    summary="Original path is empty",
+                    details={
+                        "reason": "Asset originalPath is empty and cannot be resolved safely."
+                    },
+                    blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                    is_repairable=False,
+                )
+            )
             message = "Asset originalPath is empty."
         else:
             try:
@@ -650,7 +719,16 @@ class MissingAssetReferenceService:
             except PermissionError:
                 status = MissingAssetReferenceStatus.PERMISSION_ERROR
                 repair_readiness = RepairReadinessStatus.BLOCKED
-                repair_blockers.append("The current process cannot access the asset path.")
+                repair_blocker_details.append(
+                    MissingAssetRepairBlocker(
+                        blocker_code="asset_path_permission_error",
+                        blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                        summary="Asset path cannot be accessed",
+                        details={"reason": ("The current process cannot access the asset path.")},
+                        blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                        is_repairable=False,
+                    )
+                )
                 message = "Asset originalPath exists but is not accessible to the current process."
             except OSError as exc:
                 status = (
@@ -659,14 +737,25 @@ class MissingAssetReferenceService:
                     else MissingAssetReferenceStatus.UNREADABLE_PATH
                 )
                 repair_readiness = RepairReadinessStatus.BLOCKED
-                repair_blockers.append(exc.strerror or str(exc))
+                repair_blocker_details.append(
+                    MissingAssetRepairBlocker(
+                        blocker_code="asset_path_unreadable",
+                        blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                        summary="Asset path could not be inspected",
+                        details={"reason": exc.strerror or str(exc)},
+                        blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                        is_repairable=False,
+                    )
+                )
                 message = f"Asset originalPath could not be inspected: {exc.strerror or exc}."
 
         if status not in REPAIRABLE_STATUSES:
             repair_readiness = RepairReadinessStatus.BLOCKED
         if blocking_issues:
             repair_readiness = RepairReadinessStatus.BLOCKED
-            repair_blockers.extend(blocking_issues)
+            repair_blocker_details.extend(blocking_issues)
+
+        repair_blockers.extend(blocker.summary for blocker in repair_blocker_details)
 
         return MissingAssetReferenceFinding(
             finding_id=f"missing_asset_reference:{asset_id}",
@@ -681,6 +770,7 @@ class MissingAssetReferenceService:
             scan_timestamp=scan_timestamp,
             repair_readiness=repair_readiness,
             repair_blockers=tuple(dict.fromkeys(repair_blockers)),
+            repair_blocker_details=tuple(repair_blocker_details),
             message=message,
         )
 
@@ -721,7 +811,9 @@ class MissingAssetReferenceService:
                 {
                     "asset_id": finding.asset_id,
                     "resolved_physical_path": finding.resolved_physical_path,
-                    "repair_blockers": list(finding.repair_blockers),
+                    "repair_blockers": [
+                        blocker.to_dict() for blocker in finding.repair_blocker_details
+                    ],
                 }
                 for finding in findings
             ]
@@ -770,6 +862,9 @@ class MissingAssetReferenceService:
                 error_details={
                     "reason": "Finding is not repair-ready.",
                     "blockers": list(finding.repair_blockers),
+                    "blocker_details": [
+                        blocker.to_dict() for blocker in finding.repair_blocker_details
+                    ],
                 },
             )
             return MissingAssetOperationItem(
@@ -777,7 +872,12 @@ class MissingAssetReferenceService:
                 status=MissingAssetOperationStatus.SKIPPED,
                 restore_point_id=None,
                 message="Finding is not repair-ready.",
-                details={"blockers": list(finding.repair_blockers)},
+                details={
+                    "blockers": list(finding.repair_blockers),
+                    "blocker_details": [
+                        blocker.to_dict() for blocker in finding.repair_blocker_details
+                    ],
+                },
             )
 
         captured_records = self._capture_records(

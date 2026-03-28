@@ -9,6 +9,13 @@ export type MissingAssetReferenceStatus =
   | "already_removed";
 
 export type RepairReadinessStatus = "ready" | "blocked";
+export type MissingAssetRepairBlockerType =
+  | "path"
+  | "filesystem"
+  | "scope"
+  | "schema"
+  | string;
+export type MissingAssetBlockingSeverity = "warning" | "error" | string;
 
 export type MissingAssetOperationStatus =
   | "planned"
@@ -53,7 +60,27 @@ export interface MissingAssetReferenceFinding {
   scan_timestamp: string;
   repair_readiness: RepairReadinessStatus;
   repair_blockers: string[];
+  repair_blocker_details: MissingAssetRepairBlocker[];
   message: string;
+}
+
+export interface MissingAssetRepairBlocker {
+  blocker_code: string;
+  blocker_type: MissingAssetRepairBlockerType;
+  summary: string;
+  details: Record<string, unknown>;
+  affected_tables: string[];
+  repair_covered_tables: string[];
+  blocking_severity: MissingAssetBlockingSeverity;
+  is_repairable: boolean;
+}
+
+export interface MissingAssetSupportedScopeMetadata {
+  scanTables?: string[];
+  scanPathField?: string;
+  repairRestoreTables?: string[];
+  repairCoveredDependencyTables?: string[];
+  scanBlockers?: MissingAssetRepairBlocker[];
 }
 
 export interface MissingAssetScanResponse {
@@ -64,7 +91,10 @@ export interface MissingAssetScanResponse {
   generated_at: string;
   checks: RuntimeCheckResult[];
   findings: MissingAssetReferenceFinding[];
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown> & {
+    supportedScope?: MissingAssetSupportedScopeMetadata;
+    blockingIssues?: string[];
+  };
   recommendations: string[];
 }
 

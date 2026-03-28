@@ -40,8 +40,10 @@
             <dd>{{ scanPathFieldLabel }}</dd>
             <dt>Restore tables</dt>
             <dd>{{ repairTablesLabel }}</dd>
-            <dt>Blocking issues</dt>
-            <dd>{{ blockingIssuesLabel }}</dd>
+            <dt>Scan blockers</dt>
+            <dd>{{ scanBlockerSummaryLabel }}</dd>
+            <dt>Covered dependency tables</dt>
+            <dd>{{ coveredDependencyTablesLabel }}</dd>
           </dl>
         </article>
         <article class="panel">
@@ -141,6 +143,27 @@
           </div>
         </section>
 
+        <section
+          v-if="consistencyStore.findings.length"
+          class="consistency-scan-summary"
+        >
+          <article class="consistency-scan-summary__item">
+            <span>Blocked findings</span>
+            <strong>{{ blockedForRepairCount }}</strong>
+            <small>{{ scanBlockerSummaryLabel }}</small>
+          </article>
+          <article class="consistency-scan-summary__item">
+            <span>Unsupported tables detected</span>
+            <strong>{{ unsupportedDependencyTables.length }}</strong>
+            <small>{{ unsupportedDependencyTablesLabel }}</small>
+          </article>
+          <article class="consistency-scan-summary__item">
+            <span>Covered repair tables</span>
+            <strong>{{ coveredDependencyTables.length }}</strong>
+            <small>{{ coveredDependencyTablesLabel }}</small>
+          </article>
+        </section>
+
         <ErrorState
           v-if="consistencyStore.scanError"
           title="Scan findings unavailable"
@@ -173,54 +196,175 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="finding in sortedFindings" :key="finding.finding_id">
-                <td class="consistency-table__checkbox-cell">
-                  <input
-                    type="checkbox"
-                    :checked="selectedFindingSet.has(finding.finding_id)"
-                    :disabled="!isRepairableFinding(finding)"
-                    :aria-label="`Select finding ${finding.finding_id}`"
-                    @change="toggleFindingSelection(finding.finding_id)"
-                  />
-                </td>
-                <td class="consistency-table__cell consistency-table__cell--mono">
-                  {{ finding.asset_id }}
-                </td>
-                <td class="consistency-table__cell">{{ finding.owner_id ?? 'Unavailable' }}</td>
-                <td class="consistency-table__cell">{{ finding.asset_type }}</td>
-                <td class="consistency-table__cell consistency-table__cell--path">
-                  {{ finding.logical_path }}
-                </td>
-                <td class="consistency-table__cell consistency-table__cell--path">
-                  {{ finding.resolved_physical_path }}
-                </td>
-                <td class="consistency-table__cell">
-                  <span :class="findingStatusClass(finding.status)" class="consistency-chip">
-                    {{ formatFindingStatus(finding.status) }}
-                  </span>
-                </td>
-                <td class="consistency-table__cell">
-                  <span :class="readinessStatusClass(finding.repair_readiness)" class="consistency-chip">
-                    {{ finding.repair_readiness }}
-                  </span>
-                </td>
-                <td class="consistency-table__cell">{{ formatDate(finding.created_at) }}</td>
-                <td class="consistency-table__cell">{{ formatDate(finding.updated_at) }}</td>
-                <td class="consistency-table__cell">{{ formatDate(finding.scan_timestamp) }}</td>
-                <td class="consistency-table__cell consistency-table__cell--path">
-                  {{ finding.repair_blockers.length ? finding.repair_blockers.join(' • ') : 'None' }}
-                </td>
-                <td class="consistency-table__cell">
-                  <button
-                    type="button"
-                    class="runtime-action runtime-action--secondary"
-                    :disabled="!isRepairableFinding(finding) || consistencyStore.isPreviewing"
-                    @click="void previewSingle(finding)"
-                  >
-                    Preview single
-                  </button>
-                </td>
-              </tr>
+              <template v-for="finding in sortedFindings" :key="finding.finding_id">
+                <tr :class="{ 'consistency-table__row--expanded': isFindingExpanded(finding.finding_id) }">
+                  <td class="consistency-table__checkbox-cell">
+                    <input
+                      type="checkbox"
+                      :checked="selectedFindingSet.has(finding.finding_id)"
+                      :disabled="!isRepairableFinding(finding)"
+                      :aria-label="`Select finding ${finding.finding_id}`"
+                      @change="toggleFindingSelection(finding.finding_id)"
+                    />
+                  </td>
+                  <td class="consistency-table__cell consistency-table__cell--mono">
+                    {{ finding.asset_id }}
+                  </td>
+                  <td class="consistency-table__cell">{{ finding.owner_id ?? 'Unavailable' }}</td>
+                  <td class="consistency-table__cell">{{ finding.asset_type }}</td>
+                  <td class="consistency-table__cell consistency-table__cell--path">
+                    <strong
+                      class="consistency-table__path-line"
+                      :title="finding.logical_path"
+                    >
+                      {{ finding.logical_path || 'Unavailable' }}
+                    </strong>
+                    <small
+                      class="consistency-table__path-line consistency-table__path-line--secondary"
+                      :title="finding.resolved_physical_path"
+                    >
+                      {{ finding.resolved_physical_path || 'Unavailable' }}
+                    </small>
+                  </td>
+                  <td class="consistency-table__cell">
+                    <span :class="findingStatusClass(finding.status)" class="consistency-chip">
+                      {{ formatFindingStatus(finding.status) }}
+                    </span>
+                  </td>
+                  <td class="consistency-table__cell">
+                    <span :class="readinessStatusClass(finding.repair_readiness)" class="consistency-chip">
+                      {{ finding.repair_readiness }}
+                    </span>
+                  </td>
+                  <td class="consistency-table__cell">
+                    <div class="consistency-table__blocker-cell">
+                      <span
+                        :class="findingBlockerChipClass(finding)"
+                        class="consistency-chip"
+                      >
+                        {{ findingBlockerBadgeLabel(finding) }}
+                      </span>
+                      <small>{{ findingBlockerSummary(finding) }}</small>
+                    </div>
+                  </td>
+                  <td class="consistency-table__cell">{{ formatDate(finding.scan_timestamp) }}</td>
+                  <td class="consistency-table__cell">
+                    <div class="runtime-actions consistency-row-actions">
+                      <button
+                        type="button"
+                        class="runtime-action runtime-action--secondary"
+                        @click="toggleFindingExpansion(finding.finding_id)"
+                      >
+                        {{ isFindingExpanded(finding.finding_id) ? 'Hide details' : 'View details' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="runtime-action runtime-action--secondary"
+                        :disabled="!isRepairableFinding(finding) || consistencyStore.isPreviewing"
+                        @click="void previewSingle(finding)"
+                      >
+                        Preview single
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="isFindingExpanded(finding.finding_id)" class="consistency-table__detail-row">
+                  <td :colspan="findingColumns.length + 3">
+                    <section class="consistency-finding-detail">
+                      <div class="consistency-finding-detail__header">
+                        <div>
+                          <h4>{{ finding.asset_id }}</h4>
+                          <p>{{ finding.message }}</p>
+                        </div>
+                        <div class="consistency-finding-detail__chips">
+                          <span :class="findingStatusClass(finding.status)" class="consistency-chip">
+                            {{ formatFindingStatus(finding.status) }}
+                          </span>
+                          <span :class="readinessStatusClass(finding.repair_readiness)" class="consistency-chip">
+                            {{ finding.repair_readiness }}
+                          </span>
+                        </div>
+                      </div>
+                      <dl class="consistency-finding-detail__grid">
+                        <dt>Owner / user</dt>
+                        <dd>{{ finding.owner_id ?? 'Unavailable' }}</dd>
+                        <dt>Asset type</dt>
+                        <dd>{{ finding.asset_type }}</dd>
+                        <dt>Logical path</dt>
+                        <dd class="consistency-table__cell--mono">{{ finding.logical_path || 'Unavailable' }}</dd>
+                        <dt>Resolved physical path</dt>
+                        <dd class="consistency-table__cell--mono">
+                          {{ finding.resolved_physical_path || 'Unavailable' }}
+                        </dd>
+                        <dt>Created</dt>
+                        <dd>{{ formatDate(finding.created_at) }}</dd>
+                        <dt>Updated</dt>
+                        <dd>{{ formatDate(finding.updated_at) }}</dd>
+                        <dt>Scan timestamp</dt>
+                        <dd>{{ formatDate(finding.scan_timestamp) }}</dd>
+                      </dl>
+                      <section class="consistency-finding-detail__blockers">
+                        <div class="consistency-finding-detail__section-header">
+                          <h5>Repair blockers</h5>
+                          <small>
+                            {{
+                              normalizedFindingBlockers(finding).length
+                                ? `${normalizedFindingBlockers(finding).length} blocker(s)`
+                                : 'No active blockers'
+                            }}
+                          </small>
+                        </div>
+                        <p
+                          v-if="!normalizedFindingBlockers(finding).length"
+                          class="consistency-finding-detail__empty"
+                        >
+                          This finding is ready for preview and apply.
+                        </p>
+                        <article
+                          v-for="blocker in normalizedFindingBlockers(finding)"
+                          :key="`${finding.finding_id}:${blocker.blocker_code}:${blocker.summary}`"
+                          class="consistency-blocker-card"
+                        >
+                          <div class="consistency-blocker-card__header">
+                            <strong>{{ blocker.summary }}</strong>
+                            <span class="consistency-chip consistency-chip--blocked-detail">
+                              {{ formatBlockingSeverity(blocker.blocking_severity) }}
+                            </span>
+                          </div>
+                          <p>{{ blockerReason(blocker) }}</p>
+                          <dl class="consistency-blocker-card__grid">
+                            <dt>Blocker code</dt>
+                            <dd class="consistency-table__cell--mono">{{ blocker.blocker_code }}</dd>
+                            <dt>Type</dt>
+                            <dd>{{ blocker.blocker_type }}</dd>
+                            <dt>Repairable</dt>
+                            <dd>{{ blocker.is_repairable ? 'Yes' : 'No' }}</dd>
+                          </dl>
+                          <div v-if="blocker.affected_tables.length" class="consistency-blocker-card__section">
+                            <h6>Unsupported tables</h6>
+                            <ul class="consistency-blocker-card__list">
+                              <li v-for="table in blocker.affected_tables" :key="table">
+                                <code>{{ table }}</code>
+                              </li>
+                            </ul>
+                          </div>
+                          <div
+                            v-if="blocker.repair_covered_tables.length"
+                            class="consistency-blocker-card__section"
+                          >
+                            <h6>Repair currently covers</h6>
+                            <ul class="consistency-blocker-card__list">
+                              <li v-for="table in blocker.repair_covered_tables" :key="table">
+                                <code>{{ table }}</code>
+                              </li>
+                            </ul>
+                          </div>
+                        </article>
+                      </section>
+                    </section>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!sortedFindings.length">
                 <td class="consistency-empty-row" :colspan="findingColumns.length + 3">
                   No findings match the current filters.
@@ -493,6 +637,7 @@ import type { HealthState } from '@/api/types/common';
 import type {
   MissingAssetApplyResponse,
   MissingAssetPreviewResponse,
+  MissingAssetRepairBlocker,
   MissingAssetReferenceFinding,
   MissingAssetReferenceStatus,
   MissingAssetRestorePoint,
@@ -500,6 +645,7 @@ import type {
   MissingAssetRestorePointDeleteResponse,
   MissingAssetRestoreResponse,
   RepairReadinessStatus,
+  MissingAssetSupportedScopeMetadata,
 } from '@/api/types/consistency';
 
 type FindingSortField =
@@ -507,10 +653,7 @@ type FindingSortField =
   | 'owner_id'
   | 'asset_type'
   | 'logical_path'
-  | 'resolved_physical_path'
   | 'status'
-  | 'created_at'
-  | 'updated_at'
   | 'scan_timestamp'
   | 'repair_readiness';
 
@@ -519,23 +662,13 @@ interface FindingColumn {
   label: string;
 }
 
-interface SupportedScopeMetadata {
-  scanTables?: unknown;
-  scanPathField?: unknown;
-  repairRestoreTables?: unknown;
-  blockingIssues?: unknown;
-}
-
 const findingColumns: FindingColumn[] = [
   { key: 'asset_id', label: 'Asset id' },
   { key: 'owner_id', label: 'Owner / user' },
   { key: 'asset_type', label: 'Asset type' },
-  { key: 'logical_path', label: 'Logical path' },
-  { key: 'resolved_physical_path', label: 'Resolved physical path' },
+  { key: 'logical_path', label: 'Paths' },
   { key: 'status', label: 'Status' },
   { key: 'repair_readiness', label: 'Readiness' },
-  { key: 'created_at', label: 'Created' },
-  { key: 'updated_at', label: 'Updated' },
   { key: 'scan_timestamp', label: 'Scan' },
 ];
 
@@ -561,6 +694,7 @@ const sortField = ref<FindingSortField>('status');
 const sortDirection = ref<'asc' | 'desc'>('asc');
 const selectedFindingIds = ref<string[]>([]);
 const selectedRestorePointIds = ref<string[]>([]);
+const expandedFindingIds = ref<string[]>([]);
 const warningRead = ref(false);
 const backupCreated = ref(false);
 const previewResult = ref<MissingAssetPreviewResponse | null>(null);
@@ -605,6 +739,14 @@ const filteredFindings = computed(() => {
       finding.repair_readiness,
       finding.message,
       ...finding.repair_blockers,
+      ...normalizedFindingBlockers(finding).flatMap((blocker) => [
+        blocker.blocker_code,
+        blocker.blocker_type,
+        blocker.summary,
+        blockerReason(blocker),
+        ...blocker.affected_tables,
+        ...blocker.repair_covered_tables,
+      ]),
     ]
       .join(' ')
       .toLowerCase();
@@ -628,17 +770,8 @@ const sortedFindings = computed(() => {
       case 'logical_path':
         result = compareStrings(left.logical_path, right.logical_path);
         break;
-      case 'resolved_physical_path':
-        result = compareStrings(left.resolved_physical_path, right.resolved_physical_path);
-        break;
       case 'status':
         result = compareStrings(left.status, right.status);
-        break;
-      case 'created_at':
-        result = compareDates(left.created_at, right.created_at);
-        break;
-      case 'updated_at':
-        result = compareDates(left.updated_at, right.updated_at);
         break;
       case 'scan_timestamp':
         result = compareDates(left.scan_timestamp, right.scan_timestamp);
@@ -694,23 +827,53 @@ const previewStatusTag = computed<HealthState>(() => {
 });
 const currentSelectionKey = computed(() => buildSelectionKey(selectedFindingIds.value));
 const currentScanFingerprint = computed(() => fingerprintFindings(consistencyStore.findings));
-const supportedScope = computed<SupportedScopeMetadata | null>(() => {
+const supportedScope = computed<MissingAssetSupportedScopeMetadata | null>(() => {
   const scope = consistencyStore.scanResult?.metadata?.supportedScope;
-  return scope && typeof scope === 'object' ? (scope as SupportedScopeMetadata) : null;
+  return scope && typeof scope === 'object' ? (scope as MissingAssetSupportedScopeMetadata) : null;
 });
 const scanTablesLabel = computed(() => formatListValue(supportedScope.value?.scanTables));
 const scanPathFieldLabel = computed(() => formatValue(supportedScope.value?.scanPathField));
 const repairTablesLabel = computed(() => formatListValue(supportedScope.value?.repairRestoreTables));
-const blockingIssuesLabel = computed(() => {
-  const rawIssues = supportedScope.value?.blockingIssues;
-  if (Array.isArray(rawIssues)) {
-    const items = rawIssues.filter(
-      (item): item is string => typeof item === 'string' && item.trim().length > 0,
-    );
-    return items.length ? items.join(', ') : 'None';
-  }
-  return formatValue(rawIssues) === 'Unavailable' ? 'None' : formatValue(rawIssues);
+const scanBlockers = computed<MissingAssetRepairBlocker[]>(() => {
+  const blockers = supportedScope.value?.scanBlockers;
+  return Array.isArray(blockers) ? blockers : [];
 });
+const coveredDependencyTables = computed(() => {
+  const tables = supportedScope.value?.repairCoveredDependencyTables;
+  if (!Array.isArray(tables)) {
+    return [];
+  }
+  return tables.filter(
+    (table): table is string => typeof table === 'string' && table.trim().length > 0,
+  );
+});
+const unsupportedDependencyTables = computed(() =>
+  Array.from(
+    new Set(
+      scanBlockers.value.flatMap((blocker) =>
+        blocker.blocker_code === 'unsupported_dependency_tables' ? blocker.affected_tables : [],
+      ),
+    ),
+  ).sort(),
+);
+const scanBlockerSummaryLabel = computed(() => {
+  if (!scanBlockers.value.length) {
+    return 'None';
+  }
+  if (
+    scanBlockers.value.length === 1 &&
+    scanBlockers.value[0]?.blocker_code === 'unsupported_dependency_tables'
+  ) {
+    return `Unsupported dependency tables (${scanBlockers.value[0].affected_tables.length})`;
+  }
+  return scanBlockers.value.map((blocker) => blocker.summary).join(', ');
+});
+const unsupportedDependencyTablesLabel = computed(() =>
+  formatCompactList(unsupportedDependencyTables.value, 'No unsupported tables'),
+);
+const coveredDependencyTablesLabel = computed(() =>
+  formatCompactList(coveredDependencyTables.value, 'Unavailable'),
+);
 const previewDriftMessage = computed(() => {
   if (!previewResult.value || !previewContext.value) {
     return null;
@@ -790,6 +953,16 @@ function formatListValue(value: unknown): string {
   return formatValue(value);
 }
 
+function formatCompactList(items: string[], emptyValue = 'Unavailable', maxItems = 3): string {
+  if (!items.length) {
+    return emptyValue;
+  }
+  if (items.length <= maxItems) {
+    return items.join(', ');
+  }
+  return `${items.slice(0, maxItems).join(', ')}, +${items.length - maxItems} more`;
+}
+
 function formatDate(value: string | null): string {
   if (!value) {
     return 'Unavailable';
@@ -810,6 +983,75 @@ function formatRestoreRecords(records: MissingAssetRestorePoint['records']): str
   return records.length
     ? records.map((record) => `${record.table}:${record.row_count}`).join(', ')
     : 'No record summary';
+}
+
+function normalizeRepairBlocker(blocker: MissingAssetRepairBlocker): MissingAssetRepairBlocker {
+  return {
+    blocker_code: blocker.blocker_code,
+    blocker_type: blocker.blocker_type,
+    summary: blocker.summary,
+    details: blocker.details ?? {},
+    affected_tables: blocker.affected_tables ?? [],
+    repair_covered_tables: blocker.repair_covered_tables ?? [],
+    blocking_severity: blocker.blocking_severity ?? 'error',
+    is_repairable: blocker.is_repairable ?? false,
+  };
+}
+
+function normalizedFindingBlockers(finding: MissingAssetReferenceFinding): MissingAssetRepairBlocker[] {
+  if (Array.isArray(finding.repair_blocker_details) && finding.repair_blocker_details.length) {
+    return finding.repair_blocker_details.map(normalizeRepairBlocker);
+  }
+  return (finding.repair_blockers ?? []).map((summary, index) =>
+    normalizeRepairBlocker({
+      blocker_code: `legacy_blocker_${index + 1}`,
+      blocker_type: 'scope',
+      summary,
+      details: {},
+      affected_tables: [],
+      repair_covered_tables: [],
+      blocking_severity: 'error',
+      is_repairable: false,
+    }),
+  );
+}
+
+function findingBlockerBadgeLabel(finding: MissingAssetReferenceFinding): string {
+  return normalizedFindingBlockers(finding).length ? 'Blocked' : 'Ready';
+}
+
+function findingBlockerSummary(finding: MissingAssetReferenceFinding): string {
+  const blockers = normalizedFindingBlockers(finding);
+  if (!blockers.length) {
+    return 'No active blockers';
+  }
+  const unsupportedTablesBlocker = blockers.find(
+    (blocker) => blocker.blocker_code === 'unsupported_dependency_tables',
+  );
+  if (unsupportedTablesBlocker) {
+    return `unsupported dependency tables (${unsupportedTablesBlocker.affected_tables.length})`;
+  }
+  if (blockers.length === 1) {
+    return blockers[0].summary;
+  }
+  return `${blockers.length} blocker reasons`;
+}
+
+function findingBlockerChipClass(finding: MissingAssetReferenceFinding): string {
+  return normalizedFindingBlockers(finding).length
+    ? 'consistency-chip--blocked'
+    : 'consistency-chip--ready';
+}
+
+function blockerReason(blocker: MissingAssetRepairBlocker): string {
+  const reason = blocker.details?.reason;
+  return typeof reason === 'string' && reason.trim()
+    ? reason
+    : 'Repair remains blocked until this blocker is resolved.';
+}
+
+function formatBlockingSeverity(severity: MissingAssetRepairBlocker['blocking_severity']): string {
+  return severity.replace(/_/g, ' ');
 }
 
 function buildSelectionKey(ids: string[]): string {
@@ -877,6 +1119,16 @@ function toggleFindingSelection(findingId: string): void {
     : [...selectedFindingIds.value, findingId];
 }
 
+function isFindingExpanded(findingId: string): boolean {
+  return expandedFindingIds.value.includes(findingId);
+}
+
+function toggleFindingExpansion(findingId: string): void {
+  expandedFindingIds.value = isFindingExpanded(findingId)
+    ? expandedFindingIds.value.filter((item) => item !== findingId)
+    : [...expandedFindingIds.value, findingId];
+}
+
 function toggleAllVisibleFindings(checked: boolean): void {
   const visibleIds = visibleRepairableFindingIds.value;
   selectedFindingIds.value = checked
@@ -901,6 +1153,9 @@ function reconcileSelections(): void {
     consistencyStore.findings.some(
       (finding) => finding.finding_id === findingId && isRepairableFinding(finding),
     ),
+  );
+  expandedFindingIds.value = expandedFindingIds.value.filter((findingId) =>
+    consistencyStore.findings.some((finding) => finding.finding_id === findingId),
   );
   selectedRestorePointIds.value = selectedRestorePointIds.value.filter((restorePointId) =>
     consistencyStore.restorePoints.some((item) => item.restore_point_id === restorePointId),
