@@ -7,12 +7,19 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
-if (-not $Output) {
-    throw "TESTBED_EXPORT_PATH or -Output is required."
+$resolvedOutput = if ($Output) {
+    Resolve-HostPath -Path $Output
+} else {
+    Get-DefaultExportPath -Format $Format
+}
+$usedDefaultPath = -not [bool]$Output
+Ensure-ParentDirectory -Path $resolvedOutput
+if ($usedDefaultPath) {
+    Write-Host "No export path provided. Using default export path: $resolvedOutput"
 }
 
 Test-DockerAvailable
-Invoke-Compose up -d postgres
+Invoke-Compose -CommandArgs @("up", "-d", "postgres")
 Wait-ForPostgres
 
 $containerId = Get-DbContainerId
@@ -32,10 +39,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "Database export failed."
 }
 
-& docker cp "${containerId}:${containerDumpPath}" $Output
+& docker cp "${containerId}:${containerDumpPath}" $resolvedOutput
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to copy export to host path."
 }
 
 & docker compose @(Get-ComposeArgs) exec -T (Get-DbServiceName) rm -f $containerDumpPath *> $null
-Write-Host "Export completed: $Output"
+Write-Host "Export completed: $resolvedOutput"

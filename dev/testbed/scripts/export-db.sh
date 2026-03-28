@@ -19,7 +19,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --help|-h)
-      echo "Usage: export-db.sh --output /path/to/file [--format custom|plain]"
+      echo "Usage: export-db.sh [--output /path/to/file] [--format custom|plain]"
       exit 0
       ;;
     *)
@@ -29,10 +29,13 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$OUTPUT_PATH" ]; then
-  echo "ERROR: TESTBED_EXPORT_PATH or --output is required." >&2
-  exit 1
+if [ -n "$OUTPUT_PATH" ]; then
+  OUTPUT_PATH=$(resolve_host_path "$OUTPUT_PATH")
+else
+  OUTPUT_PATH=$(default_export_path "$FORMAT")
+  echo "No export path provided. Using default export path: $OUTPUT_PATH"
 fi
+ensure_parent_directory "$OUTPUT_PATH"
 
 ensure_docker
 compose up -d postgres

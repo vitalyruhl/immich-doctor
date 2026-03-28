@@ -44,8 +44,9 @@ Planned volumes:
 ## Start
 
 1. Copy `.env.example` to `.env`.
-2. Set the database credentials and dump path if you use `FROM_DUMP`.
-3. Start the stack:
+2. Set the database credentials.
+3. If you use `FROM_DUMP`, set `TESTBED_DUMP_PATH` to a dump file path.
+4. Start the stack:
 
 ```bash
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
@@ -68,7 +69,8 @@ Expected behavior:
 
 - PostgreSQL starts with an empty data volume
 - the init script restores the supplied `pg_dump` file into the database
-- the dump path comes from `.env`
+- the dump path comes from `.env` or `--dump`
+- relative dump paths are resolved from `dev/testbed/`
 
 Example:
 
@@ -92,6 +94,14 @@ Example:
 powershell -ExecutionPolicy Bypass -File dev/testbed/scripts/init-db.ps1 -Mode EMPTY
 ```
 
+Basic EMPTY workflow:
+
+1. `init-db` in `EMPTY` mode
+2. reproduce missing-asset scenarios against the DB-only stack
+3. `snapshot-db` before manual experiments
+4. `export-db` if you want a logical backup
+5. `reset-db` to return to a clean empty volume
+
 ## No Asset Storage
 
 This testbed intentionally does not mount real Immich asset storage.
@@ -110,6 +120,9 @@ The primary snapshot method is volume copy:
 
 - snapshot: copy `immich_dev_pgdata` to `immich_dev_pgdata_snapshot`
 - restore: overwrite `immich_dev_pgdata` from the snapshot volume
+- the snapshot volume is created automatically on first snapshot
+- repeated snapshots safely overwrite the existing snapshot volume
+- restore requires an existing snapshot volume and fails loudly if none exists
 
 Scripts should fail loudly and confirm the target before destructive operations.
 
@@ -129,12 +142,21 @@ Optional fallback:
 Examples:
 
 ```bash
-sh dev/testbed/scripts/export-db.sh --output /absolute/path/to/testbed.dump
+sh dev/testbed/scripts/export-db.sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File dev/testbed/scripts/export-db.ps1 -Output C:/temp/testbed.dump
+powershell -ExecutionPolicy Bypass -File dev/testbed/scripts/export-db.ps1
 ```
+
+Export behavior:
+
+- if `TESTBED_EXPORT_PATH` or `--output` / `-Output` is provided, that path is used
+- otherwise the scripts export to:
+  - `dev/testbed/exports/immich-testbed-export.dump` for `custom`
+  - `dev/testbed/exports/immich-testbed-export.sql` for `plain`
+- the export directory is created automatically
+- `dev/testbed/exports/` is ignored by git
 
 ## Reset
 
@@ -146,6 +168,8 @@ Recommended reset behavior:
 - remove the active database volume
 - optionally remove the snapshot volume
 - restart with `EMPTY` or reinitialize from dump
+- if the active volume is already absent, reset continues safely
+- after reset, `postgres` is started again on a fresh empty volume
 
 Reset must not silently delete anything.
 

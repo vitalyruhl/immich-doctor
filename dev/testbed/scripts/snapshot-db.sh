@@ -26,6 +26,8 @@ done
 ensure_docker
 confirm_or_exit "Overwrite snapshot volume $(snapshot_volume_name) from $(db_volume_name)?" "$FORCE"
 
+require_volume "$(db_volume_name)" "Active database volume"
+ensure_volume_exists "$(snapshot_volume_name)" "Snapshot volume"
 echo "Stopping PostgreSQL for a consistent volume snapshot..."
 compose stop "$(db_service_name)"
 copy_volume_contents "$(db_volume_name)" "$(snapshot_volume_name)"

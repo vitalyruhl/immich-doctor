@@ -30,10 +30,9 @@ function Get-ComposeArgs {
 
 function Invoke-Compose {
     param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [string[]]$Args
+        [string[]]$CommandArgs
     )
-    & docker compose @(Get-ComposeArgs) @Args
+    & docker compose @(Get-ComposeArgs) @CommandArgs
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose command failed."
     }
@@ -80,15 +79,81 @@ function Test-DockerAvailable {
     }
 }
 
-function Ensure-Volume {
+function Test-VolumeExists {
     param([string]$Name)
     & docker volume inspect $Name *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Ensure-Volume {
+    param(
+        [string]$Name,
+        [string]$Label = "Docker volume"
+    )
+    if (Test-VolumeExists -Name $Name) {
+        Write-Host "$Label already exists: $Name"
+        return
+    }
+    Write-Host "Creating ${Label}: $Name"
+    & docker volume create $Name *> $null
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Creating Docker volume: $Name"
-        & docker volume create $Name *> $null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create Docker volume $Name."
-        }
+        throw "Failed to create Docker volume $Name."
+    }
+}
+
+function Require-Volume {
+    param(
+        [string]$Name,
+        [string]$Label = "Docker volume"
+    )
+    if (-not (Test-VolumeExists -Name $Name)) {
+        throw "$Label does not exist: $Name"
+    }
+    Write-Host "$Label exists: $Name"
+}
+
+function Remove-VolumeIfExists {
+    param(
+        [string]$Name,
+        [string]$Label = "Docker volume"
+    )
+    if (-not (Test-VolumeExists -Name $Name)) {
+        Write-Host "$Label already absent: $Name"
+        return
+    }
+    Write-Host "Removing ${Label}: $Name"
+    & docker volume rm -f $Name *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to remove Docker volume $Name."
+    }
+}
+
+function Resolve-HostPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Host path must not be empty."
+    }
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $TestbedDir $Path))
+}
+
+function Get-DefaultExportPath {
+    param(
+        [ValidateSet("custom", "plain")]
+        [string]$Format = "custom"
+    )
+    $fileName = if ($Format -eq "plain") { "immich-testbed-export.sql" } else { "immich-testbed-export.dump" }
+    return Join-Path $TestbedDir (Join-Path "exports" $fileName)
+}
+
+function Ensure-ParentDirectory {
+    param([string]$Path)
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path $parent)) {
+        Write-Host "Creating directory: $parent"
+        New-Item -ItemType Directory -Path $parent -Force *> $null
     }
 }
 
@@ -127,8 +192,6 @@ function Copy-VolumeContents {
         [string]$SourceVolume,
         [string]$DestinationVolume
     )
-    Ensure-Volume -Name $SourceVolume
-    Ensure-Volume -Name $DestinationVolume
     & docker run --rm `
         -v "${SourceVolume}:/from:ro" `
         -v "${DestinationVolume}:/to" `
@@ -144,8 +207,9 @@ function Restore-DumpIntoDatabase {
         [string]$DumpPath,
         [string]$DumpFormat
     )
-    if (-not (Test-Path $DumpPath)) {
-        throw "Dump file not found: $DumpPath"
+    $resolvedDumpPath = Resolve-HostPath -Path $DumpPath
+    if (-not (Test-Path $resolvedDumpPath)) {
+        throw "Dump file not found: $resolvedDumpPath"
     }
 
     $containerId = Get-DbContainerId
@@ -157,7 +221,7 @@ function Restore-DumpIntoDatabase {
     $dbUser = Get-EnvOrDefault -Name "TESTBED_DB_USER" -Default "postgres"
     $dbName = Get-EnvOrDefault -Name "TESTBED_DB_NAME" -Default "immich"
     Write-Host "Copying dump into container..."
-    & docker cp $DumpPath "${containerId}:${containerDumpPath}"
+    & docker cp $resolvedDumpPath "${containerId}:${containerDumpPath}"
     if ($LASTEXITCODE -ne 0) {
         throw "docker cp failed."
     }
@@ -170,10 +234,10 @@ function Restore-DumpIntoDatabase {
     }
 
     if ($DumpFormat -eq "auto") {
-        switch -Regex ($DumpPath) {
+        switch -Regex ($resolvedDumpPath) {
             "\.(dump|backup|bin)$" { $DumpFormat = "custom"; break }
             "\.sql$" { $DumpFormat = "plain"; break }
-            default { throw "Could not infer dump format for $DumpPath. Set TESTBED_DUMP_FORMAT to plain or custom." }
+            default { throw "Could not infer dump format for $resolvedDumpPath. Set TESTBED_DUMP_FORMAT to plain or custom." }
         }
     }
 

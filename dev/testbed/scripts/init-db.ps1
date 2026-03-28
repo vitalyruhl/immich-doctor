@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 
 Test-DockerAvailable
 Write-Host "Starting PostgreSQL testbed..."
-Invoke-Compose up -d postgres
+Invoke-Compose -CommandArgs @("up", "-d", "postgres")
 Wait-ForPostgres
 
 switch ($Mode.ToUpperInvariant()) {
