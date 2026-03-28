@@ -70,6 +70,7 @@ Expected behavior:
 - PostgreSQL starts with an empty data volume
 - the init script restores the supplied `pg_dump` file into the database
 - the dump path comes from `.env` or `--dump`
+- PowerShell and Bash both use `.env` dump settings when `--dump` / `-Dump` and format flags are omitted
 - relative dump paths are resolved from `dev/testbed/`
 
 Example:

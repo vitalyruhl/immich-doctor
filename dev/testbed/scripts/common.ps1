@@ -81,8 +81,11 @@ function Test-DockerAvailable {
 
 function Test-VolumeExists {
     param([string]$Name)
-    & docker volume inspect $Name *> $null
-    return ($LASTEXITCODE -eq 0)
+    $volumeNames = & docker volume ls --format "{{.Name}}" --filter "name=$Name" 2> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to list Docker volumes."
+    }
+    return ($volumeNames | Where-Object { $_ -eq $Name } | Measure-Object).Count -gt 0
 }
 
 function Ensure-Volume {

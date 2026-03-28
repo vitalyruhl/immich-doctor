@@ -1,13 +1,25 @@
 param(
-    [ValidateSet("FROM_DUMP", "EMPTY", "from-dump", "empty")]
-    [string]$Mode = $(if ($env:TESTBED_INIT_MODE) { $env:TESTBED_INIT_MODE } else { "FROM_DUMP" }),
-    [string]$Dump = $(if ($env:TESTBED_DUMP_PATH) { $env:TESTBED_DUMP_PATH } else { "" }),
-    [ValidateSet("auto", "plain", "custom")]
-    [string]$Format = $(if ($env:TESTBED_DUMP_FORMAT) { $env:TESTBED_DUMP_FORMAT } else { "auto" })
+    [string]$Mode,
+    [string]$Dump,
+    [string]$Format
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
+
+$Mode = if ($PSBoundParameters.ContainsKey("Mode")) { $Mode } else { Get-EnvOrDefault -Name "TESTBED_INIT_MODE" -Default "FROM_DUMP" }
+$Dump = if ($PSBoundParameters.ContainsKey("Dump")) { $Dump } else { Get-EnvOrDefault -Name "TESTBED_DUMP_PATH" -Default "" }
+$Format = if ($PSBoundParameters.ContainsKey("Format")) { $Format } else { Get-EnvOrDefault -Name "TESTBED_DUMP_FORMAT" -Default "auto" }
+
+$validModes = @("FROM_DUMP", "EMPTY", "from-dump", "empty")
+if ($Mode -notin $validModes) {
+    throw "Unsupported mode: $Mode"
+}
+
+$validFormats = @("auto", "plain", "custom")
+if ($Format -notin $validFormats) {
+    throw "Unsupported dump format option: $Format"
+}
 
 Test-DockerAvailable
 Write-Host "Starting PostgreSQL testbed..."
