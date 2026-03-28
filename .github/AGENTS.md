@@ -65,6 +65,35 @@ C -> risky mutation or broad refactor
 Level C requires explicit user approval.
 
 ========================================
+GIT AND BRANCH SAFETY
+========================================
+
+Write operations must follow repository branch hygiene.
+
+Global rules:
+
+- Never commit directly to `main`
+- Never modify `main` directly
+- All file-changing work must happen on a non-main branch
+- If the current branch is `main` and the task requires file changes:
+  - STOP before making changes
+  - create or switch to the appropriate working branch first
+- Never push directly to `main`
+- Never leave write tasks with unstaged or uncommitted changes unless the user explicitly asked for a dirty working tree
+- Always report which branch was used for the work
+
+Delegation rules:
+
+- Use `workflow.agent` for:
+  - branch creation
+  - branch promotion
+  - merge preparation
+  - PR flow
+  - branch cleanup
+- Specialized non-workflow agents may perform scoped file changes only after branch safety is satisfied
+- Specialized agents must not bypass branch hygiene just because branch operations are owned by `workflow.agent`
+
+========================================
 CONSISTENCY AND COLLISION GUARD
 ========================================
 
