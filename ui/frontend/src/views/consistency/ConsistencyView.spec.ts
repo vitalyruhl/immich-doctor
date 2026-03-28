@@ -409,6 +409,48 @@ describe("ConsistencyView", () => {
     });
   });
 
+  it("selects individual findings and visible findings with the header checkbox", async () => {
+    const wrapper = mountView();
+    await settle();
+
+    const singleCheckbox = wrapper.get('input[aria-label="Select finding finding-2"]');
+    await singleCheckbox.setValue(true);
+    await settle();
+
+    expect(wrapper.text()).toContain("1 selected");
+    expect(singleCheckbox.element).toHaveProperty("checked", true);
+
+    const previewSelectedButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Preview selected"));
+    expect(previewSelectedButton).toBeTruthy();
+    expect((previewSelectedButton!.element as HTMLButtonElement).disabled).toBe(false);
+
+    const selectAllVisible = wrapper.get('input[aria-label="Select all visible findings"]');
+    await selectAllVisible.setValue(true);
+    await settle();
+
+    expect(wrapper.text()).toContain("2 selected");
+    expect(wrapper.get('input[aria-label="Select finding finding-1"]').element).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(wrapper.get('input[aria-label="Select finding finding-2"]').element).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(wrapper.get('input[aria-label="Select finding finding-3"]').element).toHaveProperty(
+      "checked",
+      false,
+    );
+
+    await selectAllVisible.setValue(false);
+    await settle();
+
+    expect(wrapper.text()).toContain("0 selected");
+    expect((previewSelectedButton!.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("restores selected and all restore points", async () => {
     const wrapper = mountView();
     await settle();

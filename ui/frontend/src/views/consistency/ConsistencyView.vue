@@ -177,6 +177,7 @@
                   <input
                     type="checkbox"
                     :checked="allVisibleFindingsSelected"
+                    :indeterminate="someVisibleFindingsSelected"
                     :disabled="!visibleRepairableFindingIds.length"
                     aria-label="Select all visible findings"
                     @change="toggleAllVisibleFindings(($event.target as HTMLInputElement).checked)"
@@ -204,7 +205,7 @@
                       :checked="selectedFindingSet.has(finding.finding_id)"
                       :disabled="!isRepairableFinding(finding)"
                       :aria-label="`Select finding ${finding.finding_id}`"
-                      @change="toggleFindingSelection(finding.finding_id)"
+                      @change="toggleFindingSelection(finding.finding_id, ($event.target as HTMLInputElement).checked)"
                     />
                   </td>
                   <td class="consistency-table__cell consistency-table__cell--mono">
@@ -792,6 +793,12 @@ const allVisibleFindingsSelected = computed(
     visibleRepairableFindingIds.value.length > 0 &&
     visibleRepairableFindingIds.value.every((findingId) => selectedFindingSet.value.has(findingId)),
 );
+const someVisibleFindingsSelected = computed(
+  () =>
+    visibleRepairableFindingIds.value.length > 0 &&
+    visibleRepairableFindingIds.value.some((findingId) => selectedFindingSet.value.has(findingId)) &&
+    !allVisibleFindingsSelected.value,
+);
 const allRestorePointsSelected = computed(
   () =>
     consistencyStore.restorePoints.length > 0 &&
@@ -1109,14 +1116,18 @@ function restorePointStatusClass(status: MissingAssetRestorePoint['status']): st
   return `consistency-chip--restore-${status}`;
 }
 
-function toggleFindingSelection(findingId: string): void {
+function toggleFindingSelection(findingId: string, checked: boolean): void {
   const finding = consistencyStore.findings.find((item) => item.finding_id === findingId);
   if (!finding || !isRepairableFinding(finding)) {
     return;
   }
-  selectedFindingIds.value = selectedFindingIds.value.includes(findingId)
-    ? selectedFindingIds.value.filter((item) => item !== findingId)
-    : [...selectedFindingIds.value, findingId];
+  const nextSelection = new Set(selectedFindingIds.value);
+  if (checked) {
+    nextSelection.add(findingId);
+  } else {
+    nextSelection.delete(findingId);
+  }
+  selectedFindingIds.value = [...nextSelection];
 }
 
 function isFindingExpanded(findingId: string): boolean {
@@ -1131,9 +1142,15 @@ function toggleFindingExpansion(findingId: string): void {
 
 function toggleAllVisibleFindings(checked: boolean): void {
   const visibleIds = visibleRepairableFindingIds.value;
-  selectedFindingIds.value = checked
-    ? Array.from(new Set([...selectedFindingIds.value, ...visibleIds]))
-    : selectedFindingIds.value.filter((item) => !visibleIds.includes(item));
+  const nextSelection = new Set(selectedFindingIds.value);
+  for (const findingId of visibleIds) {
+    if (checked) {
+      nextSelection.add(findingId);
+    } else {
+      nextSelection.delete(findingId);
+    }
+  }
+  selectedFindingIds.value = [...nextSelection];
 }
 
 function toggleRestorePointSelection(restorePointId: string): void {

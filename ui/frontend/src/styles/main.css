@@ -481,6 +481,7 @@ a {
 .consistency-table {
   width: 100%;
   min-width: 1120px;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
@@ -529,8 +530,7 @@ a {
 }
 
 .consistency-table__cell--path {
-  max-width: 18rem;
-  word-break: break-word;
+  width: 18rem;
 }
 
 .consistency-table__cell--mono {
@@ -857,6 +857,7 @@ a {
   width: 100%;
   border-collapse: collapse;
   min-width: 1120px;
+  table-layout: fixed;
 }
 
 .consistency-table th,
@@ -889,8 +890,8 @@ a {
 }
 
 .consistency-table__cell {
-  display: grid;
-  gap: 0.2rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .consistency-table__cell--mono {
@@ -898,8 +899,7 @@ a {
 }
 
 .consistency-table__cell--path {
-  min-width: 18rem;
-  word-break: break-word;
+  width: 18rem;
 }
 
 .consistency-empty-row {
@@ -965,6 +965,22 @@ a {
   flex-wrap: wrap;
 }
 
+.consistency-table__blocker-cell {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.consistency-table__path-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consistency-table__path-line--secondary {
+  color: #5c6b77;
+}
+
 .consistency-scan-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -987,22 +1003,6 @@ a {
 
 .consistency-scan-summary__item strong {
   font-size: 1.25rem;
-}
-
-.consistency-table__path-line {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.consistency-table__path-line--secondary {
-  color: #5c6b77;
-}
-
-.consistency-table__blocker-cell {
-  display: grid;
-  gap: 0.2rem;
 }
 
 .consistency-chip--ready {
