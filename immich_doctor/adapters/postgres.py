@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import psycopg
 from psycopg import sql
+from psycopg.rows import dict_row
 
 from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.db.connection import (
@@ -298,6 +300,42 @@ class PostgresAdapter:
         ).format(asset_table=sql.Identifier("public", "asset"))
         return fetch_all_composed(dsn, timeout_seconds, query, (limit, offset))
 
+    def list_assets_for_missing_references(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        limit: int,
+        offset: int,
+        optional_columns: tuple[str, ...] = (),
+    ) -> list[dict[str, object]]:
+        select_columns: list[sql.Composable] = [
+            sql.SQL("id"),
+            sql.SQL("type"),
+            sql.SQL('"originalPath" AS "originalPath"'),
+        ]
+        for column in optional_columns:
+            select_columns.append(
+                sql.SQL("{column} AS {alias}").format(
+                    column=sql.Identifier(column),
+                    alias=sql.Identifier(column),
+                )
+            )
+
+        query = sql.SQL(
+            """
+            SELECT
+                {select_columns}
+            FROM {asset_table}
+            ORDER BY id ASC
+            LIMIT %s OFFSET %s;
+            """
+        ).format(
+            select_columns=sql.SQL(", ").join(select_columns),
+            asset_table=sql.Identifier("public", "asset"),
+        )
+        return fetch_all_composed(dsn, timeout_seconds, query, (limit, offset))
+
     def list_asset_files_for_assets(
         self,
         dsn: str,
@@ -321,6 +359,217 @@ class PostgresAdapter:
             """
         ).format(asset_file_table=sql.Identifier("public", "asset_file"))
         return fetch_all_composed(dsn, timeout_seconds, query, (list(asset_ids),))
+
+    def list_rows_by_column_values(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+        column_name: str,
+        values: tuple[str, ...],
+        order_columns: tuple[str, ...] = (),
+    ) -> list[dict[str, object]]:
+        if not values:
+            return []
+
+        order_clause = (
+            sql.SQL(" ORDER BY {columns}").format(
+                columns=sql.SQL(", ").join(sql.Identifier(column) for column in order_columns)
+            )
+            if order_columns
+            else sql.SQL("")
+        )
+        query = sql.SQL(
+            """
+            SELECT *
+            FROM {table_name}
+            WHERE {column_name} = ANY(%s){order_clause};
+            """
+        ).format(
+            table_name=sql.Identifier(table_schema, table_name),
+            column_name=sql.Identifier(column_name),
+            order_clause=order_clause,
+        )
+        return fetch_all_composed(dsn, timeout_seconds, query, (list(values),))
+
+    def delete_rows_by_column_values_returning_all(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+        column_name: str,
+        values: tuple[str, ...],
+    ) -> list[dict[str, object]]:
+        if not values:
+            return []
+
+        query = sql.SQL(
+            """
+            DELETE FROM {table_name}
+            WHERE {column_name} = ANY(%s)
+            RETURNING *;
+            """
+        ).format(
+            table_name=sql.Identifier(table_schema, table_name),
+            column_name=sql.Identifier(column_name),
+        )
+        return execute_returning_all_composed(dsn, timeout_seconds, query, (list(values),))
+
+    def insert_rows(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+        rows: list[dict[str, object]],
+    ) -> int:
+        if not rows:
+            return 0
+
+        columns = tuple(rows[0].keys())
+        values_sql = []
+        params: list[object] = []
+        for row in rows:
+            values_sql.append(
+                sql.SQL("({placeholders})").format(
+                    placeholders=sql.SQL(", ").join(sql.Placeholder() for _ in columns)
+                )
+            )
+            params.extend(row[column] for column in columns)
+
+        query = sql.SQL(
+            """
+            INSERT INTO {table_name} ({columns})
+            VALUES {values};
+            """
+        ).format(
+            table_name=sql.Identifier(table_schema, table_name),
+            columns=sql.SQL(", ").join(sql.Identifier(column) for column in columns),
+            values=sql.SQL(", ").join(values_sql),
+        )
+        execute_returning_all_composed(dsn, timeout_seconds, query, tuple(params))
+        return len(rows)
+
+    def delete_asset_reference_records(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        asset_id: str,
+        relations: tuple[dict[str, str], ...],
+    ) -> list[dict[str, object]]:
+        deleted_records: list[dict[str, object]] = []
+        with psycopg.connect(
+            dsn,
+            connect_timeout=timeout_seconds,
+            row_factory=dict_row,
+        ) as connection:
+            try:
+                with connection.cursor() as cursor:
+                    for relation in relations:
+                        query = sql.SQL(
+                            """
+                            DELETE FROM {table_name}
+                            WHERE {column_name} = %s
+                            RETURNING *;
+                            """
+                        ).format(
+                            table_name=sql.Identifier(
+                                relation["table_schema"],
+                                relation["table_name"],
+                            ),
+                            column_name=sql.Identifier(relation["column_name"]),
+                        )
+                        cursor.execute(query, (asset_id,))
+                        rows = [dict(row) for row in cursor.fetchall()]
+                        if rows:
+                            deleted_records.append(
+                                {
+                                    "table": (
+                                        f"{relation['table_schema']}.{relation['table_name']}"
+                                    ),
+                                    "rows": rows,
+                                }
+                            )
+
+                    asset_query = sql.SQL(
+                        """
+                        DELETE FROM {asset_table}
+                        WHERE id = %s
+                        RETURNING *;
+                        """
+                    ).format(asset_table=sql.Identifier("public", "asset"))
+                    cursor.execute(asset_query, (asset_id,))
+                    asset_rows = [dict(row) for row in cursor.fetchall()]
+                    if not asset_rows:
+                        raise ValueError("Asset row was not deleted because it no longer exists.")
+                    deleted_records.insert(0, {"table": "public.asset", "rows": asset_rows})
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return deleted_records
+
+    def restore_asset_reference_records(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        records: list[dict[str, object]],
+    ) -> int:
+        inserted_total = 0
+        ordered_records = sorted(
+            records,
+            key=lambda item: (0 if item["table"] == "public.asset" else 1, str(item["table"])),
+        )
+        with psycopg.connect(
+            dsn,
+            connect_timeout=timeout_seconds,
+            row_factory=dict_row,
+        ) as connection:
+            try:
+                with connection.cursor() as cursor:
+                    for record in ordered_records:
+                        table_schema, table_name = str(record["table"]).split(".", maxsplit=1)
+                        rows = list(record.get("rows", []))
+                        if not rows:
+                            continue
+                        columns = tuple(rows[0].keys())
+                        values_sql = []
+                        params: list[object] = []
+                        for row in rows:
+                            values_sql.append(
+                                sql.SQL("({placeholders})").format(
+                                    placeholders=sql.SQL(", ").join(
+                                        sql.Placeholder() for _ in columns
+                                    )
+                                )
+                            )
+                            params.extend(row[column] for column in columns)
+                        query = sql.SQL(
+                            """
+                            INSERT INTO {table_name} ({columns})
+                            VALUES {values};
+                            """
+                        ).format(
+                            table_name=sql.Identifier(table_schema, table_name),
+                            columns=sql.SQL(", ").join(
+                                sql.Identifier(column) for column in columns
+                            ),
+                            values=sql.SQL(", ").join(values_sql),
+                        )
+                        cursor.execute(query, tuple(params))
+                        inserted_total += len(rows)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return inserted_total
 
     def list_metadata_failure_candidates(
         self,

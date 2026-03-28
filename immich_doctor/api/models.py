@@ -65,6 +65,42 @@ class RuntimeRepairReadinessApiResponse(BaseModel):
     mocked: bool = False
 
 
+class MissingAssetScanApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class MissingAssetPreviewApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class MissingAssetApplyApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class MissingAssetRestorePointsApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class MissingAssetRestoreApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class MissingAssetRestorePointDeleteApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class RepairRunsApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

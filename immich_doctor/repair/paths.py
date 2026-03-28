@@ -31,3 +31,15 @@ def repair_quarantine_items_file(settings: AppSettings, repair_run_id: str) -> P
 
 def quarantine_index_file(settings: AppSettings) -> Path:
     return settings.quarantine_path / "index.jsonl"
+
+
+def missing_asset_restore_points_root(settings: AppSettings) -> Path:
+    return repair_manifests_root(settings) / "missing-asset-restore-points"
+
+
+def missing_asset_restore_point_file(settings: AppSettings, restore_point_id: str) -> Path:
+    return missing_asset_restore_points_root(settings) / f"{restore_point_id}.json"
+
+
+def missing_asset_restore_point_index_file(settings: AppSettings) -> Path:
+    return missing_asset_restore_points_root(settings) / "index.jsonl"

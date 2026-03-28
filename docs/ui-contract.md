@@ -91,6 +91,37 @@ The Runtime page must:
 - never encourage blind retries when corruption, truncation, missing files, or
   permission errors are already proven
 
+## Missing asset references page
+
+The missing-asset-reference UI must stay review-first and mutation-last.
+
+Canonical behavior:
+
+- show findings for `public.asset.originalPath` only
+- keep `present`, `missing_on_disk`, `permission_error`, `unreadable_path`, `unsupported`, and `already_removed` distinct in the table
+- label only `missing_on_disk` with `ready` repair readiness as selectable for removal
+- show the repair scope explicitly, including the asset table and the supported restore tables
+- keep preview separate from apply
+- show the exact preview set before apply
+- refuse apply when the previewed scan state drifted materially
+- surface restore points as separate records with restore and delete as separate actions
+- make delete of restore points a distinct confirmation path
+
+UI safety gate:
+
+- before apply, the UI must warn that both database and asset/storage backups should exist
+- apply must stay disabled until the operator checks:
+  - `I have read the warning`
+  - `I created a backup`
+- the disclaimer gate is UI-only and does not replace CLI flags or backend validation
+
+Recovery limits shown in UI:
+
+- restore points only contain the database reference state captured during apply
+- restore points do not recreate missing files
+- unsupported schema mappings remain blocked and must be reported clearly
+- already removed rows should be shown as such instead of being hidden
+
 ## Backup contract
 
 The backup UI must treat backend state as the source of truth for:
