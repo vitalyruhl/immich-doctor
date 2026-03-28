@@ -35,6 +35,63 @@ Status: active foundation
   - backup-side actions to create a manual files backup or a standalone `pre_repair` snapshot
   - explicit notice that full restore is still not implemented
 
+## Missing asset references
+
+This workflow is defined narrowly and must not be widened silently.
+
+Detection rule:
+
+- scan `public.asset.originalPath` only
+- a record qualifies as missing when the current runtime cannot access the file at that path on the local filesystem
+- the backend keeps these states distinct: `present`, `missing_on_disk`, `permission_error`, `unreadable_path`, `unsupported`, `already_removed`
+- `missing_on_disk` is the only status that is repairable
+- empty or unresolved paths are reported as `unsupported`
+
+Supported scope:
+
+- scanned table: `public.asset`
+- path field: `public.asset.originalPath`
+- repair / restore tables:
+  - `public.asset`
+  - `public.asset_file`
+  - `public.album_asset`
+  - `public.asset_job_status`
+- unknown foreign-key tables that point at `public.asset.id` block apply until they are modeled explicitly
+- derivatives, previews, and thumbnails are not part of this workflow
+
+Repair model:
+
+- preview and apply are separate operations
+- preview creates a repair run plus a plan token for drift protection
+- apply must reuse that repair run and must refuse to proceed if the preview scope or live-state fingerprint drifted
+- apply creates restore-point manifests before database mutation
+- repair results are journaled and attributable to a repair run
+- restore points are first-class JSON manifests, not ad-hoc logs
+
+Restore behavior:
+
+- restore point records are stored under `data/manifests/missing-asset-references/restore-points/`
+- restore can target a single restore point, selected restore points, or all restore points
+- restore-point deletion is separate from restore and requires explicit confirmation
+- deleting a restore point removes reversible state for future restores
+- restore cannot recreate the missing physical files; it only rehydrates database reference state captured in the manifest
+
+Recovery limits:
+
+- apply can restore the database references that were removed
+- apply cannot recreate deleted source files, missing originals, or unsupported FK-backed records that were never captured
+- if a record is already absent from the current scan scope, it is reported as `already_removed`
+- if the schema contains unsupported asset references, the run stays blocked until the mapping is modeled safely
+
+CLI and UI:
+
+- CLI keeps explicit dry-run/apply semantics and does not use the UI checkbox gate
+- UI repair actions require two confirmations before apply:
+  - `I have read the warning`
+  - `I created a backup`
+- the warning must tell the operator to ensure both database and asset/storage backups exist before apply
+- help text and docs must keep the same safety message even though the interaction model differs
+
 ## Safety rules
 
 - inspect live state first
