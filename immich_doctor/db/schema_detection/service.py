@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 
 from immich_doctor.adapters.postgres import PostgresAdapter
 from immich_doctor.db.schema_detection.models import (
+    AssetDependencyCoverageStatus,
+    AssetDependencyRiskClass,
+    AssetDependencyState,
     ColumnMetadata,
     DatabaseSchemaSupportStatus,
     DetectedDatabaseState,
@@ -27,10 +30,63 @@ DEFAULT_SCHEMA_DETECTION_TABLES = (
     "memory_asset",
     "stack",
 )
-SUPPORTED_DIRECT_ASSET_RELATION_TABLES = {
-    ("public", "album_asset"),
-    ("public", "asset_file"),
-    ("public", "asset_job_status"),
+ASSET_DEPENDENCY_SAFE_ANALYSIS_RULES = {
+    ("public", "album_asset"): (
+        "Album membership rows are already captured in the current read-only dependency model."
+    ),
+    ("public", "asset_file"): (
+        "Derived asset file rows are already captured in the current read-only dependency model."
+    ),
+    ("public", "asset_job_status"): (
+        "Asset job status rows are already captured in the current read-only dependency model."
+    ),
+}
+ASSET_DEPENDENCY_SEMANTIC_BLOCK_RULES = {
+    ("public", "activity"): (
+        "Deleting an asset would cascade activity rows linked to albums or users."
+    ),
+    ("public", "album"): (
+        "Deleting an asset would mutate album thumbnail references via SET NULL semantics."
+    ),
+    ("public", "asset"): (
+        "Deleting an asset would mutate sibling asset rows via livePhotoVideoId."
+    ),
+    ("public", "memory_asset"): (
+        "Deleting an asset would cascade memory membership rows and change memory composition."
+    ),
+    ("public", "shared_link_asset"): (
+        "Deleting an asset would cascade shared-link membership rows."
+    ),
+    ("public", "stack"): (
+        "Deleting a primary stack asset can be blocked by NO ACTION semantics."
+    ),
+    ("public", "tag_asset"): (
+        "Deleting an asset would cascade tag membership rows."
+    ),
+}
+ASSET_DEPENDENCY_UNSUPPORTED_RULES = {
+    ("public", "asset_edit"): (
+        "Deleting an asset would cascade edit rows, but apply semantics are not modeled yet."
+    ),
+    ("public", "asset_exif"): (
+        "Deleting an asset would cascade EXIF rows, but apply semantics are not modeled yet."
+    ),
+    ("public", "asset_face"): (
+        "Deleting an asset would cascade face rows, but apply semantics are not modeled yet."
+    ),
+    ("public", "asset_metadata"): (
+        "Deleting an asset would cascade metadata rows, but apply semantics are not modeled yet."
+    ),
+    ("public", "asset_ocr"): (
+        "Deleting an asset would cascade OCR rows, but apply semantics are not modeled yet."
+    ),
+    ("public", "ocr_search"): (
+        "Deleting an asset would cascade OCR search rows, but apply semantics are not modeled yet."
+    ),
+    ("public", "smart_search"): (
+        "Deleting an asset would cascade smart-search rows, but apply semantics are not "
+        "modeled yet."
+    ),
 }
 
 
@@ -63,10 +119,12 @@ class DatabaseStateDetector:
             version_source,
             notes,
         ) = self._detect_product_version(dsn, timeout, table_states)
-        capabilities = self._derive_capabilities(table_states)
+        asset_dependencies = self._derive_asset_dependencies(table_states)
+        capabilities = self._derive_capabilities(table_states, asset_dependencies)
         risk_flags = self._derive_risk_flags(
             capabilities=capabilities,
             product_version_current=product_version_current,
+            asset_dependencies=asset_dependencies,
         )
         support_status = self._derive_support_status(risk_flags)
         schema_generation_key = self._schema_generation_key(capabilities)
@@ -81,6 +139,7 @@ class DatabaseStateDetector:
             schema_fingerprint=schema_fingerprint,
             support_status=support_status,
             capabilities=capabilities,
+            asset_dependencies=asset_dependencies,
             risk_flags=risk_flags,
             notes=notes,
             available_tables=available_tables,
@@ -210,7 +269,11 @@ class DatabaseStateDetector:
             (),
         )
 
-    def _derive_capabilities(self, table_states: list[TableSchemaState]) -> dict[str, bool]:
+    def _derive_capabilities(
+        self,
+        table_states: list[TableSchemaState],
+        asset_dependencies: tuple[AssetDependencyState, ...],
+    ) -> dict[str, bool]:
         capabilities: dict[str, bool] = {}
 
         def has_table(name: str) -> bool:
@@ -337,25 +400,123 @@ class DatabaseStateDetector:
             capabilities["has_asset"] and capabilities["has_asset_originalPath"]
         )
         capabilities["can_evaluate_asset_delete_dependency_risk"] = capabilities["has_asset"]
+        capabilities["has_unsupported_asset_dependency_tables"] = any(
+            dependency.coverage_status == AssetDependencyCoverageStatus.UNSUPPORTED_BLOCKING
+            for dependency in asset_dependencies
+        )
+        capabilities["has_blocking_asset_dependency_semantics"] = any(
+            dependency.coverage_status
+            == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
+            for dependency in asset_dependencies
+        )
+        return capabilities
 
-        asset_reference_foreign_keys = [
-            foreign_key
+    def _derive_asset_dependencies(
+        self,
+        table_states: list[TableSchemaState],
+    ) -> tuple[AssetDependencyState, ...]:
+        dependencies = [
+            self._classify_asset_dependency(foreign_key)
             for table in table_states
             for foreign_key in table.foreign_keys
             if foreign_key.target_schema == "public" and foreign_key.target_table == "asset"
         ]
-        capabilities["has_unsupported_asset_dependency_tables"] = any(
-            (foreign_key.source_schema, foreign_key.source_table)
-            not in SUPPORTED_DIRECT_ASSET_RELATION_TABLES
-            for foreign_key in asset_reference_foreign_keys
+        dependencies.sort(key=lambda item: (item.qualified_name, item.constraint_name))
+        return tuple(dependencies)
+
+    def _classify_asset_dependency(
+        self,
+        foreign_key: ForeignKeyMetadata,
+    ) -> AssetDependencyState:
+        source_key = (foreign_key.source_schema, foreign_key.source_table)
+        notes: list[str] = []
+        if len(foreign_key.source_columns) != 1:
+            notes.append("Only single-column asset references are currently modeled precisely.")
+        if foreign_key.target_columns != ("id",):
+            notes.append("The reference target is not the canonical public.asset.id key.")
+
+        risk_class = self._risk_class_for_delete_action(foreign_key.delete_action)
+        coverage_status = AssetDependencyCoverageStatus.UNSUPPORTED_BLOCKING
+        blocks_apply = True
+        reason = self._default_asset_dependency_reason(foreign_key, risk_class)
+
+        if notes:
+            risk_class = AssetDependencyRiskClass.UNKNOWN
+            reason = (
+                "Asset dependency metadata is only partially introspected, so apply remains "
+                "blocked."
+            )
+        elif source_key in ASSET_DEPENDENCY_SAFE_ANALYSIS_RULES:
+            coverage_status = AssetDependencyCoverageStatus.COVERED_SAFE_FOR_ANALYSIS
+            blocks_apply = False
+            reason = ASSET_DEPENDENCY_SAFE_ANALYSIS_RULES[source_key]
+        elif source_key in ASSET_DEPENDENCY_SEMANTIC_BLOCK_RULES:
+            coverage_status = AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
+            reason = ASSET_DEPENDENCY_SEMANTIC_BLOCK_RULES[source_key]
+        elif source_key in ASSET_DEPENDENCY_UNSUPPORTED_RULES:
+            reason = ASSET_DEPENDENCY_UNSUPPORTED_RULES[source_key]
+
+        return AssetDependencyState(
+            constraint_name=foreign_key.constraint_name,
+            source_schema=foreign_key.source_schema,
+            source_table=foreign_key.source_table,
+            source_columns=foreign_key.source_columns,
+            target_schema=foreign_key.target_schema,
+            target_table=foreign_key.target_table,
+            target_columns=foreign_key.target_columns,
+            delete_action=foreign_key.delete_action,
+            risk_class=risk_class,
+            coverage_status=coverage_status,
+            blocks_apply=blocks_apply,
+            reason=reason,
+            notes=tuple(notes),
         )
-        return capabilities
+
+    def _risk_class_for_delete_action(
+        self,
+        delete_action: str | None,
+    ) -> AssetDependencyRiskClass:
+        normalized = (delete_action or "").upper()
+        if normalized == "CASCADE":
+            return AssetDependencyRiskClass.CASCADE_LOSS
+        if normalized in {"SET NULL", "SET DEFAULT"}:
+            return AssetDependencyRiskClass.SET_NULL_MUTATION
+        if normalized in {"NO ACTION", "RESTRICT"}:
+            return AssetDependencyRiskClass.RESTRICT_OR_NO_ACTION_BLOCK
+        return AssetDependencyRiskClass.UNKNOWN
+
+    def _default_asset_dependency_reason(
+        self,
+        foreign_key: ForeignKeyMetadata,
+        risk_class: AssetDependencyRiskClass,
+    ) -> str:
+        source_name = foreign_key.source_qualified_name
+        if risk_class == AssetDependencyRiskClass.CASCADE_LOSS:
+            return (
+                f"Deleting an asset would cascade rows in {source_name}, but apply semantics "
+                "are not modeled yet."
+            )
+        if risk_class == AssetDependencyRiskClass.SET_NULL_MUTATION:
+            return (
+                f"Deleting an asset would mutate rows in {source_name} through "
+                f"{foreign_key.delete_action} semantics."
+            )
+        if risk_class == AssetDependencyRiskClass.RESTRICT_OR_NO_ACTION_BLOCK:
+            return (
+                f"Deleting an asset can be blocked by {source_name} because the foreign key "
+                f"uses {foreign_key.delete_action} semantics."
+            )
+        return (
+            f"Dependency semantics for {source_name} are not fully known from the current "
+            "metadata."
+        )
 
     def _derive_risk_flags(
         self,
         *,
         capabilities: dict[str, bool],
         product_version_current: str | None,
+        asset_dependencies: tuple[AssetDependencyState, ...],
     ) -> tuple[str, ...]:
         flags: list[str] = []
         if product_version_current is None:
@@ -381,6 +542,10 @@ class DatabaseStateDetector:
             flags.append("schema_drift")
         if capabilities["has_unsupported_asset_dependency_tables"]:
             flags.append("unsupported_asset_dependency_tables")
+        if any(dependency.blocks_apply for dependency in asset_dependencies):
+            flags.append("asset_delete_apply_blocked")
+        if capabilities["has_blocking_asset_dependency_semantics"]:
+            flags.append("blocking_asset_dependency_semantics")
         if not capabilities["can_validate_album_asset_missing_asset"]:
             flags.append("unsupported_schema_shape")
         return tuple(dict.fromkeys(flags))

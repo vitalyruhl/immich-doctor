@@ -1,4 +1,7 @@
 from immich_doctor.db.schema_detection.models import (
+    AssetDependencyCoverageStatus,
+    AssetDependencyRiskClass,
+    AssetDependencyState,
     DatabaseSchemaSupportStatus,
     DetectedDatabaseState,
     DetectionConfidence,
@@ -13,6 +16,9 @@ from immich_doctor.db.schema_detection.service import (
 )
 
 __all__ = [
+    "AssetDependencyCoverageStatus",
+    "AssetDependencyRiskClass",
+    "AssetDependencyState",
     "DatabaseSchemaSupportStatus",
     "DatabaseStateDetector",
     "DEFAULT_SCHEMA_DETECTION_TABLES",

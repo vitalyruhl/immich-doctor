@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from immich_doctor.db.schema_detection import (
+    AssetDependencyCoverageStatus,
+    AssetDependencyRiskClass,
     DatabaseSchemaSupportStatus,
     DatabaseStateDetector,
 )
@@ -246,6 +248,96 @@ def test_database_state_detector_reads_version_history_when_present() -> None:
     assert state.product_version_confidence.value == "high"
     assert len(state.product_version_history) == 2
     assert state.support_status == DatabaseSchemaSupportStatus.SUPPORTED
+
+
+def test_database_state_detector_classifies_asset_dependencies_by_delete_semantics() -> None:
+    detector = DatabaseStateDetector(
+        postgres=FakePostgresAdapter(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            version_history_entries=_version_history_entries(),
+        )
+    )
+
+    state = detector.detect("dsn", 5)
+    dependencies = {
+        dependency.qualified_name: dependency for dependency in state.asset_dependencies
+    }
+
+    assert (
+        dependencies["public.album"].risk_class
+        == AssetDependencyRiskClass.SET_NULL_MUTATION
+    )
+    assert (
+        dependencies["public.album"].coverage_status
+        == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
+    )
+    assert dependencies["public.album"].blocks_apply is True
+    assert (
+        dependencies["public.album_asset"].coverage_status
+        == AssetDependencyCoverageStatus.COVERED_SAFE_FOR_ANALYSIS
+    )
+    assert dependencies["public.album_asset"].blocks_apply is False
+    assert (
+        dependencies["public.memory_asset"].risk_class
+        == AssetDependencyRiskClass.CASCADE_LOSS
+    )
+    assert (
+        dependencies["public.memory_asset"].coverage_status
+        == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
+    )
+    assert (
+        dependencies["public.stack"].risk_class
+        == AssetDependencyRiskClass.RESTRICT_OR_NO_ACTION_BLOCK
+    )
+
+
+def test_database_state_detector_marks_unknown_dependency_metadata_as_unsupported() -> None:
+    detector = DatabaseStateDetector(
+        postgres=FakePostgresAdapter(
+            tables=[*_tables(), {"table_schema": "public", "table_name": "person_asset"}],
+            columns_by_table={
+                **_columns(),
+                ("public", "person_asset"): [
+                    {
+                        "table_schema": "public",
+                        "table_name": "person_asset",
+                        "column_name": "assetId",
+                        "ordinal_position": 1,
+                    }
+                ],
+            },
+            foreign_keys_by_table={
+                **_foreign_keys(),
+                ("public", "person_asset"): [
+                    {
+                        "constraint_name": "person_asset_assetId_fkey",
+                        "table_schema": "public",
+                        "table_name": "person_asset",
+                        "referenced_table_schema": "public",
+                        "referenced_table_name": "asset",
+                        "column_names": ["assetId"],
+                        "referenced_column_names": ["id"],
+                    }
+                ],
+            },
+            version_history_entries=_version_history_entries(),
+        )
+    )
+
+    state = detector.detect("dsn", 5)
+    dependency = next(
+        item for item in state.asset_dependencies if item.qualified_name == "public.person_asset"
+    )
+
+    assert dependency.risk_class == AssetDependencyRiskClass.UNKNOWN
+    assert (
+        dependency.coverage_status
+        == AssetDependencyCoverageStatus.UNSUPPORTED_BLOCKING
+    )
+    assert dependency.blocks_apply is True
+    assert state.has_capability("has_unsupported_asset_dependency_tables") is True
 
 
 def test_database_state_detector_returns_unknown_version_without_version_table() -> None:

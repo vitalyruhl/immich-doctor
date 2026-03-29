@@ -24,6 +24,22 @@ class DatabaseSchemaSupportStatus(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
+class AssetDependencyRiskClass(StrEnum):
+    CASCADE_LOSS = "cascade_loss"
+    SET_NULL_MUTATION = "set_null_mutation"
+    RESTRICT_OR_NO_ACTION_BLOCK = "restrict_or_no_action_block"
+    ORPHAN_RISK = "orphan_risk"
+    INFORMATIONAL = "informational_dependency"
+    UNKNOWN = "unknown"
+
+
+class AssetDependencyCoverageStatus(StrEnum):
+    COVERED_SAFE_FOR_ANALYSIS = "covered_safe_for_analysis"
+    COVERED_BLOCKING_FOR_APPLY = "covered_blocking_for_apply"
+    UNSUPPORTED_BLOCKING = "unsupported_blocking"
+    INFORMATIONAL_ONLY = "informational_only"
+
+
 @dataclass(frozen=True, slots=True)
 class ProductVersionEntry:
     version: str
@@ -109,6 +125,42 @@ class TableSchemaState:
 
 
 @dataclass(frozen=True, slots=True)
+class AssetDependencyState:
+    constraint_name: str
+    source_schema: str
+    source_table: str
+    source_columns: tuple[str, ...]
+    target_schema: str
+    target_table: str
+    target_columns: tuple[str, ...]
+    delete_action: str | None
+    risk_class: AssetDependencyRiskClass
+    coverage_status: AssetDependencyCoverageStatus
+    blocks_apply: bool
+    reason: str
+    notes: tuple[str, ...] = ()
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.source_schema}.{self.source_table}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "constraint_name": self.constraint_name,
+            "table": self.qualified_name,
+            "column_names": list(self.source_columns),
+            "referenced_table": f"{self.target_schema}.{self.target_table}",
+            "referenced_column_names": list(self.target_columns),
+            "delete_action": self.delete_action,
+            "risk_class": self.risk_class.value,
+            "coverage_status": self.coverage_status.value,
+            "blocks_apply": self.blocks_apply,
+            "reason": self.reason,
+            "notes": list(self.notes),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DetectedDatabaseState:
     product_version_current: str | None
     product_version_history: tuple[ProductVersionEntry, ...]
@@ -118,6 +170,7 @@ class DetectedDatabaseState:
     schema_fingerprint: str
     support_status: DatabaseSchemaSupportStatus
     capabilities: dict[str, bool] = field(default_factory=dict)
+    asset_dependencies: tuple[AssetDependencyState, ...] = ()
     risk_flags: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     available_tables: tuple[str, ...] = ()
@@ -149,6 +202,11 @@ class DetectedDatabaseState:
             if foreign_key.target_schema == "public" and foreign_key.target_table == "asset"
         )
 
+    def blocking_asset_dependencies(self) -> tuple[AssetDependencyState, ...]:
+        return tuple(
+            dependency for dependency in self.asset_dependencies if dependency.blocks_apply
+        )
+
     def to_dict(self) -> dict[str, Any]:
         key_capabilities = {
             name: value
@@ -161,7 +219,12 @@ class DetectedDatabaseState:
                 or name.startswith("has_album")
                 or name.startswith("has_memory")
                 or name.startswith("has_stack")
-                or name in {"has_version_history", "has_unsupported_asset_dependency_tables"}
+                or name
+                in {
+                    "has_blocking_asset_dependency_semantics",
+                    "has_unsupported_asset_dependency_tables",
+                    "has_version_history",
+                }
             )
         }
         return {
@@ -173,6 +236,9 @@ class DetectedDatabaseState:
             "schema_fingerprint": self.schema_fingerprint,
             "support_status": self.support_status.value,
             "capabilities": key_capabilities,
+            "asset_dependencies": [
+                dependency.to_dict() for dependency in self.asset_dependencies
+            ],
             "risk_flags": list(self.risk_flags),
             "notes": list(self.notes),
             "available_tables": list(self.available_tables),

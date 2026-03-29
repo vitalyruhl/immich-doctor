@@ -250,6 +250,7 @@ def _foreign_keys() -> dict[tuple[str, str], list[dict[str, object]]]:
                 "constraint_name": "fk_asset_file_asset",
                 "referenced_table_schema": "public",
                 "referenced_table_name": "asset",
+                "delete_action": "CASCADE",
                 "column_names": ["assetId"],
                 "referenced_column_names": ["id"],
             }
@@ -259,6 +260,7 @@ def _foreign_keys() -> dict[tuple[str, str], list[dict[str, object]]]:
                 "constraint_name": "fk_album_asset_asset",
                 "referenced_table_schema": "public",
                 "referenced_table_name": "asset",
+                "delete_action": "CASCADE",
                 "column_names": ["assetsId"],
                 "referenced_column_names": ["id"],
             }
@@ -268,6 +270,7 @@ def _foreign_keys() -> dict[tuple[str, str], list[dict[str, object]]]:
                 "constraint_name": "fk_asset_job_status_asset",
                 "referenced_table_schema": "public",
                 "referenced_table_name": "asset",
+                "delete_action": "CASCADE",
                 "column_names": ["assetId"],
                 "referenced_column_names": ["id"],
             }
@@ -356,12 +359,14 @@ def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> 
     result = service.scan(_settings(tmp_path))
 
     assert result.findings[0].repair_readiness == RepairReadinessStatus.BLOCKED
-    assert "unsupported" in result.findings[0].repair_blockers[0].lower()
+    assert "public.person_asset blocks apply" in result.findings[0].repair_blockers[0]
     blocker = result.findings[0].repair_blocker_details[0]
-    assert blocker.blocker_code == "unsupported_dependency_tables"
+    assert blocker.blocker_code == "asset_dependency:public.person_asset"
     assert blocker.blocker_type == MissingAssetRepairBlockerType.SCHEMA
-    assert blocker.summary == "Unsupported dependency tables detected"
-    assert blocker.details["repair_blocked"] is True
+    assert blocker.summary == "public.person_asset blocks apply: unknown"
+    assert blocker.details["blocks_apply"] is True
+    assert blocker.details["coverage_status"] == "unsupported_blocking"
+    assert blocker.details["risk_class"] == "unknown"
     assert blocker.affected_tables == ("public.person_asset",)
     assert blocker.repair_covered_tables == (
         "public.album_asset",
@@ -370,8 +375,59 @@ def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> 
     )
     assert blocker.blocking_severity == MissingAssetBlockingSeverity.ERROR
     assert blocker.is_repairable is False
-    assert result.metadata["blockingIssues"] == ["Unsupported dependency tables detected"]
+    assert result.metadata["blockingIssues"] == ["public.person_asset blocks apply: unknown"]
+    assert result.metadata["supportedScope"]["applyBlocked"] is True
+    assert (
+        result.metadata["supportedScope"]["assetDependencies"][-1]["table"]
+        == "public.person_asset"
+    )
     assert result.metadata["supportedScope"]["scanBlockers"] == [blocker.to_dict()]
+
+
+def test_scan_reports_semantic_set_null_blocker(tmp_path: Path) -> None:
+    postgres = _FakePostgres(
+        tables=[*_tables(), {"table_schema": "public", "table_name": "album"}],
+        columns_by_table={
+            **_columns(),
+            ("public", "album"): [
+                {"table_schema": "public", "table_name": "album", "column_name": "id"},
+                {
+                    "table_schema": "public",
+                    "table_name": "album",
+                    "column_name": "albumThumbnailAssetId",
+                },
+            ],
+        },
+        foreign_keys_by_table={
+            **_foreign_keys(),
+            ("public", "album"): [
+                {
+                    "constraint_name": "album_albumThumbnailAssetId_fkey",
+                    "referenced_table_schema": "public",
+                    "referenced_table_name": "asset",
+                    "delete_action": "SET NULL",
+                    "column_names": ["albumThumbnailAssetId"],
+                    "referenced_column_names": ["id"],
+                }
+            ],
+        },
+        rows_by_table=_rows(),
+    )
+    service = MissingAssetReferenceService(
+        postgres=postgres,
+        filesystem=_FakeFilesystem(
+            {"C:/library/missing.jpg": "missing", "C:/library/ok.jpg": "present"}
+        ),
+    )
+
+    result = service.scan(_settings(tmp_path))
+
+    blocker = result.findings[0].repair_blocker_details[0]
+    assert blocker.summary == "public.album blocks apply: set_null_mutation"
+    assert blocker.details["delete_action"] == "SET NULL"
+    assert blocker.details["coverage_status"] == "covered_blocking_for_apply"
+    assert blocker.details["risk_class"] == "set_null_mutation"
+    assert result.metadata["blockingIssues"] == ["public.album blocks apply: set_null_mutation"]
 
 
 def test_preview_and_apply_create_restore_point_and_delete_rows(tmp_path: Path) -> None:
