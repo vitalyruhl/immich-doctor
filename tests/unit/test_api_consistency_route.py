@@ -14,17 +14,119 @@ class _Result:
         return self.payload
 
 
+class _ScanManager:
+    def __init__(
+        self,
+        *,
+        status_payload: dict[str, object] | None = None,
+        findings_payload: dict[str, object] | None = None,
+    ) -> None:
+        self.status_payload = status_payload or {
+            "domain": "consistency.missing_asset_references",
+            "action": "scan_status",
+            "status": "SKIP",
+            "summary": "No completed missing asset reference scan is available yet.",
+            "scan_state": "idle",
+            "active_scan": None,
+            "latest_completed": None,
+            "checks": [],
+            "metadata": {"has_completed_result": False},
+            "recommendations": [],
+        }
+        self.findings_payload = findings_payload or {
+            "domain": "consistency.missing_asset_references",
+            "action": "scan",
+            "status": "SKIP",
+            "summary": "No completed missing asset reference scan is available yet.",
+            "findings": [],
+            "metadata": {"has_completed_result": False},
+            "recommendations": [],
+        }
+
+    def get_status(self, settings):
+        return _Result(self.status_payload)
+
+    def start_scan(self, settings):
+        return _Result(self.status_payload)
+
+    def get_latest_findings(self, settings, **kwargs):
+        return self.findings_payload
+
+
+def test_missing_asset_scan_status_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        consistency_routes,
+        "_missing_asset_scan_manager",
+        lambda request: _ScanManager(
+            status_payload={
+                "domain": "consistency.missing_asset_references",
+                "action": "scan_status",
+                "status": "WARN",
+                "summary": "Missing asset reference scan is running.",
+                "scan_state": "running",
+                "active_scan": {"scan_id": "scan-1", "state": "running"},
+                "latest_completed": None,
+                "checks": [],
+                "metadata": {"has_completed_result": False},
+                "recommendations": [],
+            }
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    response = client.get("/api/consistency/missing-asset-references/status")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["scan_state"] == "running"
+
+
+def test_missing_asset_trigger_scan_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        consistency_routes,
+        "_missing_asset_scan_manager",
+        lambda request: _ScanManager(
+            status_payload={
+                "domain": "consistency.missing_asset_references",
+                "action": "scan_status",
+                "status": "WARN",
+                "summary": "Missing asset reference scan is queued.",
+                "scan_state": "pending",
+                "active_scan": {"scan_id": "scan-2", "state": "pending"},
+                "latest_completed": {
+                    "scan_id": "scan-1",
+                    "completed_at": "2026-03-28T08:00:00+00:00",
+                },
+                "checks": [],
+                "metadata": {"has_completed_result": True},
+                "recommendations": [],
+            }
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post("/api/consistency/missing-asset-references/scan")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["scan_state"] == "pending"
+    assert response.json()["data"]["active_scan"]["scan_id"] == "scan-2"
+
+
 def test_missing_asset_scan_route_returns_expected_shape(monkeypatch) -> None:
     monkeypatch.setattr(
-        consistency_routes.MissingAssetReferenceService,
-        "scan",
-        lambda self, settings, **kwargs: _Result(
-            {
+        consistency_routes,
+        "_missing_asset_scan_manager",
+        lambda request: _ScanManager(
+            findings_payload={
                 "domain": "consistency.missing_asset_references",
                 "action": "scan",
                 "status": "FAIL",
                 "summary": "1 missing asset reference found.",
                 "findings": [{"asset_id": "asset-1", "status": "missing_on_disk"}],
+                "metadata": {
+                    "scan_state": "completed",
+                    "has_completed_result": True,
+                },
+                "recommendations": [],
             }
         ),
     )

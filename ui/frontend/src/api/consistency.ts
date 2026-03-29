@@ -12,7 +12,20 @@ import type {
   MissingAssetRestoreRequest,
   MissingAssetRestoreResponse,
   MissingAssetScanResponse,
+  MissingAssetScanStatusResponse,
 } from "./types/consistency";
+
+export async function fetchMissingAssetScanStatus(): Promise<
+  ApiResponse<MissingAssetScanStatusResponse>
+> {
+  return request<MissingAssetScanStatusResponse>("/consistency/missing-asset-references/status");
+}
+
+export async function triggerMissingAssetScan(): Promise<ApiResponse<MissingAssetScanStatusResponse>> {
+  return request<MissingAssetScanStatusResponse>("/consistency/missing-asset-references/scan", {
+    method: "POST",
+  });
+}
 
 export async function fetchMissingAssetFindings(): Promise<ApiResponse<MissingAssetScanResponse>> {
   return request<MissingAssetScanResponse>("/consistency/missing-asset-references/findings");

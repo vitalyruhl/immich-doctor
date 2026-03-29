@@ -16,6 +16,8 @@ export type MissingAssetRepairBlockerType =
   | "schema"
   | string;
 export type MissingAssetBlockingSeverity = "warning" | "error" | string;
+export type MissingAssetScanState = "idle" | "pending" | "running" | "completed" | "failed";
+export type MissingAssetScanFailureKind = "exception" | "interrupted" | string;
 
 export type MissingAssetOperationStatus =
   | "planned"
@@ -83,6 +85,48 @@ export interface MissingAssetSupportedScopeMetadata {
   scanBlockers?: MissingAssetRepairBlocker[];
 }
 
+export interface MissingAssetScanJob {
+  scan_id: string;
+  state: MissingAssetScanState;
+  requested_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  summary: string;
+  result_count: number;
+  scanned_asset_count: number;
+  error_message: string | null;
+  failure_kind: MissingAssetScanFailureKind | null;
+}
+
+export interface MissingAssetCompletedScanSummary {
+  scan_id: string;
+  status: string;
+  summary: string;
+  generated_at: string;
+  completed_at: string;
+  finding_count: number;
+  missing_on_disk_count: number;
+  ready_count: number;
+  blocked_count: number;
+}
+
+export interface MissingAssetScanStatusResponse {
+  domain: string;
+  action: string;
+  status: string;
+  summary: string;
+  generated_at: string;
+  scan_state: MissingAssetScanState;
+  active_scan: MissingAssetScanJob | null;
+  latest_completed: MissingAssetCompletedScanSummary | null;
+  checks: RuntimeCheckResult[];
+  metadata: Record<string, unknown> & {
+    has_completed_result?: boolean;
+  };
+  recommendations: string[];
+}
+
 export interface MissingAssetScanResponse {
   domain: string;
   action: string;
@@ -94,6 +138,12 @@ export interface MissingAssetScanResponse {
   metadata: Record<string, unknown> & {
     supportedScope?: MissingAssetSupportedScopeMetadata;
     blockingIssues?: string[];
+    scan_state?: MissingAssetScanState;
+    active_scan?: MissingAssetScanJob | null;
+    latest_completed?: MissingAssetCompletedScanSummary | null;
+    has_completed_result?: boolean;
+    total_findings?: number;
+    returned_findings?: number;
   };
   recommendations: string[];
 }

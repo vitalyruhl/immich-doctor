@@ -335,6 +335,32 @@ def test_scan_detects_missing_asset_reference(tmp_path: Path) -> None:
     ]
 
 
+def test_scan_all_walks_entire_asset_set_and_reports_progress(tmp_path: Path) -> None:
+    progress_updates: list[dict[str, object]] = []
+    service = MissingAssetReferenceService(
+        postgres=_FakePostgres(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            rows_by_table=_rows(),
+        ),
+        filesystem=_FakeFilesystem(
+            {"C:/library/missing.jpg": "missing", "C:/library/ok.jpg": "present"}
+        ),
+        batch_limit=1,
+    )
+
+    result = service.scan_all(
+        _settings(tmp_path),
+        progress_callback=lambda payload: progress_updates.append(dict(payload)),
+    )
+
+    assert result.metadata["scannedAssetCount"] == 2
+    assert [finding.asset_id for finding in result.findings] == ["asset-missing", "asset-ok"]
+    assert progress_updates[-1]["scanned_asset_count"] == 2
+    assert progress_updates[-1]["finding_count"] == 2
+
+
 def test_scan_keeps_directly_accessible_logical_original_path(tmp_path: Path) -> None:
     direct_path = tmp_path / "storage" / "upload" / "user" / "aa" / "bb" / "asset.jpg"
     postgres = _FakePostgres(

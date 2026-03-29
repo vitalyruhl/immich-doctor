@@ -16,6 +16,7 @@ from immich_doctor.api.routes.repair import repair_router
 from immich_doctor.api.routes.restore import restore_router
 from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
+from immich_doctor.consistency.missing_asset_scan_manager import MissingAssetScanManager
 from immich_doctor.core.config import load_settings
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 from immich_doctor.services.backup_runtime_capability_service import (
@@ -29,6 +30,7 @@ REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "d
 
 def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
     runtime = BackgroundJobRuntime()
+    missing_asset_scan_manager = MissingAssetScanManager()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -43,12 +45,18 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
                 )
             except Exception:
                 pass
+            try:
+                missing_asset_scan_manager.reconcile(load_settings())
+            except Exception:
+                pass
             yield
         finally:
+            missing_asset_scan_manager.shutdown()
             runtime.shutdown()
 
     app = FastAPI(title="immich-doctor API", version="0.1.0", lifespan=lifespan)
     app.state.backup_job_runtime = runtime
+    app.state.missing_asset_scan_manager = missing_asset_scan_manager
     app.include_router(backup_router, prefix="/api")
     app.include_router(consistency_router, prefix="/api")
     app.include_router(health_router, prefix="/api")

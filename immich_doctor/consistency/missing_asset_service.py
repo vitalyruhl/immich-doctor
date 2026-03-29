@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -97,6 +98,14 @@ class MissingAssetProfile:
         return self.asset_table_present and "originalPath" in self.detected_asset_columns
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedMissingAssetScan:
+    dsn: str
+    timeout: int
+    profile: MissingAssetProfile
+    checks: tuple[CheckResult, ...]
+
+
 @dataclass(slots=True)
 class MissingAssetReferenceService:
     postgres: PostgresAdapter = field(default_factory=PostgresAdapter)
@@ -114,6 +123,103 @@ class MissingAssetReferenceService:
         limit: int | None = None,
         offset: int = 0,
     ) -> MissingAssetReferenceScanResult:
+        prepared = self._prepare_scan(settings, limit=limit, offset=offset)
+        if isinstance(prepared, MissingAssetReferenceScanResult):
+            return prepared
+
+        batch_size = limit or self.batch_limit
+        scan_timestamp = datetime.now(UTC).isoformat()
+        asset_rows = self.postgres.list_assets_for_missing_references(
+            prepared.dsn,
+            prepared.timeout,
+            limit=batch_size,
+            offset=offset,
+            optional_columns=prepared.profile.supported_optional_columns,
+        )
+        findings = self._inspect_asset_rows(
+            asset_rows,
+            settings=settings,
+            scan_timestamp=scan_timestamp,
+            blocking_issues=prepared.profile.blocking_issues,
+        )
+
+        return self._build_scan_result(
+            settings,
+            prepared=prepared,
+            findings=findings,
+            limit=batch_size,
+            offset=offset,
+            scanned_asset_count=len(asset_rows),
+        )
+
+    def scan_all(
+        self,
+        settings: AppSettings,
+        *,
+        batch_limit: int | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
+    ) -> MissingAssetReferenceScanResult:
+        prepared = self._prepare_scan(settings, limit=batch_limit, offset=0)
+        if isinstance(prepared, MissingAssetReferenceScanResult):
+            return prepared
+
+        effective_batch_limit = batch_limit or self.batch_limit
+        scan_timestamp = datetime.now(UTC).isoformat()
+        offset = 0
+        scanned_asset_count = 0
+        findings: list[MissingAssetReferenceFinding] = []
+
+        while True:
+            asset_rows = self.postgres.list_assets_for_missing_references(
+                prepared.dsn,
+                prepared.timeout,
+                limit=effective_batch_limit,
+                offset=offset,
+                optional_columns=prepared.profile.supported_optional_columns,
+            )
+            if not asset_rows:
+                break
+
+            findings.extend(
+                self._inspect_asset_rows(
+                    asset_rows,
+                    settings=settings,
+                    scan_timestamp=scan_timestamp,
+                    blocking_issues=prepared.profile.blocking_issues,
+                )
+            )
+            scanned_asset_count += len(asset_rows)
+
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "scanned_asset_count": scanned_asset_count,
+                        "finding_count": len(findings),
+                        "offset": offset,
+                        "batch_size": len(asset_rows),
+                    }
+                )
+
+            if len(asset_rows) < effective_batch_limit:
+                break
+            offset += effective_batch_limit
+
+        return self._build_scan_result(
+            settings,
+            prepared=prepared,
+            findings=findings,
+            limit=effective_batch_limit,
+            offset=0,
+            scanned_asset_count=scanned_asset_count,
+        )
+
+    def _prepare_scan(
+        self,
+        settings: AppSettings,
+        *,
+        limit: int | None,
+        offset: int,
+    ) -> PreparedMissingAssetScan | MissingAssetReferenceScanResult:
         dsn = settings.postgres_dsn_value()
         if not dsn:
             return MissingAssetReferenceScanResult(
@@ -142,7 +248,7 @@ class MissingAssetReferenceService:
         database_state = DatabaseStateDetector(self.postgres).detect(dsn, timeout)
         profile = self._detect_profile(database_state)
         profile_check = self._profile_check(profile)
-        checks = [connection_check, profile_check]
+        checks = (connection_check, profile_check)
         if not profile.supported:
             return MissingAssetReferenceScanResult(
                 summary=(
@@ -154,6 +260,7 @@ class MissingAssetReferenceService:
                     "environment": settings.environment,
                     "limit": limit or self.batch_limit,
                     "offset": offset,
+                    "scannedAssetCount": 0,
                     "database_state": profile.database_state.to_dict(),
                 },
                 recommendations=[
@@ -161,26 +268,41 @@ class MissingAssetReferenceService:
                     "`originalPath` column.",
                 ],
             )
-
-        batch_size = limit or self.batch_limit
-        asset_rows = self.postgres.list_assets_for_missing_references(
-            dsn,
-            timeout,
-            limit=batch_size,
-            offset=offset,
-            optional_columns=profile.supported_optional_columns,
+        return PreparedMissingAssetScan(
+            dsn=dsn,
+            timeout=timeout,
+            profile=profile,
+            checks=checks,
         )
-        scan_timestamp = datetime.now(UTC).isoformat()
-        findings = [
+
+    def _inspect_asset_rows(
+        self,
+        rows: list[dict[str, object]],
+        *,
+        settings: AppSettings,
+        scan_timestamp: str,
+        blocking_issues: tuple[MissingAssetRepairBlocker, ...],
+    ) -> list[MissingAssetReferenceFinding]:
+        return [
             self._inspect_asset_row(
                 row,
                 settings=settings,
                 scan_timestamp=scan_timestamp,
-                blocking_issues=profile.blocking_issues,
+                blocking_issues=blocking_issues,
             )
-            for row in asset_rows
+            for row in rows
         ]
 
+    def _build_scan_result(
+        self,
+        settings: AppSettings,
+        *,
+        prepared: PreparedMissingAssetScan,
+        findings: list[MissingAssetReferenceFinding],
+        limit: int,
+        offset: int,
+        scanned_asset_count: int,
+    ) -> MissingAssetReferenceScanResult:
         actionable_count = sum(
             1
             for finding in findings
@@ -188,7 +310,7 @@ class MissingAssetReferenceService:
             and finding.repair_readiness == RepairReadinessStatus.READY
         )
         summary = (
-            f"Scanned {len(findings)} asset rows. "
+            f"Scanned {scanned_asset_count} asset rows. "
             f"{actionable_count} missing-on-disk references are ready for preview/apply."
         )
         recommendations = [
@@ -197,36 +319,41 @@ class MissingAssetReferenceService:
                 "so live-state drift can be detected safely."
             )
         ]
-        if profile.blocking_issues:
+        if prepared.profile.blocking_issues:
             recommendations.append(
                 "Repair remains blocked until unsupported asset reference mappings are resolved."
             )
 
         return MissingAssetReferenceScanResult(
             summary=summary,
-            checks=checks,
+            checks=list(prepared.checks),
             findings=findings,
             metadata={
                 "environment": settings.environment,
-                "limit": batch_size,
+                "limit": limit,
                 "offset": offset,
+                "scannedAssetCount": scanned_asset_count,
                 "supportedScope": {
                     "scanTables": ["public.asset"],
                     "scanPathField": "public.asset.originalPath",
                     "repairRestoreTables": [
                         "public.asset",
-                        *[relation.qualified_name for relation in profile.relations],
+                        *[relation.qualified_name for relation in prepared.profile.relations],
                     ],
                     "repairCoveredDependencyTables": list(SUPPORTED_RELATION_TABLE_NAMES),
                     "assetDependencies": [
-                        dependency.to_dict() for dependency in profile.asset_dependencies
+                        dependency.to_dict() for dependency in prepared.profile.asset_dependencies
                     ],
-                    "applyBlocked": bool(profile.blocking_issues),
-                    "applyBlockers": [blocker.to_dict() for blocker in profile.blocking_issues],
-                    "scanBlockers": [blocker.to_dict() for blocker in profile.blocking_issues],
+                    "applyBlocked": bool(prepared.profile.blocking_issues),
+                    "applyBlockers": [
+                        blocker.to_dict() for blocker in prepared.profile.blocking_issues
+                    ],
+                    "scanBlockers": [
+                        blocker.to_dict() for blocker in prepared.profile.blocking_issues
+                    ],
                 },
-                "blockingIssues": [blocker.summary for blocker in profile.blocking_issues],
-                "database_state": profile.database_state.to_dict(),
+                "blockingIssues": [blocker.summary for blocker in prepared.profile.blocking_issues],
+                "database_state": prepared.profile.database_state.to_dict(),
             },
             recommendations=recommendations,
         )

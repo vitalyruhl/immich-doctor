@@ -71,6 +71,12 @@ class MissingAssetScanApiResponse(BaseModel):
     mocked: bool = False
 
 
+class MissingAssetScanStatusApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class MissingAssetPreviewApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

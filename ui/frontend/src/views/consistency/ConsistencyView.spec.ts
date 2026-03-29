@@ -73,6 +73,30 @@ const findings = [
   },
 ];
 
+const scanStatusResult = {
+  domain: "consistency.missing_asset_references",
+  action: "scan_status",
+  status: "PASS",
+  summary: "3 findings loaded",
+  generated_at: "2026-03-28T08:00:00+00:00",
+  scan_state: "completed",
+  active_scan: null,
+  latest_completed: {
+    scan_id: "scan-1",
+    status: "PASS",
+    summary: "3 findings loaded",
+    generated_at: "2026-03-28T08:00:00+00:00",
+    completed_at: "2026-03-28T08:00:00+00:00",
+    finding_count: 3,
+    missing_on_disk_count: 2,
+    ready_count: 2,
+    blocked_count: 1,
+  },
+  checks: [],
+  metadata: { has_completed_result: true },
+  recommendations: [],
+};
+
 const restorePoints = [
   {
     restore_point_id: "restore-point-1",
@@ -156,7 +180,7 @@ function buildDeleteResponse() {
   };
 }
 
-function createStore() {
+function createStore(): any {
   return {
     findings,
     restorePoints,
@@ -186,9 +210,12 @@ function createStore() {
           scanBlockers: findings[2].repair_blocker_details,
         },
         blockingIssues: ["Unsupported dependency tables detected"],
+        has_completed_result: true,
+        latest_completed: scanStatusResult.latest_completed,
       },
       recommendations: [],
     },
+    scanStatusResult,
     restorePointsResult: {
       domain: "consistency",
       action: "restore-points",
@@ -201,11 +228,17 @@ function createStore() {
     },
     isLoading: false,
     isScanning: false,
+    isLoadingScanStatus: false,
     isLoadingRestorePoints: false,
     isPreviewing: false,
     isApplying: false,
     isRestoring: false,
     isDeletingRestorePoints: false,
+    currentScanState: "completed",
+    activeScan: null,
+    latestCompletedScan: scanStatusResult.latest_completed,
+    hasCompletedScan: true,
+    isScanActive: false,
     scanError: null,
     restorePointsError: null,
     previewError: null,
@@ -213,7 +246,27 @@ function createStore() {
     restoreError: null,
     deleteError: null,
     load: vi.fn().mockResolvedValue(undefined),
-    scan: vi.fn().mockResolvedValue(undefined),
+    loadScanStatus: vi.fn().mockResolvedValue(scanStatusResult),
+    loadFindings: vi.fn().mockResolvedValue(undefined),
+    scan: vi.fn().mockResolvedValue({
+      ...scanStatusResult,
+      status: "WARN",
+      summary: "Missing asset reference scan is running.",
+      scan_state: "running",
+      active_scan: {
+        scan_id: "scan-2",
+        state: "running",
+        requested_at: "2026-03-28T09:00:00+00:00",
+        updated_at: "2026-03-28T09:00:05+00:00",
+        started_at: "2026-03-28T09:00:01+00:00",
+        finished_at: null,
+        summary: "Missing asset reference scan is running.",
+        result_count: 0,
+        scanned_asset_count: 10,
+        error_message: null,
+        failure_kind: null,
+      },
+    }),
     loadRestorePoints: vi.fn().mockResolvedValue(undefined),
     preview: vi.fn(async (payload: { asset_ids: string[]; select_all: boolean }) => {
       if (payload.select_all) {
@@ -315,6 +368,39 @@ describe("ConsistencyView", () => {
     expect(wrapper.text()).toContain("public.activity");
     expect(wrapper.text()).toContain("public.asset_exif");
     expect(wrapper.text()).toContain("Repair currently covers");
+  });
+
+  it("shows running scan state while keeping the previous completed result visible", async () => {
+    store.scanStatusResult = {
+      ...scanStatusResult,
+      status: "WARN",
+      summary: "Missing asset reference scan is running. Last completed scan remains available.",
+      scan_state: "running",
+      active_scan: {
+        scan_id: "scan-2",
+        state: "running",
+        requested_at: "2026-03-28T09:00:00+00:00",
+        updated_at: "2026-03-28T09:00:05+00:00",
+        started_at: "2026-03-28T09:00:01+00:00",
+        finished_at: null,
+        summary: "Missing asset reference scan is running.",
+        result_count: 0,
+        scanned_asset_count: 10,
+        error_message: null,
+        failure_kind: null,
+      },
+    };
+    store.currentScanState = "running";
+    store.activeScan = store.scanStatusResult.active_scan;
+    store.isScanActive = true;
+    const wrapper = mountView();
+    await settle();
+
+    expect(wrapper.text()).toContain("Current state");
+    expect(wrapper.text()).toContain("Running");
+    expect(wrapper.text()).toContain("Last completed");
+    expect(wrapper.text()).toContain("Last completed scan remains visible below");
+    expect(wrapper.text()).toContain("asset-2");
   });
 
   it("renders preview flows and requires both disclaimer checks before apply", async () => {

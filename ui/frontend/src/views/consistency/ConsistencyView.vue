@@ -29,11 +29,17 @@
             <h3>Scan summary</h3>
             <StatusTag :status="scanStatusTag" />
           </div>
-          <p class="health-card__summary">{{ consistencyStore.findings.length }} findings loaded</p>
+          <p class="health-card__summary">{{ loadedFindingsCount }} findings in last completed scan</p>
           <p class="health-card__details">
-            {{ consistencyStore.scanResult?.summary ?? 'No scan has been run yet.' }}
+            {{ scanSummaryText }}
           </p>
           <dl class="runtime-detail__grid">
+            <dt>Current state</dt>
+            <dd>{{ currentScanStateLabel }}</dd>
+            <dt>Last completed</dt>
+            <dd>{{ lastCompletedAtLabel }}</dd>
+            <dt>Active scan</dt>
+            <dd>{{ activeScanStatusLabel }}</dd>
             <dt>Scan tables</dt>
             <dd>{{ scanTablesLabel }}</dd>
             <dt>Path field</dt>
@@ -80,16 +86,16 @@
         <div class="settings-section__header">
           <div>
             <h3>Findings review</h3>
-            <p>Filter, sort, select, and preview removals from the current scan result.</p>
+            <p>Filter, sort, select, and preview removals from the last completed scan result.</p>
           </div>
           <div class="runtime-actions">
             <button
               class="runtime-action runtime-action--secondary"
               type="button"
-              :disabled="consistencyStore.isScanning"
+              :disabled="scanActionDisabled"
               @click="void refreshScan()"
             >
-              {{ consistencyStore.isScanning ? 'Rescanning' : 'Rescan findings' }}
+              {{ scanActionLabel }}
             </button>
             <button
               class="runtime-action"
@@ -169,7 +175,20 @@
           title="Scan findings unavailable"
           :message="consistencyStore.scanError"
         />
-        <div v-else class="consistency-table-wrap">
+        <article
+          v-if="!consistencyStore.scanError && (consistencyStore.isScanActive || consistencyStore.scanStatusResult?.scan_state === 'failed')"
+          class="consistency-scan-banner"
+        >
+          <div class="consistency-scan-banner__header">
+            <strong>{{ currentScanStateLabel }}</strong>
+            <small>{{ activeScanStatusLabel }}</small>
+          </div>
+          <p>{{ scanSummaryText }}</p>
+          <p v-if="consistencyStore.latestCompletedScan">
+            Last completed scan remains visible below from {{ formatDate(consistencyStore.latestCompletedScan.completed_at) }}.
+          </p>
+        </article>
+        <div v-if="!consistencyStore.scanError" class="consistency-table-wrap">
           <table class="consistency-table">
             <thead>
               <tr>
@@ -368,7 +387,7 @@
               </template>
               <tr v-if="!sortedFindings.length">
                 <td class="consistency-empty-row" :colspan="findingColumns.length + 3">
-                  No findings match the current filters.
+                  {{ findingsEmptyMessage }}
                 </td>
               </tr>
             </tbody>
@@ -625,7 +644,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import ConfirmOperationDialog from '@/components/safety/ConfirmOperationDialog.vue';
 import DisclaimerBanner from '@/components/safety/DisclaimerBanner.vue';
 import ErrorState from '@/components/common/ErrorState.vue';
@@ -805,9 +824,15 @@ const allRestorePointsSelected = computed(
     consistencyStore.restorePoints.every((item) => selectedRestorePointSet.value.has(item.restore_point_id)),
 );
 const hasAnyData = computed(
-  () => consistencyStore.findings.length > 0 || consistencyStore.restorePoints.length > 0,
+  () =>
+    consistencyStore.findings.length > 0 ||
+    consistencyStore.restorePoints.length > 0 ||
+    consistencyStore.scanStatusResult !== null,
 );
 const initialLoadError = computed(() => consistencyStore.scanError ?? consistencyStore.restorePointsError ?? null);
+const loadedFindingsCount = computed(
+  () => consistencyStore.latestCompletedScan?.finding_count ?? consistencyStore.findings.length,
+);
 const missingOnDiskCount = computed(
   () => consistencyStore.findings.filter((finding) => finding.status === 'missing_on_disk').length,
 );
@@ -817,7 +842,9 @@ const readyForRepairCount = computed(
 const blockedForRepairCount = computed(
   () => consistencyStore.findings.filter((finding) => finding.repair_readiness === 'blocked').length,
 );
-const scanStatusTag = computed(() => toHealthState(consistencyStore.scanError, consistencyStore.scanResult));
+const scanStatusTag = computed(() =>
+  toHealthState(consistencyStore.scanError, consistencyStore.scanStatusResult ?? consistencyStore.scanResult),
+);
 const missingStatusTag = computed<HealthState>(() => (missingOnDiskCount.value > 0 ? 'warning' : 'ok'));
 const readyStatusTag = computed<HealthState>(() => (blockedForRepairCount.value > 0 ? 'warning' : 'ok'));
 const restorePointStatusTag = computed(() =>
@@ -838,6 +865,58 @@ const supportedScope = computed<MissingAssetSupportedScopeMetadata | null>(() =>
   const scope = consistencyStore.scanResult?.metadata?.supportedScope;
   return scope && typeof scope === 'object' ? (scope as MissingAssetSupportedScopeMetadata) : null;
 });
+const currentScanStateLabel = computed(() => {
+  const state = consistencyStore.currentScanState;
+  switch (state) {
+    case 'pending':
+      return 'Pending';
+    case 'running':
+      return 'Running';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    default:
+      return 'Idle';
+  }
+});
+const lastCompletedAtLabel = computed(() =>
+  consistencyStore.latestCompletedScan
+    ? formatDate(consistencyStore.latestCompletedScan.completed_at)
+    : 'No completed scan yet',
+);
+const activeScanStatusLabel = computed(() => {
+  const activeScan = consistencyStore.activeScan;
+  if (!activeScan) {
+    return consistencyStore.latestCompletedScan
+      ? `Last completed scan id ${consistencyStore.latestCompletedScan.scan_id}`
+      : 'No active scan';
+  }
+  const startedAt = activeScan.started_at ? formatDate(activeScan.started_at) : 'Queued';
+  const updatedAt = formatDate(activeScan.updated_at);
+  return `${activeScan.scan_id} · started ${startedAt} · updated ${updatedAt}`;
+});
+const scanSummaryText = computed(() => {
+  if (consistencyStore.scanStatusResult?.summary) {
+    return consistencyStore.scanStatusResult.summary;
+  }
+  if (consistencyStore.scanResult?.summary) {
+    return consistencyStore.scanResult.summary;
+  }
+  return 'No scan has been run yet.';
+});
+const scanActionLabel = computed(() => {
+  if (consistencyStore.isScanning) {
+    return 'Starting scan';
+  }
+  if (consistencyStore.isScanActive) {
+    return 'Scan running';
+  }
+  return consistencyStore.hasCompletedScan ? 'Rescan findings' : 'Start initial scan';
+});
+const scanActionDisabled = computed(
+  () => consistencyStore.isScanning || consistencyStore.isScanActive,
+);
 const scanTablesLabel = computed(() => formatListValue(supportedScope.value?.scanTables));
 const scanPathFieldLabel = computed(() => formatValue(supportedScope.value?.scanPathField));
 const repairTablesLabel = computed(() => formatListValue(supportedScope.value?.repairRestoreTables));
@@ -881,6 +960,15 @@ const unsupportedDependencyTablesLabel = computed(() =>
 const coveredDependencyTablesLabel = computed(() =>
   formatCompactList(coveredDependencyTables.value, 'Unavailable'),
 );
+const findingsEmptyMessage = computed(() => {
+  if (!consistencyStore.hasCompletedScan && consistencyStore.isScanActive) {
+    return 'A scan is running. Findings will appear after the first completed scan.';
+  }
+  if (!consistencyStore.hasCompletedScan) {
+    return 'No completed scan is available yet. Start an initial scan to populate findings.';
+  }
+  return 'No findings match the current filters.';
+});
 const previewDriftMessage = computed(() => {
   if (!previewResult.value || !previewContext.value) {
     return null;
@@ -1222,6 +1310,29 @@ async function refreshScan(): Promise<void> {
   reconcileSelections();
 }
 
+let scanStatusPollHandle: number | null = null;
+
+function startScanPolling(): void {
+  if (scanStatusPollHandle !== null) {
+    return;
+  }
+  scanStatusPollHandle = window.setInterval(async () => {
+    await consistencyStore.loadScanStatus();
+    reconcileSelections();
+    if (!consistencyStore.isScanActive) {
+      stopScanPolling();
+    }
+  }, 3000);
+}
+
+function stopScanPolling(): void {
+  if (scanStatusPollHandle === null) {
+    return;
+  }
+  window.clearInterval(scanStatusPollHandle);
+  scanStatusPollHandle = null;
+}
+
 async function previewSingle(finding: MissingAssetReferenceFinding): Promise<void> {
   if (!isRepairableFinding(finding)) {
     return;
@@ -1387,5 +1498,23 @@ async function confirmDeleteRestorePoints(): Promise<void> {
 onMounted(async () => {
   await consistencyStore.load();
   reconcileSelections();
+  if (consistencyStore.isScanActive) {
+    startScanPolling();
+  }
+});
+
+watch(
+  () => consistencyStore.isScanActive,
+  (active) => {
+    if (active) {
+      startScanPolling();
+      return;
+    }
+    stopScanPolling();
+  },
+);
+
+onBeforeUnmount(() => {
+  stopScanPolling();
 });
 </script>

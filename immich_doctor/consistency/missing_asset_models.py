@@ -49,6 +49,19 @@ class MissingAssetBlockingSeverity(StrEnum):
     ERROR = "error"
 
 
+class MissingAssetScanState(StrEnum):
+    IDLE = "idle"
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class MissingAssetScanFailureKind(StrEnum):
+    EXCEPTION = "exception"
+    INTERRUPTED = "interrupted"
+
+
 @dataclass(slots=True, frozen=True)
 class MissingAssetRepairBlocker:
     blocker_code: str
@@ -126,6 +139,109 @@ class MissingAssetRestorePointRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return {"table": self.table, "row_count": self.row_count}
+
+
+@dataclass(slots=True, frozen=True)
+class MissingAssetScanJob:
+    scan_id: str
+    state: MissingAssetScanState
+    requested_at: str
+    updated_at: str
+    summary: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    result_count: int = 0
+    scanned_asset_count: int = 0
+    error_message: str | None = None
+    failure_kind: MissingAssetScanFailureKind | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scan_id": self.scan_id,
+            "state": self.state.value,
+            "requested_at": self.requested_at,
+            "updated_at": self.updated_at,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "summary": self.summary,
+            "result_count": self.result_count,
+            "scanned_asset_count": self.scanned_asset_count,
+            "error_message": self.error_message,
+            "failure_kind": self.failure_kind.value if self.failure_kind is not None else None,
+        }
+
+
+@dataclass(slots=True, frozen=True)
+class MissingAssetCompletedScanSummary:
+    scan_id: str
+    status: str
+    summary: str
+    generated_at: str
+    completed_at: str
+    finding_count: int
+    missing_on_disk_count: int
+    ready_count: int
+    blocked_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scan_id": self.scan_id,
+            "status": self.status,
+            "summary": self.summary,
+            "generated_at": self.generated_at,
+            "completed_at": self.completed_at,
+            "finding_count": self.finding_count,
+            "missing_on_disk_count": self.missing_on_disk_count,
+            "ready_count": self.ready_count,
+            "blocked_count": self.blocked_count,
+        }
+
+
+@dataclass(slots=True)
+class MissingAssetScanStatusResult:
+    summary: str
+    scan_state: MissingAssetScanState
+    active_scan: MissingAssetScanJob | None = None
+    latest_completed: MissingAssetCompletedScanSummary | None = None
+    checks: list[CheckResult] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    recommendations: list[str] = field(default_factory=list)
+    generated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def overall_status(self) -> CheckStatus:
+        if self.scan_state == MissingAssetScanState.FAILED:
+            return CheckStatus.FAIL
+        if self.scan_state in {MissingAssetScanState.PENDING, MissingAssetScanState.RUNNING}:
+            return CheckStatus.WARN
+        if self.latest_completed is not None:
+            normalized = self.latest_completed.status.lower()
+            if normalized == "fail":
+                return CheckStatus.FAIL
+            if normalized == "warn":
+                return CheckStatus.WARN
+            if normalized == "pass":
+                return CheckStatus.PASS
+        if self.scan_state == MissingAssetScanState.COMPLETED:
+            return CheckStatus.PASS
+        return CheckStatus.SKIP
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "domain": "consistency.missing_asset_references",
+            "action": "scan_status",
+            "status": self.overall_status.value.upper(),
+            "summary": self.summary,
+            "generated_at": self.generated_at,
+            "scan_state": self.scan_state.value,
+            "active_scan": self.active_scan.to_dict() if self.active_scan is not None else None,
+            "latest_completed": (
+                self.latest_completed.to_dict() if self.latest_completed is not None else None
+            ),
+            "checks": [check.to_dict() for check in self.checks],
+            "metadata": self.metadata,
+            "recommendations": self.recommendations,
+        }
 
 
 @dataclass(slots=True)
