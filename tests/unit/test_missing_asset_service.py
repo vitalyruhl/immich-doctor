@@ -188,7 +188,7 @@ class _FakeFilesystem:
         self.states = {key.replace("\\", "/"): value for key, value in states.items()}
 
     def stat_path(self, path: Path):
-        state = self.states[str(path).replace("\\", "/")]
+        state = self.states.get(str(path).replace("\\", "/"), "missing")
         if state == "missing":
             raise FileNotFoundError(str(path))
         if state == "denied":
@@ -198,7 +198,9 @@ class _FakeFilesystem:
         return object()
 
     def read_probe(self, path: Path, size: int = 8192) -> bytes:
-        state = self.states[str(path).replace("\\", "/")]
+        state = self.states.get(str(path).replace("\\", "/"), "missing")
+        if state == "missing":
+            raise FileNotFoundError(str(path))
         if state == "denied":
             raise PermissionError(str(path))
         if state == "unreadable":
@@ -206,13 +208,14 @@ class _FakeFilesystem:
         return b"probe"
 
 
-def _settings(tmp_path: Path) -> AppSettings:
+def _settings(tmp_path: Path, *, immich_library_root: Path | None = None) -> AppSettings:
     return AppSettings(
         _env_file=None,
         DB_HOST="postgres",
         DB_NAME="immich",
         DB_USER="immich",
         DB_PASSWORD="secret",
+        immich_library_root=immich_library_root,
         MANIFESTS_PATH=tmp_path / "manifests",
         QUARANTINE_PATH=tmp_path / "quarantine",
     )
@@ -321,6 +324,7 @@ def test_scan_detects_missing_asset_reference(tmp_path: Path) -> None:
 
     assert result.findings[0].asset_id == "asset-missing"
     assert result.findings[0].status == MissingAssetReferenceStatus.MISSING_ON_DISK
+    assert result.findings[0].resolved_physical_path.replace("\\", "/") == "C:/library/missing.jpg"
     assert result.findings[0].repair_readiness == RepairReadinessStatus.READY
     assert result.findings[0].repair_blocker_details == ()
     assert result.metadata["supportedScope"]["scanBlockers"] == []
@@ -329,6 +333,108 @@ def test_scan_detects_missing_asset_reference(tmp_path: Path) -> None:
         "public.asset_file",
         "public.asset_job_status",
     ]
+
+
+def test_scan_keeps_directly_accessible_logical_original_path(tmp_path: Path) -> None:
+    direct_path = tmp_path / "storage" / "upload" / "user" / "aa" / "bb" / "asset.jpg"
+    postgres = _FakePostgres(
+        tables=_tables(),
+        columns_by_table=_columns(),
+        foreign_keys_by_table=_foreign_keys(),
+        rows_by_table={
+            ("public", "asset"): [
+                {
+                    "id": "asset-direct",
+                    "type": "image",
+                    "originalPath": str(direct_path),
+                    "createdAt": "2026-03-28T10:00:00+00:00",
+                    "ownerId": "user-1",
+                }
+            ]
+        },
+    )
+    service = MissingAssetReferenceService(
+        postgres=postgres,
+        filesystem=_FakeFilesystem({str(direct_path): "present"}),
+    )
+
+    result = service.scan(_settings(tmp_path, immich_library_root=tmp_path / "storage"))
+
+    assert result.findings[0].status == MissingAssetReferenceStatus.PRESENT
+    assert result.findings[0].logical_path == str(direct_path)
+    assert result.findings[0].resolved_physical_path == str(direct_path)
+
+
+def test_scan_resolves_immich_logical_path_via_library_root(tmp_path: Path) -> None:
+    logical_path = "/usr/src/app/upload/upload/user/aa/bb/asset.jpg"
+    resolved_path = tmp_path / "storage" / "upload" / "user" / "aa" / "bb" / "asset.jpg"
+    postgres = _FakePostgres(
+        tables=_tables(),
+        columns_by_table=_columns(),
+        foreign_keys_by_table=_foreign_keys(),
+        rows_by_table={
+            ("public", "asset"): [
+                {
+                    "id": "asset-mapped",
+                    "type": "image",
+                    "originalPath": logical_path,
+                    "createdAt": "2026-03-28T10:00:00+00:00",
+                    "ownerId": "user-1",
+                }
+            ]
+        },
+    )
+    service = MissingAssetReferenceService(
+        postgres=postgres,
+        filesystem=_FakeFilesystem(
+            {
+                logical_path: "missing",
+                str(resolved_path): "present",
+            }
+        ),
+    )
+
+    result = service.scan(_settings(tmp_path, immich_library_root=tmp_path / "storage"))
+
+    assert result.findings[0].status == MissingAssetReferenceStatus.PRESENT
+    assert result.findings[0].logical_path == logical_path
+    assert result.findings[0].resolved_physical_path == str(resolved_path)
+
+
+def test_scan_reports_missing_only_after_mapped_path_check_fails(tmp_path: Path) -> None:
+    logical_path = "/usr/src/app/upload/upload/user/aa/bb/asset.jpg"
+    resolved_path = tmp_path / "storage" / "upload" / "user" / "aa" / "bb" / "asset.jpg"
+    postgres = _FakePostgres(
+        tables=_tables(),
+        columns_by_table=_columns(),
+        foreign_keys_by_table=_foreign_keys(),
+        rows_by_table={
+            ("public", "asset"): [
+                {
+                    "id": "asset-mapped-missing",
+                    "type": "image",
+                    "originalPath": logical_path,
+                    "createdAt": "2026-03-28T10:00:00+00:00",
+                    "ownerId": "user-1",
+                }
+            ]
+        },
+    )
+    service = MissingAssetReferenceService(
+        postgres=postgres,
+        filesystem=_FakeFilesystem(
+            {
+                logical_path: "missing",
+                str(resolved_path): "missing",
+            }
+        ),
+    )
+
+    result = service.scan(_settings(tmp_path, immich_library_root=tmp_path / "storage"))
+
+    assert result.findings[0].status == MissingAssetReferenceStatus.MISSING_ON_DISK
+    assert result.findings[0].logical_path == logical_path
+    assert result.findings[0].resolved_physical_path == str(resolved_path)
 
 
 def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> None:
@@ -378,8 +484,7 @@ def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> 
     assert result.metadata["blockingIssues"] == ["public.person_asset blocks apply: unknown"]
     assert result.metadata["supportedScope"]["applyBlocked"] is True
     assert (
-        result.metadata["supportedScope"]["assetDependencies"][-1]["table"]
-        == "public.person_asset"
+        result.metadata["supportedScope"]["assetDependencies"][-1]["table"] == "public.person_asset"
     )
     assert result.metadata["supportedScope"]["scanBlockers"] == [blocker.to_dict()]
 

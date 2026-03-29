@@ -3,7 +3,7 @@ from __future__ import annotations
 import errno
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from immich_doctor.adapters.filesystem import FilesystemAdapter
@@ -61,6 +61,10 @@ SUPPORTED_RELATION_TABLES = {
 }
 SUPPORTED_RELATION_TABLE_NAMES = tuple(
     sorted(f"{schema}.{table}" for schema, table in SUPPORTED_RELATION_TABLES)
+)
+IMMICH_LOGICAL_STORAGE_PREFIXES = (
+    PurePosixPath("/usr/src/app/upload"),
+    PurePosixPath("/usr/src/app/upload/"),
 )
 
 
@@ -170,6 +174,7 @@ class MissingAssetReferenceService:
         findings = [
             self._inspect_asset_row(
                 row,
+                settings=settings,
                 scan_timestamp=scan_timestamp,
                 blocking_issues=profile.blocking_issues,
             )
@@ -387,9 +392,7 @@ class MissingAssetReferenceService:
             )
 
         timeout = settings.postgres_connect_timeout_seconds
-        profile = self._detect_profile(
-            DatabaseStateDetector(self.postgres).detect(dsn, timeout)
-        )
+        profile = self._detect_profile(DatabaseStateDetector(self.postgres).detect(dsn, timeout))
         run.status = RepairRunStatus.RUNNING
         self.repair_store.update_run(settings, run)
 
@@ -600,8 +603,7 @@ class MissingAssetReferenceService:
                     blocker_code=f"asset_dependency:{dependency.qualified_name}",
                     blocker_type=MissingAssetRepairBlockerType.SCHEMA,
                     summary=(
-                        f"{dependency.qualified_name} blocks apply: "
-                        f"{dependency.risk_class.value}"
+                        f"{dependency.qualified_name} blocks apply: {dependency.risk_class.value}"
                     ),
                     details={
                         "reason": dependency.reason,
@@ -725,12 +727,14 @@ class MissingAssetReferenceService:
         self,
         row: dict[str, object],
         *,
+        settings: AppSettings,
         scan_timestamp: str,
         blocking_issues: tuple[MissingAssetRepairBlocker, ...],
     ) -> MissingAssetReferenceFinding:
         asset_id = str(row["id"])
         logical_path = str(row.get("originalPath") or "")
         asset_path = Path(logical_path)
+        resolved_asset_path = asset_path
         repair_readiness = RepairReadinessStatus.READY
         repair_blockers: list[str] = []
         repair_blocker_details: list[MissingAssetRepairBlocker] = []
@@ -755,11 +759,61 @@ class MissingAssetReferenceService:
             message = "Asset originalPath is empty."
         else:
             try:
-                self.filesystem.stat_path(asset_path)
-                self.filesystem.read_probe(asset_path)
+                self._inspect_asset_path(asset_path)
             except FileNotFoundError:
-                status = MissingAssetReferenceStatus.MISSING_ON_DISK
-                message = "Asset originalPath does not exist on disk."
+                mapped_asset_path = self._map_asset_logical_path(
+                    logical_path,
+                    settings=settings,
+                )
+                if mapped_asset_path is not None and mapped_asset_path != asset_path:
+                    resolved_asset_path = mapped_asset_path
+                    try:
+                        self._inspect_asset_path(resolved_asset_path)
+                    except FileNotFoundError:
+                        status = MissingAssetReferenceStatus.MISSING_ON_DISK
+                        message = "Asset originalPath does not exist on disk."
+                    except PermissionError:
+                        status = MissingAssetReferenceStatus.PERMISSION_ERROR
+                        repair_readiness = RepairReadinessStatus.BLOCKED
+                        repair_blocker_details.append(
+                            MissingAssetRepairBlocker(
+                                blocker_code="asset_path_permission_error",
+                                blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                                summary="Asset path cannot be accessed",
+                                details={
+                                    "reason": ("The current process cannot access the asset path.")
+                                },
+                                blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                                is_repairable=False,
+                            )
+                        )
+                        message = (
+                            "Asset originalPath exists but is not accessible to the current "
+                            "process."
+                        )
+                    except OSError as exc:
+                        status = (
+                            MissingAssetReferenceStatus.PERMISSION_ERROR
+                            if exc.errno in {errno.EACCES, errno.EPERM}
+                            else MissingAssetReferenceStatus.UNREADABLE_PATH
+                        )
+                        repair_readiness = RepairReadinessStatus.BLOCKED
+                        repair_blocker_details.append(
+                            MissingAssetRepairBlocker(
+                                blocker_code="asset_path_unreadable",
+                                blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                                summary="Asset path could not be inspected",
+                                details={"reason": exc.strerror or str(exc)},
+                                blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                                is_repairable=False,
+                            )
+                        )
+                        message = (
+                            f"Asset originalPath could not be inspected: {exc.strerror or exc}."
+                        )
+                else:
+                    status = MissingAssetReferenceStatus.MISSING_ON_DISK
+                    message = "Asset originalPath does not exist on disk."
             except PermissionError:
                 status = MissingAssetReferenceStatus.PERMISSION_ERROR
                 repair_readiness = RepairReadinessStatus.BLOCKED
@@ -807,7 +861,7 @@ class MissingAssetReferenceService:
             asset_type=str(row.get("type") or "unknown"),
             status=status,
             logical_path=logical_path,
-            resolved_physical_path=str(asset_path),
+            resolved_physical_path=str(resolved_asset_path),
             owner_id=str(row["ownerId"]) if row.get("ownerId") is not None else None,
             created_at=str(row["createdAt"]) if row.get("createdAt") is not None else None,
             updated_at=str(row["updatedAt"]) if row.get("updatedAt") is not None else None,
@@ -817,6 +871,34 @@ class MissingAssetReferenceService:
             repair_blocker_details=tuple(repair_blocker_details),
             message=message,
         )
+
+    def _inspect_asset_path(self, path: Path) -> None:
+        self.filesystem.stat_path(path)
+        self.filesystem.read_probe(path)
+
+    def _map_asset_logical_path(
+        self,
+        logical_path: str,
+        *,
+        settings: AppSettings,
+    ) -> Path | None:
+        library_root = settings.immich_library_root
+        if library_root is None:
+            return None
+
+        normalized_path = logical_path.strip().replace("\\", "/")
+        if not normalized_path:
+            return None
+
+        logical_posix_path = PurePosixPath(normalized_path)
+        for prefix in IMMICH_LOGICAL_STORAGE_PREFIXES:
+            try:
+                relative_path = logical_posix_path.relative_to(prefix)
+            except ValueError:
+                continue
+            return library_root.expanduser().joinpath(*relative_path.parts)
+
+        return None
 
     def _selected_findings(
         self,
