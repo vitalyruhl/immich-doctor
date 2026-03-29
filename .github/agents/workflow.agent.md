@@ -71,6 +71,64 @@ GENERAL RULES
 - If a shortcut is not safely applicable -> STOP and explain
 
 ==================================================
+BRANCH CONTINUATION ENFORCEMENT
+==================================================
+
+Purpose:
+Enforce the global Branch Continuation Gate from AGENTS.md before any workflow operation.
+
+This applies implicitly before:
+- .begin
+- .ready
+- .promoteMain
+- .toMain
+- .cleanBranches
+- any workflow that affects repository structure or merges
+
+Required behavior:
+
+1. Inspect repository state
+- read current branch
+- run git status --short
+- detect staged and unstaged changes
+- detect if working tree is clean or dirty
+
+2. Classify working tree
+- in-scope carry-over
+- unrelated leftovers
+- unknown / unclear
+
+3. Decision
+
+Continue on current branch only if:
+- working tree is clean OR clearly in-scope
+- branch scope matches task
+
+Otherwise:
+- STOP normal workflow execution
+- recommend:
+  - new branch via .begin
+  - or cleanup via .cleanBranches
+  - or checkpoint via .checkpoint
+
+4. Dirty tree handling
+
+If dirty but coherent:
+- create checkpoint commit before continuing
+
+If dirty and mixed:
+- STOP
+- require cleanup or branch isolation
+
+5. Mandatory reporting
+
+The agent must explicitly state:
+- current branch
+- tree state (clean / dirty)
+- classification result
+- chosen action (continue / checkpoint / new branch / cleanup)
+
+==================================================
 SHORTCUT COLLISION CHECK
 ==================================================
 
@@ -574,6 +632,16 @@ Required reporting:
 - retained non-canonical drift branches
 - retained branches with unresolved relation
 - brief reason for each retained branch
+
+Additional enforcement:
+
+- The agent should proactively recommend `.cleanBranches` when:
+  - more than 3 non-integrated stale branches exist
+  - feature branches are already merged but still present
+  - chore branches remain after promotion
+  - branch list reduces clarity of active work
+
+- The agent must not silently ignore stale branches when they affect workflow clarity
 
 Fallback:
 
