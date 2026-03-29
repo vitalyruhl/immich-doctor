@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The `Project Status Audit` workflow keeps the GitHub Project status field cleaner for items that drift in `Blocked` or `Validation`.
+The project hygiene automation keeps the GitHub Project status field cleaner for items that drift in status columns that should be evidence-backed.
 
 It is intentionally conservative:
 
@@ -12,12 +12,18 @@ It is intentionally conservative:
 
 ## What It Audits
 
+Current workflows:
+
+- [`.github/workflows/project-status-audit.yml`](../.github/workflows/project-status-audit.yml)
+- [`.github/workflows/project-inprogress-hygiene.yml`](../.github/workflows/project-inprogress-hygiene.yml)
+
 The automation scans the `Backup Execution Roadmap` GitHub Project and evaluates only items currently in:
 
 - `Blocked`
 - `Validation`
+- `In progress`
 
-It ignores every other project status.
+Each workflow only acts on its own target statuses and ignores every other project status.
 
 ## What It Can Change
 
@@ -41,6 +47,22 @@ The automation only auto-clears `Blocked` when completion is certain, for exampl
 
 If a blocker looks stale but there is no safe target status, the automation does not guess. It leaves the item unchanged and reports it for manual review in the workflow summary.
 
+### `In progress`
+
+The in-progress hygiene workflow only auto-moves tracked work from `In progress` to `Done` when completion is clear and safe:
+
+- the tracked PR is merged and there are no remaining tracked work signals
+- or the tracked issue is closed, any linked PR work is merged, and there is explicit completion evidence
+
+It will not mark `In progress` work as `Done` when:
+
+- the issue is still open
+- a linked PR is still open
+- comments still suggest ongoing work or follow-up
+- completion evidence is weak or conflicting
+
+Closed-but-unclear items are reported for manual review instead of being auto-closed in the project.
+
 ## What It Will Not Do
 
 - It does not modify code or repository files.
@@ -48,16 +70,14 @@ If a blocker looks stale but there is no safe target status, the automation does
 - It does not merge or close PRs.
 - It does not infer success from branch existence alone.
 - It does not override open validation tracks that still say testing is ongoing.
+- It does not move open `In progress` work to `Done`.
+- It does not infer completion from staleness alone.
 
 ## Workflow Triggers
 
-Workflow file:
-
-- [`.github/workflows/project-status-audit.yml`](../.github/workflows/project-status-audit.yml)
-
 Triggers:
 
-- daily scheduled run
+- weekend scheduled run
 - manual `workflow_dispatch`
 
 ## Manual Run
@@ -89,9 +109,11 @@ The comment includes a machine marker so repeated identical transitions do not k
 
 ## Configuration
 
-Script:
+Scripts:
 
 - [`scripts/project_status_audit.py`](../scripts/project_status_audit.py)
+- [`scripts/project_inprogress_hygiene.py`](../scripts/project_inprogress_hygiene.py)
+- [`scripts/project_audit_common.py`](../scripts/project_audit_common.py)
 
 Recommended configuration:
 
@@ -109,5 +131,6 @@ If the project stays on the same owner/title, the defaults are enough and only t
 If the project workflow evolves later, adjust the heuristics only in:
 
 - [`scripts/project_status_audit.py`](../scripts/project_status_audit.py)
+- [`scripts/project_inprogress_hygiene.py`](../scripts/project_inprogress_hygiene.py)
 
 Keep the rules narrow and evidence-based. When in doubt, leave the item unchanged and make the workflow summary ask for manual review.
