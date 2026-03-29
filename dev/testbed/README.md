@@ -26,6 +26,7 @@ git-tracked database data.
 Expected files in this folder:
 
 - `dev/testbed/docker-compose.yml`
+- `dev/testbed/docker-compose.real-storage.yml`
 - `dev/testbed/.env.example`
 - `dev/testbed/scripts/init-db.sh` and/or `init-db.ps1`
 - `dev/testbed/scripts/snapshot-db.sh` and/or `snapshot-db.ps1`
@@ -55,7 +56,7 @@ Planned volumes:
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
 ```
 
-Start the local UI/runtime service:
+Start the local UI/runtime service in default mock-storage mode:
 
 ```bash
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor up -d --build immich-doctor
@@ -131,9 +132,10 @@ That means:
 - missing assets are reproducible without touching production files
 - the default setup stays suitable for repair and dependency analysis, not media access
 
-Optional local verification mode:
+Optional local real-storage verification mode:
 
 - set `TESTBED_REAL_STORAGE_PATH` in `dev/testbed/.env`
+- start the stack with both compose files so the real-storage override is active
 - mount the real Immich storage tree read-only into `/mnt/immich/storage`
 - keep all writable doctor paths isolated under `/data/*` and `/config`
 - use this only for inspect/scan verification, not for repair/apply against the mounted storage
@@ -141,7 +143,21 @@ Optional local verification mode:
 Windows network-share note:
 
 - source storage path: `\\192.168.2.3\images\immich`
-- Docker Desktop bind mounts usually work more reliably with the UNC form `//192.168.2.3/images/immich` inside `.env`
+- on this Docker Desktop setup, a direct UNC bind rendered an empty mount inside the container
+- the verified working approach is to map the share to a drive letter first and use that drive as `TESTBED_REAL_STORAGE_PATH`
+- example:
+  - `cmd /c "net use I: \\\\192.168.2.3\\images\\immich /persistent:no"`
+  - `TESTBED_REAL_STORAGE_PATH=I:/`
+
+Mode split:
+
+- mock mode:
+  - `dev/testbed/docker-compose.yml`
+  - storage source comes from `TESTBED_MOCK_STORAGE_PATH`
+- real read-only mode:
+  - `dev/testbed/docker-compose.yml` plus `dev/testbed/docker-compose.real-storage.yml`
+  - storage source comes from `TESTBED_REAL_STORAGE_PATH`
+  - no mock fallback is allowed in that mode
 
 Required runtime mapping stays fixed:
 
@@ -274,7 +290,8 @@ Example `dev/testbed/.env` additions for local Windows verification:
 
 ```text
 TESTBED_DOCTOR_PORT=8000
-TESTBED_REAL_STORAGE_PATH=//192.168.2.3/images/immich
+TESTBED_MOCK_STORAGE_PATH=../../data/mock/immich-library
+TESTBED_REAL_STORAGE_PATH=I:/
 TESTBED_REPORTS_PATH=../../data/reports
 TESTBED_MANIFESTS_PATH=../../data/manifests
 TESTBED_QUARANTINE_PATH=../../data/quarantine
@@ -286,27 +303,29 @@ TESTBED_CONFIG_PATH=../../config
 Recommended start flow:
 
 1. Set `TESTBED_REAL_STORAGE_PATH` only when you intentionally want read-only media inspection.
+   On Docker Desktop for Windows, map `\\192.168.2.3\images\immich` to a drive letter first.
 2. Start PostgreSQL.
 3. Restore or initialize the database.
-4. Start `immich-doctor` with profile `doctor`.
+4. Start `immich-doctor` with the real-storage override compose file.
 5. Open `http://localhost:${TESTBED_DOCTOR_PORT}`.
 6. Run inspect/scan workflows only.
 
 Safe local verification commands on Windows PowerShell:
 
 ```powershell
+cmd /c "net use I: \\\\192.168.2.3\\images\\immich /persistent:no"
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
 powershell -ExecutionPolicy Bypass -File dev/testbed/scripts/init-db.ps1
-docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor up -d --build immich-doctor
+docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml -f dev/testbed/docker-compose.real-storage.yml --profile doctor up -d --build --force-recreate immich-doctor
 ```
 
 Quick checks:
 
 - confirm the UI responds on `http://localhost:8000`
 - confirm the mounted storage is read-only:
-  - `docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exec immich-doctor mount | findstr /C:\"/mnt/immich/storage\"`
+  - `docker inspect immich-doctor-testbed-immich-doctor-1 --format "{{json .Mounts}}"`
 - confirm the path-resolution fix against the local stack:
-  - `docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exec immich-doctor uv run python -m immich_doctor consistency validate`
+  - `docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml -f dev/testbed/docker-compose.real-storage.yml exec immich-doctor uv run python -m immich_doctor consistency validate`
 
 ## Missing Assets Behavior
 

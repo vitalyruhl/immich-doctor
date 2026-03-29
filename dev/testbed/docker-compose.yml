@@ -56,7 +56,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ${TESTBED_REAL_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${TESTBED_MOCK_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
       - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
       - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
       - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
@@ -98,7 +98,7 @@ services:
         condition: service_healthy
     volumes:
       - ../..:/workspace
-      - ${TESTBED_REAL_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${TESTBED_MOCK_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
       - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
       - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
       - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine

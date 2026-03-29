@@ -1,0 +1,25 @@
+services:
+  immich-doctor:
+    environment:
+      IMMICH_DOCTOR_ENVIRONMENT: dev-testbed-real
+    volumes:
+      - ${TESTBED_REAL_STORAGE_PATH:?Set TESTBED_REAL_STORAGE_PATH to the real read-only Immich storage source}:/mnt/immich/storage:ro
+      - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
+      - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
+      - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
+      - ${TESTBED_LOG_PATH:-../../data/logs}:/data/logs
+      - ${TESTBED_TMP_PATH:-../../data/tmp}:/data/tmp
+      - ${TESTBED_CONFIG_PATH:-../../config}:/config
+
+  immich-doctor-shell:
+    environment:
+      IMMICH_DOCTOR_ENVIRONMENT: dev-testbed-shell-real
+    volumes:
+      - ../..:/workspace
+      - ${TESTBED_REAL_STORAGE_PATH:?Set TESTBED_REAL_STORAGE_PATH to the real read-only Immich storage source}:/mnt/immich/storage:ro
+      - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
+      - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
+      - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
+      - ${TESTBED_LOG_PATH:-../../data/logs}:/data/logs
+      - ${TESTBED_TMP_PATH:-../../data/tmp}:/data/tmp
+      - ${TESTBED_CONFIG_PATH:-../../config}:/config
