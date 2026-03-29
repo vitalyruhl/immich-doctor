@@ -2,16 +2,19 @@
 
 This directory defines a reusable local database testbed for `immich-doctor`.
 It is designed for repair development, dependency analysis, and scenario-based
-testing against a real Immich PostgreSQL clone without mounting real asset
-storage.
+testing against a real Immich PostgreSQL clone. By default it uses synthetic or
+empty storage paths, but it can also mount a real Immich storage tree
+read-only for local inspect-only verification.
 
 ## Purpose
 
 The testbed gives you:
 
 - a real PostgreSQL database clone for Immich
-- a safe environment where missing assets are naturally reproducible because
+- a safe environment where missing assets are naturally reproducible when real
   asset storage is not mounted
+- an optional local runtime/UI path for inspecting the current branch without
+  rebuilding on Unraid
 - snapshot and restore operations for the database volume
 - a clean base for future repair and FK-analysis scenarios
 
@@ -46,16 +49,28 @@ Planned volumes:
 1. Copy `.env.example` to `.env`.
 2. Set the database credentials.
 3. If you use `FROM_DUMP`, set `TESTBED_DUMP_PATH` to a dump file path.
-4. Start the stack:
+4. Start PostgreSQL:
 
 ```bash
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
 ```
 
-Optional developer container:
+Start the local UI/runtime service:
 
 ```bash
-docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor up -d
+docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor up -d --build immich-doctor
+```
+
+Optional shell container for ad-hoc `uv run ...` commands:
+
+```bash
+docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor-shell up -d immich-doctor-shell
+```
+
+The local UI is then available at:
+
+```text
+http://localhost:8000
 ```
 
 ## Initialization Modes
@@ -106,17 +121,35 @@ Basic EMPTY workflow:
 4. `export-db` if you want a logical backup
 5. `reset-db` to return to a clean empty volume
 
-## No Asset Storage
+## Asset Storage Modes
 
-This testbed intentionally does not mount real Immich asset storage.
+By default, the testbed should use a synthetic or empty storage path.
 
 That means:
 
 - filesystem asset lookups should naturally fail
 - missing assets are reproducible without touching production files
-- the testbed is suitable for repair and dependency analysis, not media access
+- the default setup stays suitable for repair and dependency analysis, not media access
 
-If a placeholder path is mounted, it should be empty or synthetic only.
+Optional local verification mode:
+
+- set `TESTBED_REAL_STORAGE_PATH` in `dev/testbed/.env`
+- mount the real Immich storage tree read-only into `/mnt/immich/storage`
+- keep all writable doctor paths isolated under `/data/*` and `/config`
+- use this only for inspect/scan verification, not for repair/apply against the mounted storage
+
+Windows network-share note:
+
+- source storage path: `\\192.168.2.3\images\immich`
+- Docker Desktop bind mounts usually work more reliably with the UNC form `//192.168.2.3/images/immich` inside `.env`
+
+Required runtime mapping stays fixed:
+
+- `IMMICH_STORAGE_PATH=/mnt/immich/storage`
+- `IMMICH_UPLOADS_PATH=/mnt/immich/storage/upload`
+- `IMMICH_THUMBS_PATH=/mnt/immich/storage/thumbs`
+- `IMMICH_PROFILE_PATH=/mnt/immich/storage/profile`
+- `IMMICH_VIDEO_PATH=/mnt/immich/storage/encoded-video`
 
 ## Snapshot and Restore
 
@@ -228,16 +261,67 @@ docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exe
   uv run python -m immich_doctor consistency validate
 ```
 
+Optional shell-service equivalent:
+
+```bash
+docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exec immich-doctor-shell \
+  uv run python -m immich_doctor consistency validate
+```
+
+## Local UI Verification
+
+Example `dev/testbed/.env` additions for local Windows verification:
+
+```text
+TESTBED_DOCTOR_PORT=8000
+TESTBED_REAL_STORAGE_PATH=//192.168.2.3/images/immich
+TESTBED_REPORTS_PATH=../../data/reports
+TESTBED_MANIFESTS_PATH=../../data/manifests
+TESTBED_QUARANTINE_PATH=../../data/quarantine
+TESTBED_LOG_PATH=../../data/logs
+TESTBED_TMP_PATH=../../data/tmp
+TESTBED_CONFIG_PATH=../../config
+```
+
+Recommended start flow:
+
+1. Set `TESTBED_REAL_STORAGE_PATH` only when you intentionally want read-only media inspection.
+2. Start PostgreSQL.
+3. Restore or initialize the database.
+4. Start `immich-doctor` with profile `doctor`.
+5. Open `http://localhost:${TESTBED_DOCTOR_PORT}`.
+6. Run inspect/scan workflows only.
+
+Safe local verification commands on Windows PowerShell:
+
+```powershell
+docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
+powershell -ExecutionPolicy Bypass -File dev/testbed/scripts/init-db.ps1
+docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor up -d --build immich-doctor
+```
+
+Quick checks:
+
+- confirm the UI responds on `http://localhost:8000`
+- confirm the mounted storage is read-only:
+  - `docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exec immich-doctor mount | findstr /C:\"/mnt/immich/storage\"`
+- confirm the path-resolution fix against the local stack:
+  - `docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exec immich-doctor uv run python -m immich_doctor consistency validate`
+
 ## Missing Assets Behavior
 
-Because no real asset storage is mounted:
+When no real asset storage is mounted:
 
 - missing asset references should appear naturally during inspection
 - `public.asset.originalPath` remains the scan source of truth
 - repair preview and apply can be tested against database-only scenarios
 
-This environment is intended to support future blocked-asset analysis and
-reversible repair development, not production media workflows.
+When real storage is mounted read-only for local verification:
+
+- `public.asset.originalPath` remains the logical scan source of truth
+- the doctor resolves known Immich logical paths against `/mnt/immich/storage`
+- findings should report both the logical path and the resolved physical path
+- this path is still intended for inspect-oriented verification, not production repair execution
 
 ## Safety Notes
 
@@ -247,3 +331,5 @@ reversible repair development, not production media workflows.
 - prefer dry-run or preview before any destructive step
 - document any dump source used for the testbed outside the repository
 - if you need a completely clean start, run `reset-db` and then `init-db` again
+- keep `TESTBED_REAL_STORAGE_PATH` mounted read-only only
+- keep repair/apply against real mounted storage out of scope for this local verification path
