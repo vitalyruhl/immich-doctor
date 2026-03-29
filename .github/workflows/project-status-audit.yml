@@ -1,0 +1,67 @@
+name: Project Status Audit
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Evaluate only and do not change project state or post comments"
+        required: false
+        type: boolean
+        default: true
+      project_owner:
+        description: "GitHub user or organization that owns the project"
+        required: false
+        type: string
+      project_title:
+        description: "Exact Projects v2 title"
+        required: false
+        type: string
+      project_number:
+        description: "Optional Projects v2 number override"
+        required: false
+        type: string
+
+concurrency:
+  group: project-status-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  repository-projects: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    name: Audit Blocked and Validation Items
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Resolve audit mode
+        id: mode
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run project status audit
+        env:
+          PROJECT_STATUS_AUDIT_TOKEN: ${{ secrets.PROJECT_STATUS_AUDIT_TOKEN || github.token }}
+          PROJECT_STATUS_AUDIT_OWNER: ${{ inputs.project_owner || vars.PROJECT_STATUS_AUDIT_OWNER || github.repository_owner }}
+          PROJECT_STATUS_AUDIT_PROJECT_TITLE: ${{ inputs.project_title || vars.PROJECT_STATUS_AUDIT_TITLE || 'Backup Execution Roadmap' }}
+          PROJECT_STATUS_AUDIT_PROJECT_NUMBER: ${{ inputs.project_number || vars.PROJECT_STATUS_AUDIT_NUMBER }}
+          PROJECT_STATUS_AUDIT_DRY_RUN: ${{ steps.mode.outputs.dry_run }}
+        run: python scripts/project_status_audit.py --repo "${{ github.repository }}"
