@@ -94,6 +94,48 @@ Delegation rules:
 - Specialized agents must not bypass branch hygiene just because branch operations are owned by `workflow.agent`
 
 ========================================
+BRANCH CONTINUATION GATE
+========================================
+
+Before starting any file-changing task, the agent must decide whether the work may continue on the current branch or requires a new branch first.
+
+Mandatory pre-write checks:
+- current branch name
+- git status --short
+- whether staged changes exist
+- whether unstaged changes exist
+- whether current branch scope matches the requested task
+- whether the branch still represents the active intended work slice
+
+The agent may continue on the current branch only if ALL are true:
+- working tree is clean, or
+- the existing changes are clearly in-scope carry-over for the same current task
+- branch scope matches the requested task
+- no unrelated leftovers are present
+- no branch-topology action is required first
+
+The agent must STOP and hand off to `workflow.agent` before continuing if ANY are true:
+- the working tree contains unrelated or unclear changes
+- the requested task changes scope significantly
+- the current branch has already completed its intended slice
+- the requested work should be isolated as a new `chore/*` or `feature/*` branch
+- branch cleanup is needed before safe continuation
+- stale non-integrated or already-integrated branches are cluttering workflow visibility
+
+Dirty-tree classification is mandatory:
+- in-scope carry-over
+- unrelated leftovers
+- unknown / cannot verify safely
+
+If the state is not clearly in-scope carry-over, do not continue file-changing work silently.
+
+No silent carry-over:
+The agent must explicitly report one of:
+- continue on current branch
+- create/switch to new branch
+- cleanup required first
+
+========================================
 CONSISTENCY AND COLLISION GUARD
 ========================================
 
