@@ -73,6 +73,9 @@ class _FakePostgres:
             selected.append(item)
         return selected
 
+    def count_assets(self, dsn: str, timeout_seconds: int) -> int:
+        return len(self.rows_by_table.get(("public", "asset"), []))
+
     def list_rows_by_column_values(
         self,
         dsn: str,
@@ -356,9 +359,12 @@ def test_scan_all_walks_entire_asset_set_and_reports_progress(tmp_path: Path) ->
     )
 
     assert result.metadata["scannedAssetCount"] == 2
+    assert result.metadata["totalAssetCount"] == 2
+    assert result.metadata["findingCount"] == 1
     assert [finding.asset_id for finding in result.findings] == ["asset-missing", "asset-ok"]
     assert progress_updates[-1]["scanned_asset_count"] == 2
-    assert progress_updates[-1]["finding_count"] == 2
+    assert progress_updates[-1]["finding_count"] == 1
+    assert progress_updates[-1]["total_asset_count"] == 2
 
 
 def test_scan_keeps_directly_accessible_logical_original_path(tmp_path: Path) -> None:

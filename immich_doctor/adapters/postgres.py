@@ -27,6 +27,13 @@ from immich_doctor.db.queries import (
 
 
 class PostgresAdapter:
+    def count_assets(self, dsn: str, timeout_seconds: int) -> int:
+        with psycopg.connect(dsn, connect_timeout=timeout_seconds, row_factory=dict_row) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT count(*) AS "count" FROM public.asset;')
+                row = cursor.fetchone() or {}
+        return int(row.get("count") or 0)
+
     def validate_connection(self, dsn: str, timeout_seconds: int) -> CheckResult:
         connected, message = can_connect(dsn, timeout_seconds)
         return CheckResult(
@@ -138,9 +145,7 @@ class PostgresAdapter:
             selected_columns.append(sql.SQL("NULL::text AS entry_id"))
         else:
             selected_columns.append(
-                sql.SQL("{column}::text AS entry_id").format(
-                    column=sql.Identifier(entry_id_column)
-                )
+                sql.SQL("{column}::text AS entry_id").format(column=sql.Identifier(entry_id_column))
             )
         if created_at_column is None:
             selected_columns.append(sql.SQL("NULL::text AS created_at"))

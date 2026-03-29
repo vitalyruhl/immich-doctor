@@ -64,7 +64,13 @@ def test_missing_asset_scan_status_route_returns_expected_shape(monkeypatch) -> 
                 "status": "WARN",
                 "summary": "Missing asset reference scan is running.",
                 "scan_state": "running",
-                "active_scan": {"scan_id": "scan-1", "state": "running"},
+                "active_scan": {
+                    "scan_id": "scan-1",
+                    "state": "running",
+                    "result_count": 12,
+                    "scanned_asset_count": 16600,
+                    "total_asset_count": 100743,
+                },
                 "latest_completed": None,
                 "checks": [],
                 "metadata": {"has_completed_result": False},
@@ -78,6 +84,7 @@ def test_missing_asset_scan_status_route_returns_expected_shape(monkeypatch) -> 
 
     assert response.status_code == 200
     assert response.json()["data"]["scan_state"] == "running"
+    assert response.json()["data"]["active_scan"]["total_asset_count"] == 100743
 
 
 def test_missing_asset_trigger_scan_route_returns_expected_shape(monkeypatch) -> None:

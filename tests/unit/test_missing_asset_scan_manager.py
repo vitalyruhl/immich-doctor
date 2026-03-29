@@ -61,7 +61,12 @@ def _scan_result(*asset_ids: str) -> MissingAssetReferenceScanResult:
             )
         ],
         findings=findings,
-        metadata={"supportedScope": {"scanTables": ["public.asset"]}},
+        metadata={
+            "supportedScope": {"scanTables": ["public.asset"]},
+            "scannedAssetCount": len(findings),
+            "totalAssetCount": len(findings),
+            "findingCount": len(findings),
+        },
     )
 
 
@@ -81,8 +86,9 @@ def _success_run(result: MissingAssetReferenceScanResult):
         if progress_callback is not None:
             progress_callback(
                 {
-                    "scanned_asset_count": len(result.findings),
-                    "finding_count": len(result.findings),
+                    "scanned_asset_count": int(result.metadata.get("scannedAssetCount") or 0),
+                    "finding_count": int(result.metadata.get("findingCount") or 0),
+                    "total_asset_count": int(result.metadata.get("totalAssetCount") or 0),
                 }
             )
         return result
@@ -99,7 +105,9 @@ def _blocking_run(
     def runner(progress_callback):
         started.set()
         if progress_callback is not None:
-            progress_callback({"scanned_asset_count": 1, "finding_count": 0})
+            progress_callback(
+                {"scanned_asset_count": 1, "finding_count": 0, "total_asset_count": 2}
+            )
         release.wait(timeout=5)
         return result
 
@@ -109,7 +117,9 @@ def _blocking_run(
 def _failing_run(message: str):
     def runner(progress_callback):
         if progress_callback is not None:
-            progress_callback({"scanned_asset_count": 1, "finding_count": 0})
+            progress_callback(
+                {"scanned_asset_count": 1, "finding_count": 0, "total_asset_count": 2}
+            )
         raise RuntimeError(message)
 
     return runner
@@ -142,6 +152,10 @@ def test_start_scan_returns_pending_or_running_without_waiting_for_completion(
         assert started.wait(timeout=1)
         running_status = manager.get_status(settings)
         assert running_status.scan_state == MissingAssetScanState.RUNNING
+        assert running_status.active_scan is not None
+        assert running_status.active_scan.scanned_asset_count == 1
+        assert running_status.active_scan.result_count == 0
+        assert running_status.active_scan.total_asset_count == 2
     finally:
         release.set()
         _wait_until(
@@ -170,6 +184,8 @@ def test_completed_scan_persists_latest_snapshot_across_manager_restart(tmp_path
 
         assert status.scan_state == MissingAssetScanState.COMPLETED
         assert status.latest_completed is not None
+        assert status.latest_completed.finding_count == 1
+        assert status.latest_completed.total_asset_count == 1
         assert findings["findings"][0]["asset_id"] == "asset-1"
         assert findings["metadata"]["has_completed_result"] is True
     finally:
@@ -195,6 +211,12 @@ def test_previous_completed_results_remain_visible_during_rescan(tmp_path: Path)
 
         manager.start_scan(settings)
         assert started.wait(timeout=1)
+        _wait_until(
+            lambda: (
+                (job := manager.get_status(settings).active_scan) is not None
+                and job.total_asset_count == 2
+            )
+        )
 
         status = manager.get_status(settings)
         findings = manager.get_latest_findings(settings)
@@ -202,6 +224,7 @@ def test_previous_completed_results_remain_visible_during_rescan(tmp_path: Path)
         assert status.scan_state == MissingAssetScanState.RUNNING
         assert status.latest_completed is not None
         assert status.latest_completed.scan_id != status.active_scan.scan_id
+        assert status.active_scan.total_asset_count == 2
         assert findings["findings"][0]["asset_id"] == "asset-1"
     finally:
         release.set()
@@ -228,6 +251,12 @@ def test_failed_scan_keeps_last_successful_result(tmp_path: Path) -> None:
 
         manager.start_scan(settings)
         _wait_until(lambda: manager.get_status(settings).scan_state == MissingAssetScanState.FAILED)
+        _wait_until(
+            lambda: (
+                (job := manager.get_status(settings).active_scan) is not None
+                and job.total_asset_count == 2
+            )
+        )
 
         status = manager.get_status(settings)
         findings = manager.get_latest_findings(settings)
@@ -235,6 +264,7 @@ def test_failed_scan_keeps_last_successful_result(tmp_path: Path) -> None:
         assert status.scan_state == MissingAssetScanState.FAILED
         assert status.active_scan is not None
         assert status.active_scan.error_message == "share temporarily unavailable"
+        assert status.active_scan.total_asset_count == 2
         assert status.latest_completed is not None
         assert findings["findings"][0]["asset_id"] == "asset-1"
     finally:
@@ -255,6 +285,7 @@ def test_reconcile_marks_stale_running_state_as_failed(tmp_path: Path) -> None:
             summary="Missing asset reference scan is running.",
             scanned_asset_count=10,
             result_count=3,
+            total_asset_count=100,
         ),
     )
 
@@ -266,6 +297,7 @@ def test_reconcile_marks_stale_running_state_as_failed(tmp_path: Path) -> None:
         assert reconciled.state == MissingAssetScanState.FAILED
         assert reconciled.failure_kind is not None
         assert reconciled.failure_kind.value == "interrupted"
+        assert reconciled.total_asset_count == 100
     finally:
         manager.shutdown()
 

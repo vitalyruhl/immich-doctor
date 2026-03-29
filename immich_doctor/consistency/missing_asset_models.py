@@ -152,6 +152,7 @@ class MissingAssetScanJob:
     finished_at: str | None = None
     result_count: int = 0
     scanned_asset_count: int = 0
+    total_asset_count: int = 0
     error_message: str | None = None
     failure_kind: MissingAssetScanFailureKind | None = None
 
@@ -166,6 +167,7 @@ class MissingAssetScanJob:
             "summary": self.summary,
             "result_count": self.result_count,
             "scanned_asset_count": self.scanned_asset_count,
+            "total_asset_count": self.total_asset_count,
             "error_message": self.error_message,
             "failure_kind": self.failure_kind.value if self.failure_kind is not None else None,
         }
@@ -179,6 +181,7 @@ class MissingAssetCompletedScanSummary:
     generated_at: str
     completed_at: str
     finding_count: int
+    total_asset_count: int
     missing_on_disk_count: int
     ready_count: int
     blocked_count: int
@@ -191,6 +194,7 @@ class MissingAssetCompletedScanSummary:
             "generated_at": self.generated_at,
             "completed_at": self.completed_at,
             "finding_count": self.finding_count,
+            "total_asset_count": self.total_asset_count,
             "missing_on_disk_count": self.missing_on_disk_count,
             "ready_count": self.ready_count,
             "blocked_count": self.blocked_count,

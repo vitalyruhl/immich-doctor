@@ -88,6 +88,7 @@ const scanStatusResult = {
     generated_at: "2026-03-28T08:00:00+00:00",
     completed_at: "2026-03-28T08:00:00+00:00",
     finding_count: 3,
+    total_asset_count: 100,
     missing_on_disk_count: 2,
     ready_count: 2,
     blocked_count: 1,
@@ -263,6 +264,7 @@ function createStore(): any {
         summary: "Missing asset reference scan is running.",
         result_count: 0,
         scanned_asset_count: 10,
+        total_asset_count: 100,
         error_message: null,
         failure_kind: null,
       },
@@ -386,6 +388,7 @@ describe("ConsistencyView", () => {
         summary: "Missing asset reference scan is running.",
         result_count: 0,
         scanned_asset_count: 10,
+        total_asset_count: 100,
         error_message: null,
         failure_kind: null,
       },
@@ -399,6 +402,8 @@ describe("ConsistencyView", () => {
     expect(wrapper.text()).toContain("Current state");
     expect(wrapper.text()).toContain("Running");
     expect(wrapper.text()).toContain("Last completed");
+    expect(wrapper.text()).toContain("10 / 100 assets checked (10.0%)");
+    expect(wrapper.text()).toContain("0 findings collected");
     expect(wrapper.text()).toContain("Last completed scan remains visible below");
     expect(wrapper.text()).toContain("asset-2");
   });

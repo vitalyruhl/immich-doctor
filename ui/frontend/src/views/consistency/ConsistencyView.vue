@@ -40,6 +40,10 @@
             <dd>{{ lastCompletedAtLabel }}</dd>
             <dt>Active scan</dt>
             <dd>{{ activeScanStatusLabel }}</dd>
+            <dt>Progress</dt>
+            <dd>{{ activeScanProgressLabel }}</dd>
+            <dt>Findings so far</dt>
+            <dd>{{ activeScanFindingCountLabel }}</dd>
             <dt>Scan tables</dt>
             <dd>{{ scanTablesLabel }}</dd>
             <dt>Path field</dt>
@@ -895,6 +899,31 @@ const activeScanStatusLabel = computed(() => {
   const startedAt = activeScan.started_at ? formatDate(activeScan.started_at) : 'Queued';
   const updatedAt = formatDate(activeScan.updated_at);
   return `${activeScan.scan_id} · started ${startedAt} · updated ${updatedAt}`;
+});
+const activeScanProgressLabel = computed(() => {
+  const activeScan = consistencyStore.activeScan;
+  if (!activeScan) {
+    return consistencyStore.latestCompletedScan
+      ? `${consistencyStore.latestCompletedScan.total_asset_count.toLocaleString()} assets in last completed scan`
+      : 'No active scan';
+  }
+  const scanned = activeScan.scanned_asset_count.toLocaleString();
+  const total = activeScan.total_asset_count;
+  if (total > 0) {
+    const percent = ((activeScan.scanned_asset_count / total) * 100).toFixed(1);
+    return `${scanned} / ${total.toLocaleString()} assets checked (${percent}%)`;
+  }
+  return `${scanned} assets checked`;
+});
+const activeScanFindingCountLabel = computed(() => {
+  const activeScan = consistencyStore.activeScan;
+  if (activeScan) {
+    return `${activeScan.result_count.toLocaleString()} findings collected`;
+  }
+  if (consistencyStore.latestCompletedScan) {
+    return `${consistencyStore.latestCompletedScan.finding_count.toLocaleString()} findings in last completed scan`;
+  }
+  return 'No active scan';
 });
 const scanSummaryText = computed(() => {
   if (consistencyStore.scanStatusResult?.summary) {

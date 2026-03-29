@@ -51,6 +51,7 @@ class MissingAssetScanStore:
                 summary=str(payload.get("summary") or ""),
                 result_count=int(payload.get("result_count") or 0),
                 scanned_asset_count=int(payload.get("scanned_asset_count") or 0),
+                total_asset_count=int(payload.get("total_asset_count") or 0),
                 error_message=self._optional_string(payload.get("error_message")),
                 failure_kind=(
                     MissingAssetScanFailureKind(str(failure_kind))
@@ -80,6 +81,7 @@ class MissingAssetScanStore:
                 generated_at=str(payload["generated_at"]),
                 completed_at=str(payload["completed_at"]),
                 finding_count=int(payload.get("finding_count") or 0),
+                total_asset_count=int(payload.get("total_asset_count") or 0),
                 missing_on_disk_count=int(payload.get("missing_on_disk_count") or 0),
                 ready_count=int(payload.get("ready_count") or 0),
                 blocked_count=int(payload.get("blocked_count") or 0),

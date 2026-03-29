@@ -95,6 +95,7 @@ export interface MissingAssetScanJob {
   summary: string;
   result_count: number;
   scanned_asset_count: number;
+  total_asset_count: number;
   error_message: string | null;
   failure_kind: MissingAssetScanFailureKind | null;
 }
@@ -106,6 +107,7 @@ export interface MissingAssetCompletedScanSummary {
   generated_at: string;
   completed_at: string;
   finding_count: number;
+  total_asset_count: number;
   missing_on_disk_count: number;
   ready_count: number;
   blocked_count: number;

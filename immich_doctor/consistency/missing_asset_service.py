@@ -167,7 +167,19 @@ class MissingAssetReferenceService:
         scan_timestamp = datetime.now(UTC).isoformat()
         offset = 0
         scanned_asset_count = 0
+        total_asset_count = self.postgres.count_assets(prepared.dsn, prepared.timeout)
         findings: list[MissingAssetReferenceFinding] = []
+
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "scanned_asset_count": 0,
+                    "finding_count": 0,
+                    "total_asset_count": total_asset_count,
+                    "offset": 0,
+                    "batch_size": 0,
+                }
+            )
 
         while True:
             asset_rows = self.postgres.list_assets_for_missing_references(
@@ -194,7 +206,8 @@ class MissingAssetReferenceService:
                 progress_callback(
                     {
                         "scanned_asset_count": scanned_asset_count,
-                        "finding_count": len(findings),
+                        "finding_count": self._actual_finding_count(findings),
+                        "total_asset_count": total_asset_count,
                         "offset": offset,
                         "batch_size": len(asset_rows),
                     }
@@ -211,6 +224,7 @@ class MissingAssetReferenceService:
             limit=effective_batch_limit,
             offset=0,
             scanned_asset_count=scanned_asset_count,
+            total_asset_count=total_asset_count,
         )
 
     def _prepare_scan(
@@ -302,7 +316,9 @@ class MissingAssetReferenceService:
         limit: int,
         offset: int,
         scanned_asset_count: int,
+        total_asset_count: int | None = None,
     ) -> MissingAssetReferenceScanResult:
+        actual_finding_count = self._actual_finding_count(findings)
         actionable_count = sum(
             1
             for finding in findings
@@ -333,6 +349,10 @@ class MissingAssetReferenceService:
                 "limit": limit,
                 "offset": offset,
                 "scannedAssetCount": scanned_asset_count,
+                "totalAssetCount": total_asset_count
+                if total_asset_count is not None
+                else scanned_asset_count,
+                "findingCount": actual_finding_count,
                 "supportedScope": {
                     "scanTables": ["public.asset"],
                     "scanPathField": "public.asset.originalPath",
@@ -997,6 +1017,11 @@ class MissingAssetReferenceService:
             repair_blockers=tuple(dict.fromkeys(repair_blockers)),
             repair_blocker_details=tuple(repair_blocker_details),
             message=message,
+        )
+
+    def _actual_finding_count(self, findings: list[MissingAssetReferenceFinding]) -> int:
+        return sum(
+            1 for finding in findings if finding.status != MissingAssetReferenceStatus.PRESENT
         )
 
     def _inspect_asset_path(self, path: Path) -> None:

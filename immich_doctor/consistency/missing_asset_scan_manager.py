@@ -63,6 +63,7 @@ class MissingAssetScanManager:
                 updated_at=latest_completed.completed_at,
                 finished_at=latest_completed.completed_at,
                 result_count=latest_completed.finding_count,
+                total_asset_count=latest_completed.total_asset_count,
                 error_message=None,
                 failure_kind=None,
             )
@@ -110,12 +111,12 @@ class MissingAssetScanManager:
         )
 
         if active_scan is not None:
-            summary = (
-                "Missing asset reference scan is running. "
-                f"Last completed scan from {latest_completed.completed_at} remains available."
-                if latest_completed is not None
-                else "Missing asset reference scan is running."
-            )
+            summary = active_scan.summary
+            if latest_completed is not None:
+                summary = (
+                    f"{summary} Last completed scan from {latest_completed.completed_at} "
+                    "remains available."
+                )
             return MissingAssetScanStatusResult(
                 summary=summary,
                 scan_state=active_scan.state,
@@ -295,8 +296,11 @@ class MissingAssetScanManager:
                     finished_at=completed_at,
                     result_count=completed_summary.finding_count,
                     scanned_asset_count=int(
-                        snapshot.get("metadata", {}).get("scannedAssetCount")
-                        or completed_summary.finding_count
+                        snapshot.get("metadata", {}).get("scannedAssetCount") or 0
+                    ),
+                    total_asset_count=int(
+                        snapshot.get("metadata", {}).get("totalAssetCount")
+                        or completed_summary.total_asset_count
                     ),
                     error_message=None,
                     failure_kind=None,
@@ -304,10 +308,14 @@ class MissingAssetScanManager:
             )
         except Exception as exc:
             finished_at = self._now()
+            current = self.store.load_state(settings)
+            failed_base = (
+                current if current is not None and current.scan_id == running.scan_id else running
+            )
             self.store.save_state(
                 settings,
                 self._job_copy(
-                    running,
+                    failed_base,
                     state=MissingAssetScanState.FAILED,
                     summary="Missing asset reference scan failed.",
                     updated_at=finished_at,
@@ -337,9 +345,15 @@ class MissingAssetScanManager:
 
         scanned_asset_count = int(progress.get("scanned_asset_count") or 0)
         result_count = int(progress.get("finding_count") or 0)
+        total_asset_count = int(progress.get("total_asset_count") or 0)
+        progress_summary = (
+            f"{scanned_asset_count} / {total_asset_count} assets checked"
+            if total_asset_count > 0
+            else f"{scanned_asset_count} assets checked"
+        )
         summary = (
-            f"Missing asset reference scan is running. "
-            f"{scanned_asset_count} assets checked, {result_count} findings captured so far."
+            "Missing asset reference scan is running. "
+            f"{progress_summary}. {result_count} findings collected so far."
         )
         updated = self._job_copy(
             current,
@@ -348,6 +362,7 @@ class MissingAssetScanManager:
             updated_at=self._now(),
             scanned_asset_count=scanned_asset_count,
             result_count=result_count,
+            total_asset_count=total_asset_count,
         )
         self.store.save_state(settings, updated)
 
@@ -380,7 +395,12 @@ class MissingAssetScanManager:
             summary=str(snapshot.get("summary") or "Missing asset reference scan completed."),
             generated_at=str(snapshot.get("generated_at") or completed_at),
             completed_at=completed_at,
-            finding_count=len(findings),
+            finding_count=int(snapshot.get("metadata", {}).get("findingCount") or len(findings)),
+            total_asset_count=int(
+                snapshot.get("metadata", {}).get("totalAssetCount")
+                or snapshot.get("metadata", {}).get("scannedAssetCount")
+                or len(findings)
+            ),
             missing_on_disk_count=missing_on_disk_count,
             ready_count=ready_count,
             blocked_count=blocked_count,
@@ -403,6 +423,7 @@ class MissingAssetScanManager:
         finished_at: str | None | None = None,
         result_count: int | None = None,
         scanned_asset_count: int | None = None,
+        total_asset_count: int | None = None,
         error_message: str | None = None,
         failure_kind: MissingAssetScanFailureKind | None = None,
     ) -> MissingAssetScanJob:
@@ -417,6 +438,9 @@ class MissingAssetScanManager:
             result_count=job.result_count if result_count is None else result_count,
             scanned_asset_count=(
                 job.scanned_asset_count if scanned_asset_count is None else scanned_asset_count
+            ),
+            total_asset_count=(
+                job.total_asset_count if total_asset_count is None else total_asset_count
             ),
             error_message=error_message,
             failure_kind=failure_kind,
