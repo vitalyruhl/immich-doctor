@@ -13,9 +13,9 @@ from immich_doctor.consistency.models import (
     ConsistencyRepairStatus,
     ConsistencySummary,
 )
-from immich_doctor.consistency.profile import CURRENT_PROFILE_NAME
 from immich_doctor.consistency.service import (
     CATEGORY_SPECS,
+    CONSISTENCY_SCHEMA_DETECTOR_NAME,
     SAFE_DELETE_CATEGORIES,
     ConsistencyCollector,
     ConsistencyValidationService,
@@ -61,7 +61,7 @@ class ConsistencyRepairService:
                     all_safe=all_safe,
                 ),
                 consistency_summary=ConsistencySummary(
-                    profile_name=CURRENT_PROFILE_NAME,
+                    profile_name=CONSISTENCY_SCHEMA_DETECTOR_NAME,
                     profile_supported=False,
                 ),
                 metadata={"environment": settings.environment, "dry_run": not apply},
@@ -142,7 +142,7 @@ class ConsistencyRepairService:
             ],
             repair_plan=ConsistencyRepairPlan(),
             consistency_summary=ConsistencySummary(
-                profile_name=CURRENT_PROFILE_NAME,
+                profile_name=CONSISTENCY_SCHEMA_DETECTOR_NAME,
                 profile_supported=False,
             ),
             metadata={"environment": settings.environment, "dry_run": True},
@@ -229,6 +229,7 @@ class ConsistencyRepairService:
         actions: list[ConsistencyRepairAction] = []
         for category_name, category_findings in grouped.items():
             spec = CATEGORY_SPECS[category_name]
+            asset_reference_column = self._asset_reference_column(category_findings)
             if spec.repair_mode == ConsistencyRepairMode.INSPECT_ONLY:
                 actions.append(
                     ConsistencyRepairAction(
@@ -261,14 +262,22 @@ class ConsistencyRepairService:
                         sample_findings=tuple(category_findings[: self.sample_limit]),
                         dry_run=True,
                         applied=False,
-                        backup_sql=self._backup_sql(category_name),
+                        backup_sql=self._backup_sql(
+                            category_name,
+                            asset_reference_column=asset_reference_column,
+                        ),
                     )
                 )
                 continue
 
             deleted_count = 0
             for finding in category_findings:
-                deleted_count += self._delete_finding(dsn, timeout, finding)
+                deleted_count += self._delete_finding(
+                    dsn,
+                    timeout,
+                    finding,
+                    asset_reference_column=asset_reference_column,
+                )
 
             actions.append(
                 ConsistencyRepairAction(
@@ -282,31 +291,60 @@ class ConsistencyRepairService:
                     sample_findings=tuple(category_findings[: self.sample_limit]),
                     dry_run=False,
                     applied=deleted_count > 0,
-                    backup_sql=self._backup_sql(category_name),
+                    backup_sql=self._backup_sql(
+                        category_name,
+                        asset_reference_column=asset_reference_column,
+                    ),
                 )
             )
         return actions
 
-    def _delete_finding(self, dsn: str, timeout: int, finding: ConsistencyFinding) -> int:
+    def _delete_finding(
+        self,
+        dsn: str,
+        timeout: int,
+        finding: ConsistencyFinding,
+        *,
+        asset_reference_column: str | None,
+    ) -> int:
+        if asset_reference_column is None:
+            raise ValueError("Asset reference column could not be resolved for repair.")
         return self.postgres.delete_album_asset_rows_by_keys(
             dsn,
             timeout,
             album_id=finding.key_fields["albumId"],
-            asset_id=finding.key_fields["assetsId"],
+            asset_id=finding.key_fields["assetId"],
             missing_target_table=(
                 "asset" if finding.category == SAFE_DELETE_CATEGORIES[0] else "album"
             ),
+            asset_reference_column=asset_reference_column,
         )
 
-    def _backup_sql(self, category: str) -> str:
+    def _backup_sql(self, category: str, *, asset_reference_column: str | None) -> str:
         missing_target = "asset" if category == SAFE_DELETE_CATEGORIES[0] else "album"
-        target_column = '"assetsId"' if missing_target == "asset" else '"albumId"'
+        if missing_target == "asset" and asset_reference_column is None:
+            return (
+                "-- immich-doctor could not derive the album_asset asset reference column "
+                "for backup SQL generation"
+            )
+        target_column = (
+            f'"{asset_reference_column}"'
+            if missing_target == "asset" and asset_reference_column
+            else '"albumId"'
+        )
         return (
             "CREATE TABLE album_asset_orphan_backup AS "
             "SELECT * FROM public.album_asset AS link "
             f"WHERE NOT EXISTS (SELECT 1 FROM public.{missing_target} AS target "
             f"WHERE target.id = link.{target_column});"
         )
+
+    def _asset_reference_column(self, findings: list[ConsistencyFinding]) -> str | None:
+        for finding in findings:
+            value = finding.sample_metadata.get("assetReferenceColumn")
+            if value:
+                return str(value)
+        return None
 
     def _build_summary(self, actions: list[ConsistencyRepairAction], *, apply: bool) -> str:
         if not apply:

@@ -18,6 +18,9 @@ class FakePostgresAdapter:
     connection_status: CheckStatus = CheckStatus.PASS
     tables: list[dict[str, object]] = field(default_factory=list)
     columns_by_table: dict[tuple[str, str], list[dict[str, object]]] = field(default_factory=dict)
+    foreign_keys_by_table: dict[tuple[str, str], list[dict[str, object]]] = field(
+        default_factory=dict
+    )
     orphan_rows_by_target: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     asset_files_by_type: dict[str, list[dict[str, object]]] = field(default_factory=dict)
 
@@ -41,12 +44,37 @@ class FakePostgresAdapter:
     ) -> list[dict[str, object]]:
         return self.columns_by_table.get((table_schema, table_name), [])
 
+    def list_foreign_keys(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+    ) -> list[dict[str, object]]:
+        return self.foreign_keys_by_table.get((table_schema, table_name), [])
+
+    def list_version_history_entries(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+        version_column: str,
+        created_at_column: str | None = None,
+        entry_id_column: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        return []
+
     def list_grouped_album_asset_orphans(
         self,
         dsn: str,
         timeout_seconds: int,
         *,
         missing_target_table: str,
+        asset_reference_column: str,
     ) -> list[dict[str, object]]:
         return list(self.orphan_rows_by_target.get(missing_target_table, []))
 
@@ -67,12 +95,13 @@ class FakePostgresAdapter:
         album_id: str,
         asset_id: str,
         missing_target_table: str,
+        asset_reference_column: str,
     ) -> int:
         rows = self.orphan_rows_by_target.get(missing_target_table, [])
         deleted = 0
         remaining = []
         for row in rows:
-            if row["albumId"] == album_id and row["assetsId"] == asset_id:
+            if row["albumId"] == album_id and row["assetId"] == asset_id:
                 deleted += int(row["row_count"])
                 continue
             remaining.append(row)
@@ -111,8 +140,8 @@ def _supported_tables() -> list[dict[str, object]]:
 def _supported_columns() -> dict[tuple[str, str], list[dict[str, object]]]:
     base = {
         ("public", "album"): ["id"],
-        ("public", "asset"): ["id"],
-        ("public", "album_asset"): ["albumId", "assetsId"],
+        ("public", "asset"): ["id", "originalPath"],
+        ("public", "album_asset"): ["albumId", "assetId"],
         (
             "public",
             "asset_file",
@@ -142,13 +171,41 @@ def _supported_columns() -> dict[tuple[str, str], list[dict[str, object]]]:
     }
 
 
+def _supported_foreign_keys() -> dict[tuple[str, str], list[dict[str, object]]]:
+    return {
+        ("public", "album_asset"): [
+            {
+                "constraint_name": "fk_album_asset_album",
+                "table_schema": "public",
+                "table_name": "album_asset",
+                "referenced_table_schema": "public",
+                "referenced_table_name": "album",
+                "delete_action": "CASCADE",
+                "column_names": ["albumId"],
+                "referenced_column_names": ["id"],
+            },
+            {
+                "constraint_name": "fk_album_asset_asset",
+                "table_schema": "public",
+                "table_name": "album_asset",
+                "referenced_table_schema": "public",
+                "referenced_table_name": "asset",
+                "delete_action": "CASCADE",
+                "column_names": ["assetId"],
+                "referenced_column_names": ["id"],
+            },
+        ]
+    }
+
+
 def test_consistency_repair_dry_run_by_category_plans_only() -> None:
     service = ConsistencyRepairService(
         postgres=FakePostgresAdapter(
             tables=_supported_tables(),
             columns_by_table=_supported_columns(),
+            foreign_keys_by_table=_supported_foreign_keys(),
             orphan_rows_by_target={
-                "asset": [{"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 2}]
+                "asset": [{"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 2}]
             },
         ),
         filesystem=FakeFilesystemAdapter(),
@@ -172,10 +229,11 @@ def test_consistency_repair_dry_run_by_id_plans_single_finding() -> None:
         postgres=FakePostgresAdapter(
             tables=_supported_tables(),
             columns_by_table=_supported_columns(),
+            foreign_keys_by_table=_supported_foreign_keys(),
             orphan_rows_by_target={
                 "asset": [
-                    {"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1},
-                    {"albumId": "album-2", "assetsId": "asset-missing-2", "row_count": 1},
+                    {"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1},
+                    {"albumId": "album-2", "assetId": "asset-missing-2", "row_count": 1},
                 ]
             },
         ),
@@ -199,8 +257,9 @@ def test_consistency_repair_apply_by_category_deletes_confirmed_orphans() -> Non
     postgres = FakePostgresAdapter(
         tables=_supported_tables(),
         columns_by_table=_supported_columns(),
+        foreign_keys_by_table=_supported_foreign_keys(),
         orphan_rows_by_target={
-            "asset": [{"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1}]
+            "asset": [{"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1}]
         },
     )
     service = ConsistencyRepairService(postgres=postgres, filesystem=FakeFilesystemAdapter())
@@ -221,10 +280,11 @@ def test_consistency_repair_apply_by_id_deletes_exact_matching_orphan_only() -> 
     postgres = FakePostgresAdapter(
         tables=_supported_tables(),
         columns_by_table=_supported_columns(),
+        foreign_keys_by_table=_supported_foreign_keys(),
         orphan_rows_by_target={
             "asset": [
-                {"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1},
-                {"albumId": "album-2", "assetsId": "asset-missing-2", "row_count": 1},
+                {"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1},
+                {"albumId": "album-2", "assetId": "asset-missing-2", "row_count": 1},
             ]
         },
     )
@@ -240,7 +300,7 @@ def test_consistency_repair_apply_by_id_deletes_exact_matching_orphan_only() -> 
 
     assert result.repair_plan.actions[0].row_count == 1
     assert postgres.orphan_rows_by_target["asset"] == [
-        {"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1}
+        {"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1}
     ]
 
 
@@ -249,8 +309,9 @@ def test_consistency_repair_all_safe_selects_only_safe_delete_categories() -> No
         postgres=FakePostgresAdapter(
             tables=_supported_tables(),
             columns_by_table=_supported_columns(),
+            foreign_keys_by_table=_supported_foreign_keys(),
             orphan_rows_by_target={
-                "asset": [{"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1}]
+                "asset": [{"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1}]
             },
             asset_files_by_type={
                 "preview": [
@@ -284,6 +345,7 @@ def test_consistency_repair_selected_inspect_only_category_is_skipped_not_error(
         postgres=FakePostgresAdapter(
             tables=_supported_tables(),
             columns_by_table=_supported_columns(),
+            foreign_keys_by_table=_supported_foreign_keys(),
             asset_files_by_type={
                 "preview": [
                     {
@@ -313,8 +375,9 @@ def test_consistency_repair_never_writes_without_apply() -> None:
     postgres = FakePostgresAdapter(
         tables=_supported_tables(),
         columns_by_table=_supported_columns(),
+        foreign_keys_by_table=_supported_foreign_keys(),
         orphan_rows_by_target={
-            "asset": [{"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1}]
+            "asset": [{"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1}]
         },
     )
     service = ConsistencyRepairService(postgres=postgres, filesystem=FakeFilesystemAdapter())
@@ -328,5 +391,5 @@ def test_consistency_repair_never_writes_without_apply() -> None:
     )
 
     assert postgres.orphan_rows_by_target["asset"] == [
-        {"albumId": "album-1", "assetsId": "asset-missing-1", "row_count": 1}
+        {"albumId": "album-1", "assetId": "asset-missing-1", "row_count": 1}
     ]

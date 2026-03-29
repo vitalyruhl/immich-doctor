@@ -13,9 +13,13 @@ from immich_doctor.consistency.models import (
     ConsistencySummary,
     ConsistencyValidationReport,
 )
-from immich_doctor.consistency.profile import CURRENT_PROFILE_NAME, SchemaProfileDetector
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus
+from immich_doctor.db.schema_detection import (
+    DatabaseSchemaSupportStatus,
+    DatabaseStateDetector,
+    DetectedDatabaseState,
+)
 
 MISSING_ASSET_CATEGORY = "db.orphan.album_asset.missing_asset"
 MISSING_ALBUM_CATEGORY = "db.orphan.album_asset.missing_album"
@@ -26,6 +30,7 @@ SAFE_DELETE_CATEGORIES = (MISSING_ASSET_CATEGORY, MISSING_ALBUM_CATEGORY)
 INSPECT_ONLY_CATEGORIES = (MISSING_PREVIEW_PATH_CATEGORY, MISSING_THUMBNAIL_PATH_CATEGORY)
 ALL_CATEGORIES = SAFE_DELETE_CATEGORIES + INSPECT_ONLY_CATEGORIES
 DEFAULT_SAMPLE_LIMIT = 3
+CONSISTENCY_SCHEMA_DETECTOR_NAME = "immich_db_schema_detection_v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +81,7 @@ class CollectedConsistencyState:
     findings: list[ConsistencyFinding]
     summary: ConsistencySummary
     profile_supported: bool
+    asset_reference_column: str | None = None
 
 
 @dataclass(slots=True)
@@ -85,13 +91,23 @@ class ConsistencyCollector:
     sample_limit: int = DEFAULT_SAMPLE_LIMIT
 
     def collect(self, dsn: str, timeout: int) -> CollectedConsistencyState:
-        profile_result = SchemaProfileDetector(self.postgres).detect_current_profile(dsn, timeout)
+        database_state = DatabaseStateDetector(self.postgres).detect(dsn, timeout)
+        asset_reference_column = database_state.album_asset_asset_reference_column()
+        validator_supported = (
+            database_state.has_capability("can_validate_album_asset_missing_asset")
+            and asset_reference_column is not None
+            and database_state.support_status
+            not in {
+                DatabaseSchemaSupportStatus.PARTIAL_MIGRATION,
+                DatabaseSchemaSupportStatus.UNSUPPORTED,
+            }
+        )
         checks = [
             self._scope_boundary_check(),
-            self._profile_check(profile_result),
+            self._profile_check(database_state),
         ]
 
-        if not profile_result.supported:
+        if not validator_supported:
             categories = [
                 ConsistencyCategory(
                     name=spec.name,
@@ -101,22 +117,18 @@ class ConsistencyCollector:
                     count=0,
                     repairable=spec.repair_mode == ConsistencyRepairMode.SAFE_DELETE,
                     message=(
-                        "Skipped because the current PostgreSQL schema does not match "
-                        f"`{CURRENT_PROFILE_NAME}`."
+                        "Skipped because the live PostgreSQL schema does not expose the "
+                        "capabilities required for this validator."
                     ),
                     sample_findings=(),
                 )
                 for spec in CATEGORY_SPECS.values()
             ]
-            summary = ConsistencySummary(
-                profile_name=profile_result.profile.name,
+            summary = self._build_summary_model(
+                database_state,
                 profile_supported=False,
                 executed_categories=(),
                 skipped_categories=tuple(category.name for category in categories),
-                scope_boundaries=(
-                    "Server PostgreSQL and container filesystem only. "
-                    "Client-side mobile SQLite is out of scope.",
-                ),
             )
             return CollectedConsistencyState(
                 checks=checks,
@@ -124,11 +136,24 @@ class ConsistencyCollector:
                 findings=[],
                 summary=summary,
                 profile_supported=False,
+                asset_reference_column=asset_reference_column,
             )
 
         findings: list[ConsistencyFinding] = []
-        findings.extend(self._collect_album_asset_missing_asset_findings(dsn, timeout))
-        findings.extend(self._collect_album_asset_missing_album_findings(dsn, timeout))
+        findings.extend(
+            self._collect_album_asset_missing_asset_findings(
+                dsn,
+                timeout,
+                asset_reference_column=asset_reference_column,
+            )
+        )
+        findings.extend(
+            self._collect_album_asset_missing_album_findings(
+                dsn,
+                timeout,
+                asset_reference_column=asset_reference_column,
+            )
+        )
         findings.extend(self._collect_asset_file_path_findings(dsn, timeout, file_type="preview"))
         findings.extend(self._collect_asset_file_path_findings(dsn, timeout, file_type="thumbnail"))
 
@@ -140,15 +165,11 @@ class ConsistencyCollector:
             self._build_category(spec=CATEGORY_SPECS[name], findings=grouped[name])
             for name in ALL_CATEGORIES
         ]
-        summary = ConsistencySummary(
-            profile_name=profile_result.profile.name,
+        summary = self._build_summary_model(
+            database_state,
             profile_supported=True,
             executed_categories=tuple(category.name for category in categories),
             skipped_categories=(),
-            scope_boundaries=(
-                "Server PostgreSQL and container filesystem only. "
-                "Client-side mobile SQLite is out of scope.",
-            ),
         )
         return CollectedConsistencyState(
             checks=checks,
@@ -156,6 +177,34 @@ class ConsistencyCollector:
             findings=findings,
             summary=summary,
             profile_supported=True,
+            asset_reference_column=asset_reference_column,
+        )
+
+    def _build_summary_model(
+        self,
+        database_state: DetectedDatabaseState,
+        *,
+        profile_supported: bool,
+        executed_categories: tuple[str, ...],
+        skipped_categories: tuple[str, ...],
+    ) -> ConsistencySummary:
+        return ConsistencySummary(
+            profile_name=CONSISTENCY_SCHEMA_DETECTOR_NAME,
+            profile_supported=profile_supported,
+            support_status=database_state.support_status.value,
+            product_version_current=database_state.product_version_current,
+            product_version_confidence=database_state.product_version_confidence.value,
+            schema_generation_key=database_state.schema_generation_key,
+            schema_fingerprint=database_state.schema_fingerprint,
+            asset_reference_column=database_state.album_asset_asset_reference_column(),
+            capability_snapshot=dict(database_state.capabilities),
+            risk_flags=database_state.risk_flags,
+            executed_categories=executed_categories,
+            skipped_categories=skipped_categories,
+            scope_boundaries=(
+                "Server PostgreSQL and container filesystem only. "
+                "Client-side mobile SQLite is out of scope.",
+            ),
         )
 
     def _scope_boundary_check(self) -> CheckResult:
@@ -169,56 +218,81 @@ class ConsistencyCollector:
             details={"severity": "info"},
         )
 
-    def _profile_check(self, profile_result) -> CheckResult:
-        if profile_result.supported:
+    def _profile_check(self, database_state: DetectedDatabaseState) -> CheckResult:
+        supported = database_state.has_capability("can_validate_album_asset_missing_asset") and (
+            database_state.support_status
+            not in {
+                DatabaseSchemaSupportStatus.PARTIAL_MIGRATION,
+                DatabaseSchemaSupportStatus.UNSUPPORTED,
+            }
+        )
+        details = {
+            "severity": "info",
+            "product_version_current": database_state.product_version_current,
+            "product_version_confidence": database_state.product_version_confidence.value,
+            "schema_generation_key": database_state.schema_generation_key,
+            "schema_fingerprint": database_state.schema_fingerprint,
+            "asset_reference_column": database_state.album_asset_asset_reference_column(),
+            "support_status": database_state.support_status.value,
+            "risk_flags": list(database_state.risk_flags),
+            "capabilities": {
+                key: value
+                for key, value in sorted(database_state.capabilities.items())
+                if value
+            },
+        }
+        if supported:
             return CheckResult(
                 name="schema_profile",
-                status=CheckStatus.PASS,
-                message=f"Supported schema profile `{profile_result.profile.name}` detected.",
-                details={"severity": "info"},
+                status=(
+                    CheckStatus.PASS
+                    if database_state.support_status == DatabaseSchemaSupportStatus.SUPPORTED
+                    else CheckStatus.WARN
+                ),
+                message=(
+                    "Schema-aware validation is supported for the current live PostgreSQL shape."
+                ),
+                details=details,
             )
         return CheckResult(
             name="schema_profile",
             status=CheckStatus.SKIP,
             message=(
-                f"Unsupported schema for `{profile_result.profile.name}`. "
-                "Consistency categories will be skipped."
+                "Schema-aware validation is blocked because the live PostgreSQL shape "
+                "does not expose the required capabilities."
             ),
-            details={
-                "severity": "info",
-                "missing_tables": list(profile_result.missing_tables),
-                "missing_columns": {
-                    table: list(columns)
-                    for table, columns in profile_result.missing_columns.items()
-                },
-            },
+            details=details,
         )
 
     def _collect_album_asset_missing_asset_findings(
         self,
         dsn: str,
         timeout: int,
+        *,
+        asset_reference_column: str,
     ) -> list[ConsistencyFinding]:
         rows = self.postgres.list_grouped_album_asset_orphans(
             dsn,
             timeout,
             missing_target_table="asset",
+            asset_reference_column=asset_reference_column,
         )
         return [
             ConsistencyFinding(
                 category=MISSING_ASSET_CATEGORY,
-                finding_id=f"album_asset:missing_asset:{row['albumId']}:{row['assetsId']}",
+                finding_id=f"album_asset:missing_asset:{row['albumId']}:{row['assetId']}",
                 severity=ConsistencySeverity.FAIL,
                 repair_mode=ConsistencyRepairMode.SAFE_DELETE,
                 affected_tables=("public.album_asset", "public.asset"),
                 key_fields={
                     "albumId": str(row["albumId"]),
-                    "assetsId": str(row["assetsId"]),
+                    "assetId": str(row["assetId"]),
                 },
                 message="album_asset references a missing asset row.",
                 sample_metadata={
                     "albumId": row["albumId"],
-                    "assetsId": row["assetsId"],
+                    "assetId": row["assetId"],
+                    "assetReferenceColumn": asset_reference_column,
                 },
                 row_count=int(row["row_count"]),
             )
@@ -229,27 +303,31 @@ class ConsistencyCollector:
         self,
         dsn: str,
         timeout: int,
+        *,
+        asset_reference_column: str,
     ) -> list[ConsistencyFinding]:
         rows = self.postgres.list_grouped_album_asset_orphans(
             dsn,
             timeout,
             missing_target_table="album",
+            asset_reference_column=asset_reference_column,
         )
         return [
             ConsistencyFinding(
                 category=MISSING_ALBUM_CATEGORY,
-                finding_id=f"album_asset:missing_album:{row['albumId']}:{row['assetsId']}",
+                finding_id=f"album_asset:missing_album:{row['albumId']}:{row['assetId']}",
                 severity=ConsistencySeverity.FAIL,
                 repair_mode=ConsistencyRepairMode.SAFE_DELETE,
                 affected_tables=("public.album_asset", "public.album"),
                 key_fields={
                     "albumId": str(row["albumId"]),
-                    "assetsId": str(row["assetsId"]),
+                    "assetId": str(row["assetId"]),
                 },
                 message="album_asset references a missing album row.",
                 sample_metadata={
                     "albumId": row["albumId"],
-                    "assetsId": row["assetsId"],
+                    "assetId": row["assetId"],
+                    "assetReferenceColumn": asset_reference_column,
                 },
                 row_count=int(row["row_count"]),
             )
@@ -354,7 +432,7 @@ class ConsistencyValidationService:
                 categories=[],
                 findings=[],
                 consistency_summary=ConsistencySummary(
-                    profile_name=CURRENT_PROFILE_NAME,
+                    profile_name=CONSISTENCY_SCHEMA_DETECTOR_NAME,
                     profile_supported=False,
                 ),
                 metadata={"environment": settings.environment},
@@ -371,7 +449,7 @@ class ConsistencyValidationService:
                 categories=[],
                 findings=[],
                 consistency_summary=ConsistencySummary(
-                    profile_name=CURRENT_PROFILE_NAME,
+                    profile_name=CONSISTENCY_SCHEMA_DETECTOR_NAME,
                     profile_supported=False,
                 ),
                 metadata={"environment": settings.environment},
@@ -393,14 +471,17 @@ class ConsistencyValidationService:
             findings=collected.findings,
             consistency_summary=collected.summary,
             recommendations=self._recommendations(collected),
-            metadata={"environment": settings.environment},
+            metadata={
+                "environment": settings.environment,
+                "database_state": collected.summary.to_dict(),
+            },
         )
 
     def _build_summary(self, collected: CollectedConsistencyState) -> str:
         if not collected.profile_supported:
             return (
                 "Consistency validation skipped category execution because the current "
-                "PostgreSQL schema is unsupported."
+                "PostgreSQL schema capabilities are unsupported."
             )
         if any(category.status == CheckStatus.FAIL for category in collected.categories):
             return "Consistency validation found repairable server-side PostgreSQL orphan links."
@@ -411,7 +492,8 @@ class ConsistencyValidationService:
     def _recommendations(self, collected: CollectedConsistencyState) -> list[str]:
         if not collected.profile_supported:
             return [
-                "Current consistency checks support only immich_current_postgres_profile.",
+                "Inspect the reported schema generation key, capability snapshot, and risk flags "
+                "before enabling additional validator variants.",
             ]
         return [
             "Use `consistency repair --category ...` or `--id ...` for safe dry-run planning.",
