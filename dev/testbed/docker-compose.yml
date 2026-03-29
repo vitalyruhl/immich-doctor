@@ -30,7 +30,7 @@ services:
       context: ../..
       dockerfile: docker/Dockerfile
       target: runtime
-    image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:testbed}
+    image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:testbed-runtime}
     ports:
       - "${TESTBED_DOCTOR_PORT:-8000}:8000"
     environment:
