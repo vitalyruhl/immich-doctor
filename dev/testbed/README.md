@@ -291,6 +291,7 @@ Example `dev/testbed/.env` additions for local Windows verification:
 
 ```text
 TESTBED_DOCTOR_PORT=8000
+MISSING_ASSET_SCAN_CONCURRENCY=50
 TESTBED_MOCK_STORAGE_PATH=../../data/mock/immich-library
 TESTBED_REAL_STORAGE_MODE=cifs
 TESTBED_REAL_STORAGE_SMB_SOURCE=//192.168.2.3/images/immich
@@ -315,6 +316,13 @@ Recommended start flow:
 4. Start `immich-doctor` with the real-storage override compose file.
 5. Open `http://localhost:${TESTBED_DOCTOR_PORT}`.
 6. Run inspect/scan workflows only.
+
+Concurrency tuning note:
+
+- `MISSING_ASSET_SCAN_CONCURRENCY` controls parallel filesystem checks during the missing-asset scan
+- default is `20`
+- `50` is a practical starting point for this local CIFS-backed verification path
+- keep it configurable in `dev/testbed/.env`; do not hardcode it in the image
 
 Safe local verification commands on Windows PowerShell:
 

@@ -46,6 +46,7 @@ services:
       LOG_PATH: /data/logs
       TMP_PATH: /data/tmp
       CONFIG_PATH: /config
+      MISSING_ASSET_SCAN_CONCURRENCY: ${MISSING_ASSET_SCAN_CONCURRENCY:-20}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${TESTBED_DB_NAME:-immich}
@@ -87,6 +88,7 @@ services:
       LOG_PATH: /data/logs
       TMP_PATH: /data/tmp
       CONFIG_PATH: /config
+      MISSING_ASSET_SCAN_CONCURRENCY: ${MISSING_ASSET_SCAN_CONCURRENCY:-20}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${TESTBED_DB_NAME:-immich}
