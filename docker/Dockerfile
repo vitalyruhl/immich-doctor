@@ -27,18 +27,22 @@ RUN groupadd --gid 1000 app && \
 
 COPY pyproject.toml uv.lock README.md /opt/immich-doctor/
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssh-client rsync && \
+    apt-get install -y --no-install-recommends cifs-utils openssh-client rsync && \
     rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY immich_doctor /opt/immich-doctor/immich_doctor
 COPY docker/entrypoint.sh /usr/local/bin/immich-doctor-entrypoint
+COPY docker/real-storage-cifs-entrypoint.sh /usr/local/bin/immich-doctor-real-storage-entrypoint
 COPY --from=frontend-build /frontend/dist /app/ui/dist
 
 RUN sed -i 's/\r$//' /usr/local/bin/immich-doctor-entrypoint && \
+    sed -i 's/\r$//' /usr/local/bin/immich-doctor-real-storage-entrypoint && \
     chmod +x /usr/local/bin/immich-doctor-entrypoint && \
+    chmod +x /usr/local/bin/immich-doctor-real-storage-entrypoint && \
     mkdir -p \
       /app/ui/dist \
+      /mnt/immich/storage \
       /opt/immich-doctor/data/reports \
       /opt/immich-doctor/data/manifests \
       /opt/immich-doctor/data/quarantine \

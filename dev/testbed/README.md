@@ -134,29 +134,30 @@ That means:
 
 Optional local real-storage verification mode:
 
-- set `TESTBED_REAL_STORAGE_PATH` in `dev/testbed/.env`
+- set the SMB values in `dev/testbed/.env`
 - start the stack with both compose files so the real-storage override is active
-- mount the real Immich storage tree read-only into `/mnt/immich/storage`
+- mount the real Immich storage tree read-only via CIFS into `/mnt/immich/storage`
+- the real-storage override runs the doctor container in local `privileged` mode so the in-container CIFS mount can succeed
 - keep all writable doctor paths isolated under `/data/*` and `/config`
 - use this only for inspect/scan verification, not for repair/apply against the mounted storage
 
 Windows network-share note:
 
 - source storage path: `\\192.168.2.3\images\immich`
-- on this Docker Desktop setup, a direct UNC bind rendered an empty mount inside the container
-- the verified working approach is to map the share to a drive letter first and use that drive as `TESTBED_REAL_STORAGE_PATH`
-- example:
-  - `cmd /c "net use I: \\\\192.168.2.3\\images\\immich /persistent:no"`
-  - `TESTBED_REAL_STORAGE_PATH=I:/`
+- on this Docker Desktop setup, direct Windows bind mounts of the SMB-backed source were not reliable for Linux containers
+- the recommended verification path on this host is a direct CIFS mount from inside the doctor container
+- credentials come from `dev/testbed/.env` and must not be committed
+- the old bind-mount path should be treated as deprecated on this host, not as the primary verification flow
 
 Mode split:
 
 - mock mode:
   - `dev/testbed/docker-compose.yml`
   - storage source comes from `TESTBED_MOCK_STORAGE_PATH`
-- real read-only mode:
+- real CIFS verification mode:
   - `dev/testbed/docker-compose.yml` plus `dev/testbed/docker-compose.real-storage.yml`
-  - storage source comes from `TESTBED_REAL_STORAGE_PATH`
+  - storage source comes from `TESTBED_REAL_STORAGE_SMB_SOURCE`
+  - mount mode comes from `TESTBED_REAL_STORAGE_MODE=cifs`
   - no mock fallback is allowed in that mode
 
 Required runtime mapping stays fixed:
@@ -291,7 +292,13 @@ Example `dev/testbed/.env` additions for local Windows verification:
 ```text
 TESTBED_DOCTOR_PORT=8000
 TESTBED_MOCK_STORAGE_PATH=../../data/mock/immich-library
-TESTBED_REAL_STORAGE_PATH=I:/
+TESTBED_REAL_STORAGE_MODE=cifs
+TESTBED_REAL_STORAGE_SMB_SOURCE=//192.168.2.3/images/immich
+TESTBED_REAL_STORAGE_SMB_USERNAME=change_me
+TESTBED_REAL_STORAGE_SMB_PASSWORD=change_me
+TESTBED_REAL_STORAGE_SMB_VERS=3.0
+TESTBED_REAL_STORAGE_SMB_UID=1000
+TESTBED_REAL_STORAGE_SMB_GID=1000
 TESTBED_REPORTS_PATH=../../data/reports
 TESTBED_MANIFESTS_PATH=../../data/manifests
 TESTBED_QUARANTINE_PATH=../../data/quarantine
@@ -302,8 +309,7 @@ TESTBED_CONFIG_PATH=../../config
 
 Recommended start flow:
 
-1. Set `TESTBED_REAL_STORAGE_PATH` only when you intentionally want read-only media inspection.
-   On Docker Desktop for Windows, map `\\192.168.2.3\images\immich` to a drive letter first.
+1. Set the SMB values in `TESTBED_REAL_STORAGE_*` only when you intentionally want read-only media inspection.
 2. Start PostgreSQL.
 3. Restore or initialize the database.
 4. Start `immich-doctor` with the real-storage override compose file.
@@ -313,7 +319,6 @@ Recommended start flow:
 Safe local verification commands on Windows PowerShell:
 
 ```powershell
-cmd /c "net use I: \\\\192.168.2.3\\images\\immich /persistent:no"
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
 powershell -ExecutionPolicy Bypass -File dev/testbed/scripts/init-db.ps1
 docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml -f dev/testbed/docker-compose.real-storage.yml --profile doctor up -d --build --force-recreate immich-doctor
@@ -322,8 +327,8 @@ docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml -f 
 Quick checks:
 
 - confirm the UI responds on `http://localhost:8000`
-- confirm the mounted storage is read-only:
-  - `docker inspect immich-doctor-testbed-immich-doctor-1 --format "{{json .Mounts}}"`
+- confirm the mounted storage is present inside the running container and was mounted read-only by the CIFS entrypoint
+- confirm the known-good probe file is visible under `/mnt/immich/storage/upload/...`
 - confirm the path-resolution fix against the local stack:
   - `docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml -f dev/testbed/docker-compose.real-storage.yml exec immich-doctor uv run python -m immich_doctor consistency validate`
 
@@ -350,5 +355,5 @@ When real storage is mounted read-only for local verification:
 - prefer dry-run or preview before any destructive step
 - document any dump source used for the testbed outside the repository
 - if you need a completely clean start, run `reset-db` and then `init-db` again
-- keep `TESTBED_REAL_STORAGE_PATH` mounted read-only only
+- keep the CIFS-mounted real storage read-only only
 - keep repair/apply against real mounted storage out of scope for this local verification path

@@ -1,9 +1,29 @@
 services:
   immich-doctor:
+    user: root
+    privileged: true
+    entrypoint:
+      - /usr/local/bin/immich-doctor-real-storage-entrypoint
+    command:
+      - uvicorn
+      - immich_doctor.api:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
     environment:
       IMMICH_DOCTOR_ENVIRONMENT: dev-testbed-real
+      TESTBED_REAL_STORAGE_MODE: ${TESTBED_REAL_STORAGE_MODE:?Set TESTBED_REAL_STORAGE_MODE=cifs for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_SOURCE: ${TESTBED_REAL_STORAGE_SMB_SOURCE:?Set TESTBED_REAL_STORAGE_SMB_SOURCE for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_USERNAME: ${TESTBED_REAL_STORAGE_SMB_USERNAME:?Set TESTBED_REAL_STORAGE_SMB_USERNAME for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_PASSWORD: ${TESTBED_REAL_STORAGE_SMB_PASSWORD:?Set TESTBED_REAL_STORAGE_SMB_PASSWORD for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_VERS: ${TESTBED_REAL_STORAGE_SMB_VERS:-3.0}
+      TESTBED_REAL_STORAGE_SMB_DOMAIN: ${TESTBED_REAL_STORAGE_SMB_DOMAIN:-}
+      TESTBED_REAL_STORAGE_SMB_UID: ${TESTBED_REAL_STORAGE_SMB_UID:-1000}
+      TESTBED_REAL_STORAGE_SMB_GID: ${TESTBED_REAL_STORAGE_SMB_GID:-1000}
     volumes:
-      - ${TESTBED_REAL_STORAGE_PATH:?Set TESTBED_REAL_STORAGE_PATH to the real read-only Immich storage source}:/mnt/immich/storage:ro
+      - type: tmpfs
+        target: /mnt/immich/storage
       - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
       - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
       - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
@@ -12,11 +32,24 @@ services:
       - ${TESTBED_CONFIG_PATH:-../../config}:/config
 
   immich-doctor-shell:
+    user: root
+    privileged: true
+    entrypoint:
+      - /usr/local/bin/immich-doctor-real-storage-entrypoint
     environment:
       IMMICH_DOCTOR_ENVIRONMENT: dev-testbed-shell-real
+      TESTBED_REAL_STORAGE_MODE: ${TESTBED_REAL_STORAGE_MODE:?Set TESTBED_REAL_STORAGE_MODE=cifs for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_SOURCE: ${TESTBED_REAL_STORAGE_SMB_SOURCE:?Set TESTBED_REAL_STORAGE_SMB_SOURCE for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_USERNAME: ${TESTBED_REAL_STORAGE_SMB_USERNAME:?Set TESTBED_REAL_STORAGE_SMB_USERNAME for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_PASSWORD: ${TESTBED_REAL_STORAGE_SMB_PASSWORD:?Set TESTBED_REAL_STORAGE_SMB_PASSWORD for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_VERS: ${TESTBED_REAL_STORAGE_SMB_VERS:-3.0}
+      TESTBED_REAL_STORAGE_SMB_DOMAIN: ${TESTBED_REAL_STORAGE_SMB_DOMAIN:-}
+      TESTBED_REAL_STORAGE_SMB_UID: ${TESTBED_REAL_STORAGE_SMB_UID:-1000}
+      TESTBED_REAL_STORAGE_SMB_GID: ${TESTBED_REAL_STORAGE_SMB_GID:-1000}
     volumes:
       - ../..:/workspace
-      - ${TESTBED_REAL_STORAGE_PATH:?Set TESTBED_REAL_STORAGE_PATH to the real read-only Immich storage source}:/mnt/immich/storage:ro
+      - type: tmpfs
+        target: /mnt/immich/storage
       - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
       - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
       - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
