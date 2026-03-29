@@ -122,6 +122,20 @@ def _render_consistency_validation_report(
     lines.append("Checks:")
     for check in report.checks:
         lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Database State:")
+    lines.append(
+        f"- support_status={report.consistency_summary.support_status}, "
+        f"product_version={report.consistency_summary.product_version_current or 'unknown'}, "
+        f"confidence={report.consistency_summary.product_version_confidence}"
+    )
+    lines.append(
+        f"- schema_generation_key={report.consistency_summary.schema_generation_key}, "
+        f"schema_fingerprint={report.consistency_summary.schema_fingerprint}"
+    )
+    lines.append(
+        f"- asset_reference_column={report.consistency_summary.asset_reference_column}, "
+        f"risk_flags={list(report.consistency_summary.risk_flags)}"
+    )
     lines.append("Categories:")
     for category in report.categories:
         repairability = "REPAIRABLE" if category.repairable else "INSPECT_ONLY"
@@ -163,6 +177,20 @@ def _render_consistency_repair_report(
     lines.append("Checks:")
     for check in report.checks:
         lines.append(f"- [{check.status.value.upper()}] {check.name}: {check.message}")
+    lines.append("Database State:")
+    lines.append(
+        f"- support_status={report.consistency_summary.support_status}, "
+        f"product_version={report.consistency_summary.product_version_current or 'unknown'}, "
+        f"confidence={report.consistency_summary.product_version_confidence}"
+    )
+    lines.append(
+        f"- schema_generation_key={report.consistency_summary.schema_generation_key}, "
+        f"schema_fingerprint={report.consistency_summary.schema_fingerprint}"
+    )
+    lines.append(
+        f"- asset_reference_column={report.consistency_summary.asset_reference_column}, "
+        f"risk_flags={list(report.consistency_summary.risk_flags)}"
+    )
     lines.append("Repair Plan:")
     lines.append(
         f"- selected_categories={list(report.repair_plan.selected_categories)}, "
@@ -334,6 +362,7 @@ def _format_row(row: dict[str, object]) -> str:
     preferred_keys = [
         "albumId",
         "assetsId",
+        "assetId",
         "asset_id",
         "album_id",
         "index_name",

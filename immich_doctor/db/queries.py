@@ -80,6 +80,14 @@ SELECT
     constraint_def.conname AS constraint_name,
     target_ns.nspname AS referenced_table_schema,
     target_cls.relname AS referenced_table_name,
+    CASE constraint_def.confdeltype
+        WHEN 'a' THEN 'NO ACTION'
+        WHEN 'r' THEN 'RESTRICT'
+        WHEN 'c' THEN 'CASCADE'
+        WHEN 'n' THEN 'SET NULL'
+        WHEN 'd' THEN 'SET DEFAULT'
+        ELSE 'UNKNOWN'
+    END AS delete_action,
     array_agg(source_att.attname ORDER BY key_map.ordinality) AS column_names,
     array_agg(target_att.attname ORDER BY key_map.ordinality) AS referenced_column_names
 FROM pg_constraint AS constraint_def
@@ -110,6 +118,7 @@ GROUP BY
     source_cls.relname,
     constraint_def.conname,
     target_ns.nspname,
-    target_cls.relname
+    target_cls.relname,
+    constraint_def.confdeltype
 ORDER BY constraint_def.conname ASC;
 """

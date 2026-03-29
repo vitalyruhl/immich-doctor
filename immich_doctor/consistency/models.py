@@ -83,6 +83,14 @@ class ConsistencyCategory:
 class ConsistencySummary:
     profile_name: str
     profile_supported: bool
+    support_status: str = "unsupported"
+    product_version_current: str | None = None
+    product_version_confidence: str = "unknown"
+    schema_generation_key: str | None = None
+    schema_fingerprint: str | None = None
+    asset_reference_column: str | None = None
+    capability_snapshot: dict[str, bool] = field(default_factory=dict)
+    risk_flags: tuple[str, ...] = ()
     executed_categories: tuple[str, ...] = ()
     skipped_categories: tuple[str, ...] = ()
     scope_boundaries: tuple[str, ...] = ()
@@ -91,6 +99,14 @@ class ConsistencySummary:
         return {
             "profile_name": self.profile_name,
             "profile_supported": self.profile_supported,
+            "support_status": self.support_status,
+            "product_version_current": self.product_version_current,
+            "product_version_confidence": self.product_version_confidence,
+            "schema_generation_key": self.schema_generation_key,
+            "schema_fingerprint": self.schema_fingerprint,
+            "asset_reference_column": self.asset_reference_column,
+            "capability_snapshot": self.capability_snapshot,
+            "risk_flags": list(self.risk_flags),
             "executed_categories": list(self.executed_categories),
             "skipped_categories": list(self.skipped_categories),
             "scope_boundaries": list(self.scope_boundaries),

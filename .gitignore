@@ -35,3 +35,9 @@ data/logs/*
 !data/logs/.gitkeep
 data/tmp/*
 !data/tmp/.gitkeep
+
+dev/testbed/.env
+dev/testbed/.env.local
+dev/testbed/imports/
+dev/testbed/exports/
+dev/testbed/tmp/

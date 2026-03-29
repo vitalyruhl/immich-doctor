@@ -121,6 +121,54 @@ class PostgresAdapter:
             (table_schema, table_name),
         )
 
+    def list_version_history_entries(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        table_schema: str,
+        table_name: str,
+        version_column: str,
+        created_at_column: str | None = None,
+        entry_id_column: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        selected_columns: list[sql.Composable] = []
+        if entry_id_column is None:
+            selected_columns.append(sql.SQL("NULL::text AS entry_id"))
+        else:
+            selected_columns.append(
+                sql.SQL("{column}::text AS entry_id").format(column=sql.Identifier(entry_id_column))
+            )
+        if created_at_column is None:
+            selected_columns.append(sql.SQL("NULL::text AS created_at"))
+            order_clause = sql.SQL("")
+        else:
+            selected_columns.append(
+                sql.SQL("{column}::text AS created_at").format(
+                    column=sql.Identifier(created_at_column)
+                )
+            )
+            order_clause = sql.SQL(" ORDER BY {column} DESC").format(
+                column=sql.Identifier(created_at_column)
+            )
+        selected_columns.append(
+            sql.SQL("{column}::text AS version").format(column=sql.Identifier(version_column))
+        )
+        query = sql.SQL(
+            """
+            SELECT
+                {selected_columns}
+            FROM {table_name}{order_clause}
+            LIMIT %s;
+            """
+        ).format(
+            selected_columns=sql.SQL(", ").join(selected_columns),
+            table_name=sql.Identifier(table_schema, table_name),
+            order_clause=order_clause,
+        )
+        return fetch_all_composed(dsn, timeout_seconds, query, (limit,))
+
     def find_missing_foreign_key_rows(
         self,
         dsn: str,
@@ -235,26 +283,29 @@ class PostgresAdapter:
         timeout_seconds: int,
         *,
         missing_target_table: str,
+        asset_reference_column: str,
     ) -> list[dict[str, object]]:
         query = sql.SQL(
             """
             SELECT
                 link."albumId" AS "albumId",
-                link."assetsId" AS "assetsId",
+                link.{asset_reference_column} AS "assetId",
                 COUNT(*) AS row_count
             FROM {album_asset_table} AS link
             LEFT JOIN {target_table} AS target
                 ON target.id = link.{target_column}
-            WHERE target.id IS NULL
-            GROUP BY link."albumId", link."assetsId"
-            ORDER BY link."albumId" ASC, link."assetsId" ASC;
+            WHERE link.{target_column} IS NOT NULL
+            AND target.id IS NULL
+            GROUP BY link."albumId", link.{asset_reference_column}
+            ORDER BY link."albumId" ASC, link.{asset_reference_column} ASC;
             """
         ).format(
             album_asset_table=sql.Identifier("public", "album_asset"),
             target_table=sql.Identifier("public", missing_target_table),
             target_column=sql.Identifier(
-                "assetsId" if missing_target_table == "asset" else "albumId"
+                asset_reference_column if missing_target_table == "asset" else "albumId"
             ),
+            asset_reference_column=sql.Identifier(asset_reference_column),
         )
         return fetch_all_composed(dsn, timeout_seconds, query)
 
@@ -607,14 +658,15 @@ class PostgresAdapter:
         album_id: str,
         asset_id: str,
         missing_target_table: str,
+        asset_reference_column: str,
     ) -> int:
-        target_column = "assetsId" if missing_target_table == "asset" else "albumId"
+        target_column = asset_reference_column if missing_target_table == "asset" else "albumId"
         query = sql.SQL(
             """
             WITH deleted AS (
                 DELETE FROM {album_asset_table} AS link
                 WHERE link."albumId" = %s
-                AND link."assetsId" = %s
+                AND link.{asset_reference_column} = %s
                 AND NOT EXISTS (
                     SELECT 1
                     FROM {target_table} AS target
@@ -629,6 +681,7 @@ class PostgresAdapter:
             album_asset_table=sql.Identifier("public", "album_asset"),
             target_table=sql.Identifier("public", missing_target_table),
             target_column=sql.Identifier(target_column),
+            asset_reference_column=sql.Identifier(asset_reference_column),
         )
         rows = execute_returning_all_composed(
             dsn,

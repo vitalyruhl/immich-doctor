@@ -31,6 +31,12 @@ from immich_doctor.consistency.missing_asset_restore_point_store import (
 )
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus
+from immich_doctor.db.schema_detection import (
+    AssetDependencyCoverageStatus,
+    AssetDependencyState,
+    DatabaseStateDetector,
+    DetectedDatabaseState,
+)
 from immich_doctor.repair import (
     RepairJournalEntry,
     RepairJournalEntryStatus,
@@ -78,7 +84,9 @@ class MissingAssetProfile:
     detected_asset_columns: tuple[str, ...]
     supported_optional_columns: tuple[str, ...]
     relations: tuple[AssetReferenceRelation, ...]
+    asset_dependencies: tuple[AssetDependencyState, ...]
     blocking_issues: tuple[MissingAssetRepairBlocker, ...]
+    database_state: DetectedDatabaseState
 
     @property
     def supported(self) -> bool:
@@ -127,7 +135,8 @@ class MissingAssetReferenceService:
                 checks=[connection_check],
             )
 
-        profile = self._detect_profile(dsn, timeout)
+        database_state = DatabaseStateDetector(self.postgres).detect(dsn, timeout)
+        profile = self._detect_profile(database_state)
         profile_check = self._profile_check(profile)
         checks = [connection_check, profile_check]
         if not profile.supported:
@@ -141,6 +150,7 @@ class MissingAssetReferenceService:
                     "environment": settings.environment,
                     "limit": limit or self.batch_limit,
                     "offset": offset,
+                    "database_state": profile.database_state.to_dict(),
                 },
                 recommendations=[
                     "This workflow currently supports only asset rows with a readable "
@@ -203,9 +213,15 @@ class MissingAssetReferenceService:
                         *[relation.qualified_name for relation in profile.relations],
                     ],
                     "repairCoveredDependencyTables": list(SUPPORTED_RELATION_TABLE_NAMES),
+                    "assetDependencies": [
+                        dependency.to_dict() for dependency in profile.asset_dependencies
+                    ],
+                    "applyBlocked": bool(profile.blocking_issues),
+                    "applyBlockers": [blocker.to_dict() for blocker in profile.blocking_issues],
                     "scanBlockers": [blocker.to_dict() for blocker in profile.blocking_issues],
                 },
                 "blockingIssues": [blocker.summary for blocker in profile.blocking_issues],
+                "database_state": profile.database_state.to_dict(),
             },
             recommendations=recommendations,
         )
@@ -371,7 +387,7 @@ class MissingAssetReferenceService:
             )
 
         timeout = settings.postgres_connect_timeout_seconds
-        profile = self._detect_profile(dsn, timeout)
+        profile = self._detect_profile(DatabaseStateDetector(self.postgres).detect(dsn, timeout))
         run.status = RepairRunStatus.RUNNING
         self.repair_store.update_run(settings, run)
 
@@ -532,92 +548,78 @@ class MissingAssetReferenceService:
             metadata={"environment": settings.environment, "delete_all": delete_all},
         )
 
-    def _detect_profile(self, dsn: str, timeout: int) -> MissingAssetProfile:
-        tables = self.postgres.list_tables(dsn, timeout)
-        table_lookup = {
-            (str(table["table_schema"]), str(table["table_name"])): True for table in tables
-        }
-        asset_table_present = ("public", "asset") in table_lookup
-        detected_asset_columns: tuple[str, ...] = ()
-        optional_columns: tuple[str, ...] = ()
-        if asset_table_present:
-            columns = self.postgres.list_columns(
-                dsn,
-                timeout,
-                table_schema="public",
-                table_name="asset",
-            )
-            detected_asset_columns = tuple(str(column["column_name"]) for column in columns)
-            optional_columns = tuple(
-                column for column in OPTIONAL_ASSET_COLUMNS if column in detected_asset_columns
-            )
-
+    def _detect_profile(self, database_state: DetectedDatabaseState) -> MissingAssetProfile:
+        asset_table = database_state.table("asset")
+        asset_table_present = asset_table is not None
+        detected_asset_columns = asset_table.column_names if asset_table is not None else ()
+        optional_columns = tuple(
+            column for column in OPTIONAL_ASSET_COLUMNS if column in detected_asset_columns
+        )
         relations: list[AssetReferenceRelation] = []
         blockers: list[MissingAssetRepairBlocker] = []
-        unsupported_tables: set[str] = set()
+        asset_dependencies = database_state.asset_dependencies
         unsupported_foreign_keys: list[dict[str, object]] = []
-        for table in tables:
-            schema = str(table["table_schema"])
-            name = str(table["table_name"])
-            foreign_keys = self.postgres.list_foreign_keys(
-                dsn,
-                timeout,
-                table_schema=schema,
-                table_name=name,
-            )
-            for foreign_key in foreign_keys:
-                if (
-                    foreign_key["referenced_table_schema"] != "public"
-                    or foreign_key["referenced_table_name"] != "asset"
-                ):
-                    continue
-                source_columns = tuple(str(item) for item in foreign_key["column_names"])
-                target_columns = tuple(str(item) for item in foreign_key["referenced_column_names"])
-                if (schema, name) not in SUPPORTED_RELATION_TABLES:
-                    unsupported_tables.add(f"{schema}.{name}")
-                    continue
-                if len(source_columns) != 1 or target_columns != ("id",):
-                    unsupported_foreign_keys.append(
-                        {
-                            "constraint_name": str(foreign_key["constraint_name"]),
-                            "table": f"{schema}.{name}",
-                            "column_names": list(source_columns),
-                            "referenced_column_names": list(target_columns),
-                        }
-                    )
-                    continue
+        for dependency in asset_dependencies:
+            source_columns = tuple(dependency.source_columns)
+            target_columns = tuple(dependency.target_columns)
+            if (
+                dependency.coverage_status
+                == AssetDependencyCoverageStatus.COVERED_SAFE_FOR_ANALYSIS
+                and len(source_columns) == 1
+                and target_columns == ("id",)
+            ):
                 relations.append(
                     AssetReferenceRelation(
-                        table_schema=schema,
-                        table_name=name,
+                        table_schema=dependency.source_schema,
+                        table_name=dependency.source_table,
                         column_name=source_columns[0],
-                        referenced_schema="public",
-                        referenced_table="asset",
-                        referenced_column="id",
+                        referenced_schema=dependency.target_schema,
+                        referenced_table=dependency.target_table,
+                        referenced_column=target_columns[0],
                     )
                 )
-
-        relations.sort(key=lambda item: item.qualified_name)
-        if unsupported_tables:
+                continue
+            if len(source_columns) != 1 or target_columns != ("id",):
+                unsupported_foreign_keys.append(
+                    {
+                        "constraint_name": dependency.constraint_name,
+                        "table": dependency.qualified_name,
+                        "column_names": list(source_columns),
+                        "referenced_column_names": list(target_columns),
+                        "delete_action": dependency.delete_action,
+                        "risk_class": dependency.risk_class.value,
+                        "coverage_status": dependency.coverage_status.value,
+                    }
+                )
+            if not dependency.blocks_apply:
+                continue
             blockers.append(
                 MissingAssetRepairBlocker(
-                    blocker_code="unsupported_dependency_tables",
+                    blocker_code=f"asset_dependency:{dependency.qualified_name}",
                     blocker_type=MissingAssetRepairBlockerType.SCHEMA,
-                    summary="Unsupported dependency tables detected",
+                    summary=(
+                        f"{dependency.qualified_name} blocks apply: {dependency.risk_class.value}"
+                    ),
                     details={
-                        "reason": (
-                            "Repair is intentionally blocked when unsupported dependent "
-                            "tables exist."
-                        ),
-                        "unsupported_tables": sorted(unsupported_tables),
-                        "repair_blocked": True,
+                        "reason": dependency.reason,
+                        "constraint_name": dependency.constraint_name,
+                        "fk_column": source_columns[0] if len(source_columns) == 1 else None,
+                        "column_names": list(source_columns),
+                        "referenced_column_names": list(target_columns),
+                        "delete_action": dependency.delete_action,
+                        "risk_class": dependency.risk_class.value,
+                        "coverage_status": dependency.coverage_status.value,
+                        "blocks_apply": dependency.blocks_apply,
+                        "notes": list(dependency.notes),
                     },
-                    affected_tables=tuple(sorted(unsupported_tables)),
+                    affected_tables=(dependency.qualified_name,),
                     repair_covered_tables=SUPPORTED_RELATION_TABLE_NAMES,
                     blocking_severity=MissingAssetBlockingSeverity.ERROR,
                     is_repairable=False,
                 )
             )
+
+        relations.sort(key=lambda item: item.qualified_name)
         if unsupported_foreign_keys:
             blockers.append(
                 MissingAssetRepairBlocker(
@@ -630,7 +632,7 @@ class MissingAssetReferenceService:
                             "public.asset.id."
                         ),
                         "constraints": unsupported_foreign_keys,
-                        "repair_blocked": True,
+                        "blocks_apply": True,
                     },
                     affected_tables=tuple(
                         sorted(
@@ -651,7 +653,17 @@ class MissingAssetReferenceService:
             detected_asset_columns=detected_asset_columns,
             supported_optional_columns=optional_columns,
             relations=tuple(relations),
-            blocking_issues=tuple(blockers),
+            asset_dependencies=asset_dependencies,
+            blocking_issues=tuple(
+                sorted(
+                    blockers,
+                    key=lambda item: (
+                        item.affected_tables[0] if item.affected_tables else "",
+                        item.blocker_code,
+                    ),
+                )
+            ),
+            database_state=database_state,
         )
 
     def _profile_check(self, profile: MissingAssetProfile) -> CheckResult:
@@ -659,12 +671,31 @@ class MissingAssetReferenceService:
             return CheckResult(
                 name="missing_asset_reference_profile",
                 status=CheckStatus.PASS,
-                message="Supported asset path profile detected for missing asset reference scan.",
+                message=(
+                    "Schema-aware asset reference scan is supported for the current live "
+                    "PostgreSQL shape."
+                ),
                 details={
+                    "product_version_current": profile.database_state.product_version_current,
+                    "product_version_confidence": (
+                        profile.database_state.product_version_confidence.value
+                    ),
+                    "schema_generation_key": profile.database_state.schema_generation_key,
+                    "schema_fingerprint": profile.database_state.schema_fingerprint,
+                    "support_status": profile.database_state.support_status.value,
                     "optional_asset_columns": list(profile.supported_optional_columns),
                     "direct_asset_relations": [
                         relation.qualified_name for relation in profile.relations
                     ],
+                    "asset_dependencies": [
+                        dependency.to_dict() for dependency in profile.asset_dependencies
+                    ],
+                    "capabilities": {
+                        key: value
+                        for key, value in sorted(profile.database_state.capabilities.items())
+                        if value
+                    },
+                    "risk_flags": list(profile.database_state.risk_flags),
                     "scan_blockers": [blocker.to_dict() for blocker in profile.blocking_issues],
                 },
             )
@@ -675,6 +706,16 @@ class MissingAssetReferenceService:
                 "Missing asset reference scan is unsupported because "
                 "public.asset.originalPath is unavailable."
             ),
+            details={
+                "product_version_current": profile.database_state.product_version_current,
+                "product_version_confidence": (
+                    profile.database_state.product_version_confidence.value
+                ),
+                "schema_generation_key": profile.database_state.schema_generation_key,
+                "schema_fingerprint": profile.database_state.schema_fingerprint,
+                "support_status": profile.database_state.support_status.value,
+                "risk_flags": list(profile.database_state.risk_flags),
+            },
         )
 
     def _inspect_asset_row(
