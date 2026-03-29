@@ -378,8 +378,7 @@ def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> 
     assert result.metadata["blockingIssues"] == ["public.person_asset blocks apply: unknown"]
     assert result.metadata["supportedScope"]["applyBlocked"] is True
     assert (
-        result.metadata["supportedScope"]["assetDependencies"][-1]["table"]
-        == "public.person_asset"
+        result.metadata["supportedScope"]["assetDependencies"][-1]["table"] == "public.person_asset"
     )
     assert result.metadata["supportedScope"]["scanBlockers"] == [blocker.to_dict()]
 

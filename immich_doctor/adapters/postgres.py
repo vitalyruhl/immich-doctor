@@ -138,9 +138,7 @@ class PostgresAdapter:
             selected_columns.append(sql.SQL("NULL::text AS entry_id"))
         else:
             selected_columns.append(
-                sql.SQL("{column}::text AS entry_id").format(
-                    column=sql.Identifier(entry_id_column)
-                )
+                sql.SQL("{column}::text AS entry_id").format(column=sql.Identifier(entry_id_column))
             )
         if created_at_column is None:
             selected_columns.append(sql.SQL("NULL::text AS created_at"))

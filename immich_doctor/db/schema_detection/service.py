@@ -57,12 +57,8 @@ ASSET_DEPENDENCY_SEMANTIC_BLOCK_RULES = {
     ("public", "shared_link_asset"): (
         "Deleting an asset would cascade shared-link membership rows."
     ),
-    ("public", "stack"): (
-        "Deleting a primary stack asset can be blocked by NO ACTION semantics."
-    ),
-    ("public", "tag_asset"): (
-        "Deleting an asset would cascade tag membership rows."
-    ),
+    ("public", "stack"): ("Deleting a primary stack asset can be blocked by NO ACTION semantics."),
+    ("public", "tag_asset"): ("Deleting an asset would cascade tag membership rows."),
 }
 ASSET_DEPENDENCY_UNSUPPORTED_RULES = {
     ("public", "asset_edit"): (
@@ -177,9 +173,7 @@ class DatabaseStateDetector:
                 target_table=str(row["referenced_table_name"]),
                 target_columns=tuple(str(item) for item in row["referenced_column_names"]),
                 delete_action=(
-                    str(row["delete_action"])
-                    if row.get("delete_action") is not None
-                    else None
+                    str(row["delete_action"]) if row.get("delete_action") is not None else None
                 ),
             )
             for row in self.postgres.list_foreign_keys(
@@ -236,17 +230,13 @@ class DatabaseStateDetector:
             table_schema="public",
             table_name="version_history",
             version_column="version",
-            created_at_column=(
-                "createdAt" if version_table.has_column("createdAt") else None
-            ),
+            created_at_column=("createdAt" if version_table.has_column("createdAt") else None),
             entry_id_column=("id" if version_table.has_column("id") else None),
         )
         entries = tuple(
             ProductVersionEntry(
                 version=str(row["version"]),
-                created_at=(
-                    str(row["created_at"]) if row.get("created_at") is not None else None
-                ),
+                created_at=(str(row["created_at"]) if row.get("created_at") is not None else None),
                 entry_id=(str(row["entry_id"]) if row.get("entry_id") is not None else None),
             )
             for row in entries_raw
@@ -388,9 +378,9 @@ class DatabaseStateDetector:
             and capabilities["album_asset_albumId"]
             and album_asset_has_single_asset_column
         )
-        capabilities["can_validate_album_asset_missing_album"] = (
-            capabilities["can_validate_album_asset_missing_asset"]
-        )
+        capabilities["can_validate_album_asset_missing_album"] = capabilities[
+            "can_validate_album_asset_missing_asset"
+        ]
         capabilities["can_validate_asset_file_paths"] = (
             capabilities["has_asset_file"]
             and has_column("asset_file", "path")
@@ -405,8 +395,7 @@ class DatabaseStateDetector:
             for dependency in asset_dependencies
         )
         capabilities["has_blocking_asset_dependency_semantics"] = any(
-            dependency.coverage_status
-            == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
+            dependency.coverage_status == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
             for dependency in asset_dependencies
         )
         return capabilities
@@ -507,8 +496,7 @@ class DatabaseStateDetector:
                 f"uses {foreign_key.delete_action} semantics."
             )
         return (
-            f"Dependency semantics for {source_name} are not fully known from the current "
-            "metadata."
+            f"Dependency semantics for {source_name} are not fully known from the current metadata."
         )
 
     def _derive_risk_flags(
@@ -529,9 +517,10 @@ class DatabaseStateDetector:
             flags.append("missing_required_dependency_table")
         if capabilities["album_asset_assetId"] and capabilities["album_asset_assetsId"]:
             flags.append("partial_migration_state")
-        if not (
-            capabilities["album_asset_assetId"] or capabilities["album_asset_assetsId"]
-        ) and capabilities["has_album_asset"]:
+        if (
+            not (capabilities["album_asset_assetId"] or capabilities["album_asset_assetsId"])
+            and capabilities["has_album_asset"]
+        ):
             flags.append("unsupported_schema_shape")
         if capabilities["has_album_asset"] and not capabilities["album_asset_albumId"]:
             flags.append("schema_drift")

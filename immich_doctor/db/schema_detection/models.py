@@ -236,9 +236,7 @@ class DetectedDatabaseState:
             "schema_fingerprint": self.schema_fingerprint,
             "support_status": self.support_status.value,
             "capabilities": key_capabilities,
-            "asset_dependencies": [
-                dependency.to_dict() for dependency in self.asset_dependencies
-            ],
+            "asset_dependencies": [dependency.to_dict() for dependency in self.asset_dependencies],
             "risk_flags": list(self.risk_flags),
             "notes": list(self.notes),
             "available_tables": list(self.available_tables),

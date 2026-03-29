@@ -265,10 +265,7 @@ def test_database_state_detector_classifies_asset_dependencies_by_delete_semanti
         dependency.qualified_name: dependency for dependency in state.asset_dependencies
     }
 
-    assert (
-        dependencies["public.album"].risk_class
-        == AssetDependencyRiskClass.SET_NULL_MUTATION
-    )
+    assert dependencies["public.album"].risk_class == AssetDependencyRiskClass.SET_NULL_MUTATION
     assert (
         dependencies["public.album"].coverage_status
         == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
@@ -279,10 +276,7 @@ def test_database_state_detector_classifies_asset_dependencies_by_delete_semanti
         == AssetDependencyCoverageStatus.COVERED_SAFE_FOR_ANALYSIS
     )
     assert dependencies["public.album_asset"].blocks_apply is False
-    assert (
-        dependencies["public.memory_asset"].risk_class
-        == AssetDependencyRiskClass.CASCADE_LOSS
-    )
+    assert dependencies["public.memory_asset"].risk_class == AssetDependencyRiskClass.CASCADE_LOSS
     assert (
         dependencies["public.memory_asset"].coverage_status
         == AssetDependencyCoverageStatus.COVERED_BLOCKING_FOR_APPLY
@@ -332,10 +326,7 @@ def test_database_state_detector_marks_unknown_dependency_metadata_as_unsupporte
     )
 
     assert dependency.risk_class == AssetDependencyRiskClass.UNKNOWN
-    assert (
-        dependency.coverage_status
-        == AssetDependencyCoverageStatus.UNSUPPORTED_BLOCKING
-    )
+    assert dependency.coverage_status == AssetDependencyCoverageStatus.UNSUPPORTED_BLOCKING
     assert dependency.blocks_apply is True
     assert state.has_capability("has_unsupported_asset_dependency_tables") is True
 

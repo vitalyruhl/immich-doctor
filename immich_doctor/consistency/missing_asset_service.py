@@ -387,9 +387,7 @@ class MissingAssetReferenceService:
             )
 
         timeout = settings.postgres_connect_timeout_seconds
-        profile = self._detect_profile(
-            DatabaseStateDetector(self.postgres).detect(dsn, timeout)
-        )
+        profile = self._detect_profile(DatabaseStateDetector(self.postgres).detect(dsn, timeout))
         run.status = RepairRunStatus.RUNNING
         self.repair_store.update_run(settings, run)
 
@@ -600,8 +598,7 @@ class MissingAssetReferenceService:
                     blocker_code=f"asset_dependency:{dependency.qualified_name}",
                     blocker_type=MissingAssetRepairBlockerType.SCHEMA,
                     summary=(
-                        f"{dependency.qualified_name} blocks apply: "
-                        f"{dependency.risk_class.value}"
+                        f"{dependency.qualified_name} blocks apply: {dependency.risk_class.value}"
                     ),
                     details={
                         "reason": dependency.reason,

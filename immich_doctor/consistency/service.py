@@ -236,9 +236,7 @@ class ConsistencyCollector:
             "support_status": database_state.support_status.value,
             "risk_flags": list(database_state.risk_flags),
             "capabilities": {
-                key: value
-                for key, value in sorted(database_state.capabilities.items())
-                if value
+                key: value for key, value in sorted(database_state.capabilities.items()) if value
             },
         }
         if supported:
