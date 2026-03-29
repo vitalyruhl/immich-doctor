@@ -156,6 +156,13 @@ class AppSettings(BaseSettings):
             "DB_CONNECT_TIMEOUT_SECONDS",
         ),
     )
+    missing_asset_scan_concurrency: int = Field(
+        default=20,
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_MISSING_ASSET_SCAN_CONCURRENCY",
+            "MISSING_ASSET_SCAN_CONCURRENCY",
+        ),
+    )
 
     required_external_tools: list[str] = Field(default_factory=list)
     optional_external_tools: list[str] = Field(default_factory=list)
@@ -170,6 +177,13 @@ class AppSettings(BaseSettings):
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
         raise TypeError("External tool configuration must be a list or comma-separated string.")
+
+    @field_validator("missing_asset_scan_concurrency", mode="before")
+    @classmethod
+    def normalize_missing_asset_scan_concurrency(cls, value: object) -> int:
+        if value is None or value == "":
+            return 20
+        return max(1, int(value))
 
     @field_validator(
         "immich_library_root",

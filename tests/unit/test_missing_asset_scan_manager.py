@@ -150,6 +150,13 @@ def test_start_scan_returns_pending_or_running_without_waiting_for_completion(
 
         assert status.scan_state in {MissingAssetScanState.PENDING, MissingAssetScanState.RUNNING}
         assert started.wait(timeout=1)
+        _wait_until(
+            lambda: (
+                (job := manager.get_status(settings).active_scan) is not None
+                and job.scanned_asset_count == 1
+                and job.total_asset_count == 2
+            )
+        )
         running_status = manager.get_status(settings)
         assert running_status.scan_state == MissingAssetScanState.RUNNING
         assert running_status.active_scan is not None

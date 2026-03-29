@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
+from time import sleep
 
 from immich_doctor.consistency.missing_asset_models import (
     MissingAssetBlockingSeverity,
@@ -211,7 +214,60 @@ class _FakeFilesystem:
         return b"probe"
 
 
-def _settings(tmp_path: Path, *, immich_library_root: Path | None = None) -> AppSettings:
+class _TrackingFilesystem(_FakeFilesystem):
+    def __init__(self, states: dict[str, str], *, delay_seconds: float = 0.02) -> None:
+        super().__init__(states)
+        self.delay_seconds = delay_seconds
+        self._lock = Lock()
+        self.active_operations = 0
+        self.max_active_operations = 0
+
+    def stat_path(self, path: Path):
+        with self._lock:
+            self.active_operations += 1
+            self.max_active_operations = max(self.max_active_operations, self.active_operations)
+        try:
+            sleep(self.delay_seconds)
+            return super().stat_path(path)
+        finally:
+            with self._lock:
+                self.active_operations -= 1
+
+
+class _ExplodingFilesystem(_FakeFilesystem):
+    def __init__(self, states: dict[str, str], *, exploding_paths: set[str]) -> None:
+        super().__init__(states)
+        self.exploding_paths = {item.replace("\\", "/") for item in exploding_paths}
+
+    def stat_path(self, path: Path):
+        normalized = str(path).replace("\\", "/")
+        if normalized in self.exploding_paths:
+            raise RuntimeError("worker exploded")
+        return super().stat_path(path)
+
+
+class _RecordingExecutor:
+    def __init__(self, *, max_workers: int, delegate_factory) -> None:
+        self.max_workers = max_workers
+        self.delegate = delegate_factory(max_workers=max_workers)
+
+    def __enter__(self):
+        self.delegate.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return self.delegate.__exit__(exc_type, exc, tb)
+
+    def submit(self, fn, *args, **kwargs):
+        return self.delegate.submit(fn, *args, **kwargs)
+
+
+def _settings(
+    tmp_path: Path,
+    *,
+    immich_library_root: Path | None = None,
+    missing_asset_scan_concurrency: int = 20,
+) -> AppSettings:
     return AppSettings(
         _env_file=None,
         DB_HOST="postgres",
@@ -219,6 +275,7 @@ def _settings(tmp_path: Path, *, immich_library_root: Path | None = None) -> App
         DB_USER="immich",
         DB_PASSWORD="secret",
         immich_library_root=immich_library_root,
+        MISSING_ASSET_SCAN_CONCURRENCY=missing_asset_scan_concurrency,
         MANIFESTS_PATH=tmp_path / "manifests",
         QUARANTINE_PATH=tmp_path / "quarantine",
     )
@@ -365,6 +422,156 @@ def test_scan_all_walks_entire_asset_set_and_reports_progress(tmp_path: Path) ->
     assert progress_updates[-1]["scanned_asset_count"] == 2
     assert progress_updates[-1]["finding_count"] == 1
     assert progress_updates[-1]["total_asset_count"] == 2
+
+
+def test_parallel_scan_matches_sequential_results(tmp_path: Path) -> None:
+    rows_by_table = {
+        ("public", "asset"): [
+            {
+                "id": f"asset-{index:02d}",
+                "type": "image",
+                "originalPath": f"C:/library/asset-{index:02d}.jpg",
+                "createdAt": "2026-03-28T10:00:00+00:00",
+                "ownerId": "user-1",
+            }
+            for index in range(6)
+        ]
+    }
+    states = {
+        "C:/library/asset-00.jpg": "missing",
+        "C:/library/asset-01.jpg": "present",
+        "C:/library/asset-02.jpg": "denied",
+        "C:/library/asset-03.jpg": "present",
+        "C:/library/asset-04.jpg": "missing",
+        "C:/library/asset-05.jpg": "unreadable",
+    }
+    postgres = _FakePostgres(
+        tables=_tables(),
+        columns_by_table=_columns(),
+        foreign_keys_by_table=_foreign_keys(),
+        rows_by_table=rows_by_table,
+    )
+    sequential = MissingAssetReferenceService(
+        postgres=postgres,
+        filesystem=_FakeFilesystem(states),
+        batch_limit=3,
+    ).scan_all(_settings(tmp_path, missing_asset_scan_concurrency=1))
+    parallel = MissingAssetReferenceService(
+        postgres=_FakePostgres(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            rows_by_table=rows_by_table,
+        ),
+        filesystem=_FakeFilesystem(states),
+        batch_limit=3,
+    ).scan_all(_settings(tmp_path, missing_asset_scan_concurrency=4))
+
+    assert [finding.asset_id for finding in parallel.findings] == [
+        finding.asset_id for finding in sequential.findings
+    ]
+    assert [finding.status for finding in parallel.findings] == [
+        finding.status for finding in sequential.findings
+    ]
+    assert parallel.metadata["findingCount"] == sequential.metadata["findingCount"]
+
+
+def test_scan_respects_configured_concurrency_limit(tmp_path: Path) -> None:
+    recorded_max_workers: list[int] = []
+
+    def recording_executor_factory(*, max_workers: int):
+        recorded_max_workers.append(max_workers)
+        return _RecordingExecutor(max_workers=max_workers, delegate_factory=ThreadPoolExecutor)
+
+    service = MissingAssetReferenceService(
+        postgres=_FakePostgres(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            rows_by_table=_rows(),
+        ),
+        filesystem=_FakeFilesystem(
+            {"C:/library/missing.jpg": "missing", "C:/library/ok.jpg": "present"}
+        ),
+        executor_factory=recording_executor_factory,
+    )
+
+    service.scan_all(_settings(tmp_path, missing_asset_scan_concurrency=7))
+
+    assert recorded_max_workers == [7]
+
+
+def test_parallel_scan_progress_counters_stay_correct(tmp_path: Path) -> None:
+    progress_updates: list[dict[str, object]] = []
+    filesystem = _TrackingFilesystem(
+        {
+            "C:/library/missing.jpg": "missing",
+            "C:/library/ok.jpg": "present",
+        }
+    )
+    service = MissingAssetReferenceService(
+        postgres=_FakePostgres(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            rows_by_table=_rows(),
+        ),
+        filesystem=filesystem,
+        batch_limit=2,
+    )
+
+    result = service.scan_all(
+        _settings(tmp_path, missing_asset_scan_concurrency=2),
+        progress_callback=lambda payload: progress_updates.append(dict(payload)),
+    )
+
+    assert result.metadata["scannedAssetCount"] == 2
+    assert result.metadata["findingCount"] == 1
+    assert progress_updates[0]["scanned_asset_count"] == 0
+    assert progress_updates[-1]["scanned_asset_count"] == 2
+    assert progress_updates[-1]["finding_count"] == 1
+    assert filesystem.max_active_operations <= 2
+
+
+def test_worker_failure_is_reported_as_unreadable_without_aborting_scan(tmp_path: Path) -> None:
+    rows_by_table = {
+        ("public", "asset"): [
+            {
+                "id": "asset-boom",
+                "type": "image",
+                "originalPath": "C:/library/boom.jpg",
+                "createdAt": "2026-03-28T10:00:00+00:00",
+                "ownerId": "user-1",
+            },
+            {
+                "id": "asset-ok",
+                "type": "image",
+                "originalPath": "C:/library/ok.jpg",
+                "createdAt": "2026-03-28T10:05:00+00:00",
+                "ownerId": "user-1",
+            },
+        ]
+    }
+    service = MissingAssetReferenceService(
+        postgres=_FakePostgres(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            rows_by_table=rows_by_table,
+        ),
+        filesystem=_ExplodingFilesystem(
+            {"C:/library/boom.jpg": "present", "C:/library/ok.jpg": "present"},
+            exploding_paths={"C:/library/boom.jpg"},
+        ),
+        batch_limit=2,
+    )
+
+    result = service.scan_all(_settings(tmp_path, missing_asset_scan_concurrency=2))
+
+    assert [finding.asset_id for finding in result.findings] == ["asset-boom", "asset-ok"]
+    assert result.findings[0].status == MissingAssetReferenceStatus.UNREADABLE_PATH
+    assert result.findings[1].status == MissingAssetReferenceStatus.PRESENT
+    assert result.metadata["findingCount"] == 1
 
 
 def test_scan_keeps_directly_accessible_logical_original_path(tmp_path: Path) -> None:

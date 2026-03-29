@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Executor, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -115,6 +116,7 @@ class MissingAssetReferenceService:
         default_factory=MissingAssetRestorePointStore
     )
     batch_limit: int = DEFAULT_BATCH_LIMIT
+    executor_factory: Callable[..., Executor] = ThreadPoolExecutor
 
     def scan(
         self,
@@ -136,12 +138,16 @@ class MissingAssetReferenceService:
             offset=offset,
             optional_columns=prepared.profile.supported_optional_columns,
         )
-        findings = self._inspect_asset_rows(
-            asset_rows,
-            settings=settings,
-            scan_timestamp=scan_timestamp,
-            blocking_issues=prepared.profile.blocking_issues,
-        )
+        with self.executor_factory(
+            max_workers=self._scan_concurrency(settings)
+        ) as inspection_executor:
+            findings, _, _ = self._inspect_asset_rows(
+                asset_rows,
+                settings=settings,
+                scan_timestamp=scan_timestamp,
+                blocking_issues=prepared.profile.blocking_issues,
+                executor=inspection_executor,
+            )
 
         return self._build_scan_result(
             settings,
@@ -167,6 +173,7 @@ class MissingAssetReferenceService:
         scan_timestamp = datetime.now(UTC).isoformat()
         offset = 0
         scanned_asset_count = 0
+        actual_finding_count = 0
         total_asset_count = self.postgres.count_assets(prepared.dsn, prepared.timeout)
         findings: list[MissingAssetReferenceFinding] = []
 
@@ -181,41 +188,38 @@ class MissingAssetReferenceService:
                 }
             )
 
-        while True:
-            asset_rows = self.postgres.list_assets_for_missing_references(
-                prepared.dsn,
-                prepared.timeout,
-                limit=effective_batch_limit,
-                offset=offset,
-                optional_columns=prepared.profile.supported_optional_columns,
-            )
-            if not asset_rows:
-                break
-
-            findings.extend(
-                self._inspect_asset_rows(
-                    asset_rows,
-                    settings=settings,
-                    scan_timestamp=scan_timestamp,
-                    blocking_issues=prepared.profile.blocking_issues,
+        with self.executor_factory(
+            max_workers=self._scan_concurrency(settings)
+        ) as inspection_executor:
+            while True:
+                asset_rows = self.postgres.list_assets_for_missing_references(
+                    prepared.dsn,
+                    prepared.timeout,
+                    limit=effective_batch_limit,
+                    offset=offset,
+                    optional_columns=prepared.profile.supported_optional_columns,
                 )
-            )
-            scanned_asset_count += len(asset_rows)
+                if not asset_rows:
+                    break
 
-            if progress_callback is not None:
-                progress_callback(
-                    {
-                        "scanned_asset_count": scanned_asset_count,
-                        "finding_count": self._actual_finding_count(findings),
-                        "total_asset_count": total_asset_count,
-                        "offset": offset,
-                        "batch_size": len(asset_rows),
-                    }
+                batch_findings, scanned_asset_count, actual_finding_count = (
+                    self._inspect_asset_rows(
+                        asset_rows,
+                        settings=settings,
+                        scan_timestamp=scan_timestamp,
+                        blocking_issues=prepared.profile.blocking_issues,
+                        executor=inspection_executor,
+                        initial_scanned_asset_count=scanned_asset_count,
+                        initial_finding_count=actual_finding_count,
+                        total_asset_count=total_asset_count,
+                        progress_callback=progress_callback,
+                    )
                 )
+                findings.extend(batch_findings)
 
-            if len(asset_rows) < effective_batch_limit:
-                break
-            offset += effective_batch_limit
+                if len(asset_rows) < effective_batch_limit:
+                    break
+                offset += effective_batch_limit
 
         return self._build_scan_result(
             settings,
@@ -296,16 +300,88 @@ class MissingAssetReferenceService:
         settings: AppSettings,
         scan_timestamp: str,
         blocking_issues: tuple[MissingAssetRepairBlocker, ...],
-    ) -> list[MissingAssetReferenceFinding]:
-        return [
-            self._inspect_asset_row(
-                row,
-                settings=settings,
-                scan_timestamp=scan_timestamp,
-                blocking_issues=blocking_issues,
-            )
-            for row in rows
-        ]
+        executor: Executor | None = None,
+        initial_scanned_asset_count: int = 0,
+        initial_finding_count: int = 0,
+        total_asset_count: int | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
+    ) -> tuple[list[MissingAssetReferenceFinding], int, int]:
+        if not rows:
+            return [], initial_scanned_asset_count, initial_finding_count
+
+        if executor is None:
+            with self.executor_factory(
+                max_workers=self._scan_concurrency(settings)
+            ) as owned_executor:
+                return self._inspect_asset_rows(
+                    rows,
+                    settings=settings,
+                    scan_timestamp=scan_timestamp,
+                    blocking_issues=blocking_issues,
+                    executor=owned_executor,
+                    initial_scanned_asset_count=initial_scanned_asset_count,
+                    initial_finding_count=initial_finding_count,
+                    total_asset_count=total_asset_count,
+                    progress_callback=progress_callback,
+                )
+
+        max_in_flight = max(1, self._scan_concurrency(settings) * 2)
+        row_iterator = iter(enumerate(rows))
+        in_flight: dict[Future[MissingAssetReferenceFinding], tuple[int, dict[str, object]]] = {}
+        ordered_findings: list[MissingAssetReferenceFinding | None] = [None] * len(rows)
+        scanned_asset_count = initial_scanned_asset_count
+        finding_count = initial_finding_count
+
+        def submit_until_full() -> None:
+            while len(in_flight) < max_in_flight:
+                try:
+                    index, row = next(row_iterator)
+                except StopIteration:
+                    return
+                future = executor.submit(
+                    self._inspect_asset_row,
+                    row,
+                    settings=settings,
+                    scan_timestamp=scan_timestamp,
+                    blocking_issues=blocking_issues,
+                )
+                in_flight[future] = (index, row)
+
+        submit_until_full()
+        while in_flight:
+            done_futures, _ = wait(tuple(in_flight), return_when=FIRST_COMPLETED)
+            for future in done_futures:
+                index, row = in_flight.pop(future)
+                try:
+                    finding = future.result()
+                except Exception as exc:
+                    finding = self._build_unreadable_finding_from_worker_error(
+                        row,
+                        settings=settings,
+                        scan_timestamp=scan_timestamp,
+                        blocking_issues=blocking_issues,
+                        error=exc,
+                    )
+                ordered_findings[index] = finding
+                scanned_asset_count += 1
+                if finding.status != MissingAssetReferenceStatus.PRESENT:
+                    finding_count += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "scanned_asset_count": scanned_asset_count,
+                            "finding_count": finding_count,
+                            "total_asset_count": total_asset_count,
+                            "batch_size": len(rows),
+                        }
+                    )
+            submit_until_full()
+
+        return (
+            [finding for finding in ordered_findings if finding is not None],
+            scanned_asset_count,
+            finding_count,
+        )
 
     def _build_scan_result(
         self,
@@ -1022,6 +1098,48 @@ class MissingAssetReferenceService:
     def _actual_finding_count(self, findings: list[MissingAssetReferenceFinding]) -> int:
         return sum(
             1 for finding in findings if finding.status != MissingAssetReferenceStatus.PRESENT
+        )
+
+    def _scan_concurrency(self, settings: AppSettings) -> int:
+        return max(1, settings.missing_asset_scan_concurrency)
+
+    def _build_unreadable_finding_from_worker_error(
+        self,
+        row: dict[str, object],
+        *,
+        settings: AppSettings,
+        scan_timestamp: str,
+        blocking_issues: tuple[MissingAssetRepairBlocker, ...],
+        error: Exception,
+    ) -> MissingAssetReferenceFinding:
+        logical_path = str(row.get("originalPath") or "")
+        resolved_asset_path = self._map_asset_logical_path(logical_path, settings=settings)
+        blocker_details = [
+            MissingAssetRepairBlocker(
+                blocker_code="asset_path_unreadable",
+                blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                summary="Asset path could not be inspected",
+                details={"reason": str(error)},
+                blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                is_repairable=False,
+            ),
+            *blocking_issues,
+        ]
+        return MissingAssetReferenceFinding(
+            finding_id=f"missing_asset_reference:{row.get('id')}",
+            asset_id=str(row.get("id") or ""),
+            asset_type=str(row.get("type") or "unknown"),
+            status=MissingAssetReferenceStatus.UNREADABLE_PATH,
+            logical_path=logical_path,
+            resolved_physical_path=str(resolved_asset_path or Path(logical_path)),
+            owner_id=str(row["ownerId"]) if row.get("ownerId") is not None else None,
+            created_at=str(row["createdAt"]) if row.get("createdAt") is not None else None,
+            updated_at=str(row["updatedAt"]) if row.get("updatedAt") is not None else None,
+            scan_timestamp=scan_timestamp,
+            repair_readiness=RepairReadinessStatus.BLOCKED,
+            repair_blockers=tuple(blocker.summary for blocker in blocker_details),
+            repair_blocker_details=tuple(blocker_details),
+            message=f"Asset originalPath could not be inspected: {error}.",
         )
 
     def _inspect_asset_path(self, path: Path) -> None:
