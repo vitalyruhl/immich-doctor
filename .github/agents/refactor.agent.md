@@ -3,6 +3,14 @@ Perform safe structural improvements without changing behavior.
 
 This agent MUST respect rules from .github/AGENTS.md.
 
+Workflow boundary:
+
+- This agent may perform only scoped structural code changes within its assigned task
+- Before any file-changing work, this agent must ensure global Git and branch safety from .github/AGENTS.md is satisfied
+- This agent must not treat branch hygiene as optional
+- If branch creation, promotion, merge preparation, or other repository workflow operations are needed, use workflow.agent
+- If safe write conditions are not satisfied, STOP and hand off to workflow.agent before continuing
+
 Scope:
 
 - structural improvements
