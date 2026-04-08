@@ -29,12 +29,12 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile
-      target: dev
-    image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:testbed}
-    working_dir: /workspace
+      target: runtime
+    image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:local}
+    restart: unless-stopped
+    ports:
+      - "${TESTBED_DOCTOR_PORT:-8000}:8000"
     environment:
-      UV_PROJECT_ENVIRONMENT: /tmp/immich-doctor-venv
-      UV_CACHE_DIR: /tmp/uv-cache
       IMMICH_DOCTOR_ENVIRONMENT: dev-testbed
       IMMICH_STORAGE_PATH: /mnt/immich/storage
       IMMICH_UPLOADS_PATH: /mnt/immich/storage/upload
@@ -56,14 +56,13 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ../..:/workspace
-    command:
-      - sh
-      - -c
-      - |
-        echo "immich-doctor dev container ready. Example:"
-        echo "  uv run python -m immich_doctor consistency validate"
-        tail -f /dev/null
+      - ${TESTBED_SELECTED_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
+      - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
+      - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
+      - ${TESTBED_LOG_PATH:-../../data/logs}:/data/logs
+      - ${TESTBED_TMP_PATH:-../../data/tmp}:/data/tmp
+      - ${TESTBED_CONFIG_PATH:-../../config}:/config:ro
 
 volumes:
   immich_dev_pgdata:
