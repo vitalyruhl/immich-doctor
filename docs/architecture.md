@@ -24,6 +24,7 @@ immich-doctor <domain> <subdomain> <action> [options]
 
 Top-level domains:
 
+- `analyze`
 - `runtime`
 - `consistency`
 - `db`
@@ -37,6 +38,9 @@ Top-level domains:
 Current canonical command surface:
 
 ```text
+immich-doctor analyze catalog scan
+immich-doctor analyze catalog status
+immich-doctor analyze catalog zero-byte
 immich-doctor runtime validate
 immich-doctor runtime health check
 immich-doctor runtime integrity inspect
@@ -59,6 +63,8 @@ immich-doctor remote sync repair
 
 Placement rules:
 
+- analyze.catalog: persistent file inventory, scan status, and catalog-backed
+  read-only analysis surfaces
 - consistency: canonical category-first validation and repair planning/execution
   for supported server-side PostgreSQL and direct container-path consistency work
 - runtime: process-level readiness and execution-environment checks
@@ -119,8 +125,28 @@ structured reports for CLI or future API responses.
 Current examples include runtime validation, runtime integrity inspection,
 runtime metadata failure diagnostics and repair planning, storage checks, backup
 verification, database health checks, database index inspection, the
-consistency framework, remote-sync FK validation, and dashboard health
-aggregation for the API/UI layer.
+consistency framework, persistent catalog scan/status reporting, remote-sync FK
+validation, and dashboard health aggregation for the API/UI layer.
+
+### `immich_doctor.catalog`
+
+Contains the persistent file inventory foundation for staged analysis.
+
+Current responsibilities:
+
+- SQLite catalog bootstrap under `data/manifests/catalog/`
+- configured storage-root registration from runtime settings
+- resumable per-root inventory scan sessions
+- committed scan snapshots
+- persisted `file_record` inventory rows
+- zero-byte reporting from catalog snapshots
+
+Current constraints:
+
+- no DB correlation layer yet
+- no derivative ownership modeling yet
+- no quarantine move orchestration
+- no deep integrity layering yet
 
 ### `immich_doctor.repair`
 

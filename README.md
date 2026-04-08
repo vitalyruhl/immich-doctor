@@ -49,6 +49,7 @@ Current MVP scope:
 - minimal API health endpoint for the dashboard
 - database health validation
 - database index inspection
+- persistent file catalog foundation with SQLite-backed inventory snapshots
 - category-based consistency validation and repair for the supported current PostgreSQL schema
 - remote-sync diagnostics with server-side PostgreSQL album/asset link checks
 - validation of required external tools when configured
@@ -109,6 +110,9 @@ Current canonical commands:
 
 ```text
 immich-doctor runtime validate
+immich-doctor analyze catalog scan
+immich-doctor analyze catalog status
+immich-doctor analyze catalog zero-byte
 immich-doctor runtime health check
 immich-doctor runtime integrity inspect
 immich-doctor runtime metadata-failures inspect
@@ -166,6 +170,9 @@ uv sync --dev
 ```bash
 uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
+uv run python -m immich_doctor analyze catalog scan --root uploads
+uv run python -m immich_doctor analyze catalog status
+uv run python -m immich_doctor analyze catalog zero-byte --root uploads
 uv run python -m immich_doctor runtime integrity inspect
 uv run python -m immich_doctor runtime metadata-failures inspect
 uv run python -m immich_doctor runtime metadata-failures repair
@@ -215,6 +222,9 @@ Use `--verbose` to show full diagnostic details.
 Implemented now:
 
 - validation commands across runtime, storage, backup target, and DB health
+- `analyze catalog` with mounted SQLite catalog bootstrap, resumable per-root
+  inventory sessions, committed snapshots, scan status visibility, and
+  zero-byte reporting from persisted catalog data
 - runtime file integrity checks for missing, empty, unreadable, truncated,
   corrupted, container-broken, type-mismatched, and unknown-problem files in
   the supported schema
