@@ -65,6 +65,24 @@ class RuntimeRepairReadinessApiResponse(BaseModel):
     mocked: bool = False
 
 
+class CatalogScanApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class CatalogStatusApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class CatalogZeroByteApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class MissingAssetScanApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

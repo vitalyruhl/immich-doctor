@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from immich_doctor.api.routes.analyze import analyze_router
 from immich_doctor.api.routes.backup import backup_router
 from immich_doctor.api.routes.consistency import consistency_router
 from immich_doctor.api.routes.health import health_router
@@ -49,6 +50,7 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
 
     app = FastAPI(title="immich-doctor API", version="0.1.0", lifespan=lifespan)
     app.state.backup_job_runtime = runtime
+    app.include_router(analyze_router, prefix="/api")
     app.include_router(backup_router, prefix="/api")
     app.include_router(consistency_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
