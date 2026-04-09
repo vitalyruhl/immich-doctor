@@ -4,13 +4,15 @@ import { ApiClientError } from "@/api/client";
 import {
   applyMissingAssetRemovals,
   deleteMissingAssetRestorePoints,
+  fetchCatalogConsistencyJob,
   fetchMissingAssetFindings,
   fetchMissingAssetRestorePoints,
   previewMissingAssetRemovals,
   restoreMissingAssetRestorePoints,
+  startCatalogConsistencyJob,
 } from "@/api/consistency";
+import type { CatalogValidationReport, CatalogWorkflowJobRecord } from "@/api/types/catalog";
 import type {
-  MissingAssetApplyRequest,
   MissingAssetApplyResponse,
   MissingAssetPreviewRequest,
   MissingAssetPreviewResponse,
@@ -30,12 +32,15 @@ function toErrorMessage(caughtError: unknown): string {
 export const useConsistencyStore = defineStore("consistency", () => {
   const scanResult = ref<MissingAssetScanResponse | null>(null);
   const restorePointsResult = ref<MissingAssetRestorePointsResponse | null>(null);
+  const catalogJob = ref<CatalogWorkflowJobRecord | null>(null);
   const applyResult = ref<MissingAssetApplyResponse | null>(null);
   const restoreResult = ref<MissingAssetRestoreResponse | null>(null);
   const deleteResult = ref<MissingAssetRestorePointDeleteResponse | null>(null);
 
   const isLoading = ref(false);
   const isScanning = ref(false);
+  const isCatalogLoading = ref(false);
+  const isCatalogStarting = ref(false);
   const isLoadingRestorePoints = ref(false);
   const isPreviewing = ref(false);
   const isApplying = ref(false);
@@ -43,6 +48,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const isDeletingRestorePoints = ref(false);
 
   const scanError = ref<string | null>(null);
+  const catalogJobError = ref<string | null>(null);
   const restorePointsError = ref<string | null>(null);
   const previewError = ref<string | null>(null);
   const applyError = ref<string | null>(null);
@@ -52,9 +58,10 @@ export const useConsistencyStore = defineStore("consistency", () => {
   async function load(): Promise<void> {
     isLoading.value = true;
     scanError.value = null;
+    catalogJobError.value = null;
     restorePointsError.value = null;
     try {
-      await Promise.allSettled([scan(), loadRestorePoints()]);
+      await Promise.allSettled([scan(), loadCatalogJob(), loadRestorePoints()]);
     } finally {
       isLoading.value = false;
     }
@@ -73,6 +80,36 @@ export const useConsistencyStore = defineStore("consistency", () => {
       return null;
     } finally {
       isScanning.value = false;
+    }
+  }
+
+  async function loadCatalogJob(): Promise<CatalogWorkflowJobRecord | null> {
+    isCatalogLoading.value = true;
+    catalogJobError.value = null;
+    try {
+      const response = await fetchCatalogConsistencyJob();
+      catalogJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      catalogJobError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isCatalogLoading.value = false;
+    }
+  }
+
+  async function startCatalog(force = true): Promise<CatalogWorkflowJobRecord | null> {
+    isCatalogStarting.value = true;
+    catalogJobError.value = null;
+    try {
+      const response = await startCatalogConsistencyJob({ force });
+      catalogJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      catalogJobError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isCatalogStarting.value = false;
     }
   }
 
@@ -163,21 +200,32 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
+  const catalogReport = computed<CatalogValidationReport | null>(() => {
+    const candidate = catalogJob.value?.result?.report;
+    return candidate && typeof candidate === "object"
+      ? (candidate as CatalogValidationReport)
+      : null;
+  });
+
   const findings = computed<MissingAssetReferenceFinding[]>(
     () => scanResult.value?.findings ?? [],
   );
-
   const restorePoints = computed(() => restorePointsResult.value?.items ?? []);
 
   return {
     apply,
     applyError,
     applyResult,
+    catalogJob,
+    catalogJobError,
+    catalogReport,
     deleteError,
     deleteResult,
     deleteRestorePoints,
     findings,
     isApplying,
+    isCatalogLoading,
+    isCatalogStarting,
     isDeletingRestorePoints,
     isLoading,
     isLoadingRestorePoints,
@@ -185,6 +233,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     isRestoring,
     isScanning,
     load,
+    loadCatalogJob,
     loadRestorePoints,
     preview,
     previewError,
@@ -197,5 +246,6 @@ export const useConsistencyStore = defineStore("consistency", () => {
     scan,
     scanError,
     scanResult,
+    startCatalog,
   };
 });

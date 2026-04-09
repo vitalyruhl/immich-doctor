@@ -95,6 +95,18 @@ class CatalogZeroByteApiResponse(BaseModel):
     mocked: bool = False
 
 
+class CatalogScanJobApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class CatalogConsistencyJobApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class MissingAssetScanApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

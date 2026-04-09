@@ -18,6 +18,7 @@ from immich_doctor.api.routes.restore import restore_router
 from immich_doctor.api.routes.runtime import runtime_router
 from immich_doctor.api.routes.settings import settings_router
 from immich_doctor.core.config import load_settings
+from immich_doctor.core.logging import configure_logging
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 from immich_doctor.services.backup_runtime_capability_service import (
     BackupRuntimeCapabilityService,
@@ -30,6 +31,7 @@ REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "d
 
 
 def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
+    configure_logging()
     runtime = BackgroundJobRuntime()
 
     @asynccontextmanager

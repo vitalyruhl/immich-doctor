@@ -159,3 +159,37 @@ def test_missing_asset_restore_point_delete_route_returns_expected_shape(monkeyp
 
     assert response.status_code == 200
     assert response.json()["data"]["items"][0]["status"] == "deleted"
+
+
+def test_catalog_consistency_job_routes_return_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        consistency_routes.CatalogWorkflowService,
+        "get_consistency_job",
+        lambda self, settings: {
+            "jobId": "catalog-consistency-1",
+            "jobType": "catalog_consistency_validation",
+            "state": "running",
+            "summary": "Catalog consistency validation is running.",
+            "result": {"progress": {"percent": 66.7}},
+        },
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogWorkflowService,
+        "start_consistency",
+        lambda self, settings, *, force: {
+            "jobId": "catalog-consistency-2",
+            "jobType": "catalog_consistency_validation",
+            "state": "pending",
+            "summary": "Catalog consistency validation queued.",
+            "result": {"force": force},
+        },
+    )
+    client = TestClient(create_api_app())
+
+    current_response = client.get("/api/consistency/catalog")
+    start_response = client.post("/api/consistency/catalog/start", json={"force": True})
+
+    assert current_response.status_code == 200
+    assert current_response.json()["data"]["result"]["progress"]["percent"] == 66.7
+    assert start_response.status_code == 200
+    assert start_response.json()["data"]["result"]["force"] is True

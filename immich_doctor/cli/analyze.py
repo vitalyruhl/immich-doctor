@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 
+from immich_doctor.catalog.consistency_service import CatalogConsistencyValidationService
 from immich_doctor.catalog.service import (
     CatalogInventoryScanService,
     CatalogStatusService,
@@ -78,4 +79,21 @@ def analyze_catalog_zero_byte(
 ) -> None:
     settings = load_settings(env_file=env_file)
     report = CatalogZeroByteReportService().run(settings, root_slug=root, limit=limit)
+    emit_report(report, output, verbose=verbose)
+
+
+@analyze_catalog_app.command("consistency")
+def analyze_catalog_consistency(
+    env_file: Annotated[
+        Path | None,
+        typer.Option("--env-file", exists=True, file_okay=True),
+    ] = None,
+    output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show full diagnostic details in text output."),
+    ] = False,
+) -> None:
+    settings = load_settings(env_file=env_file)
+    report = CatalogConsistencyValidationService().run(settings)
     emit_report(report, output, verbose=verbose)

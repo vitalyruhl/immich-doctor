@@ -3,17 +3,17 @@
     <PageHeader
       eyebrow="Storage / Catalog"
       title="Persistent Catalog"
-      summary="Phase 1 inventory scan, persisted status, and zero-byte findings against mounted Immich storage."
+      summary="Cached storage scan, persisted status, zero-byte detection, and reusable inventory for consistency validation."
     />
     <RiskNotice
-      title="Phase 1 is inventory-only"
-      message="Catalog scans write metadata under the mounted manifests path and do not quarantine, repair, or mutate library files."
+      title="Read-only storage inventory"
+      message="Catalog scans index the mounted storage roots and persist metadata under the manifests path. They do not mutate library files."
     />
 
     <LoadingState
       v-if="catalogStore.isLoading && !catalogStore.statusReport"
       title="Loading catalog state"
-      message="Collecting configured roots, latest snapshots, and zero-byte findings from the persistent catalog."
+      message="Collecting configured roots, latest snapshots, zero-byte findings, and current scan state."
     />
     <ErrorState
       v-else-if="catalogStore.error"
@@ -25,16 +25,16 @@
         <article class="panel catalog-panel">
           <div class="settings-section__header">
             <div>
-              <h3>Catalog scan</h3>
-              <p>Start a non-destructive inventory pass for one configured storage root.</p>
+              <h3>Storage index scan</h3>
+              <p>Scan all configured storage roots once, cache the inventory, and reuse it until a rescan is requested.</p>
             </div>
             <StatusTag :status="scanPanelStatus" />
           </div>
 
           <label class="backup-form__field">
-            <span>Storage root</span>
+            <span>Filter status by root</span>
             <select :value="selectedRootValue" @change="onRootChange">
-              <option value="">All roots for status view</option>
+              <option value="">All configured roots</option>
               <option
                 v-for="root in catalogStore.roots"
                 :key="root.slug"
@@ -50,32 +50,36 @@
               type="button"
               class="runtime-action"
               :disabled="scanDisabled"
-              @click="runScan"
+              @click="void runScan()"
             >
-              {{ catalogStore.isScanning ? "Running scan..." : "Run catalog scan" }}
+              {{ scanButtonLabel }}
             </button>
             <button
               type="button"
               class="runtime-action runtime-action--secondary"
               :disabled="catalogStore.isLoading"
-              @click="refresh"
+              @click="void refresh()"
             >
               Refresh status
             </button>
           </section>
 
-          <p v-if="scanBlockedMessage" class="runtime-blocking-message">{{ scanBlockedMessage }}</p>
+          <p class="health-card__summary">{{ scanSummary }}</p>
+          <p v-if="scanMessage" class="health-card__details">{{ scanMessage }}</p>
+          <p v-if="scanStats" class="health-card__details">{{ scanStats }}</p>
           <p v-if="catalogStore.scanError" class="runtime-blocking-message">{{ catalogStore.scanError }}</p>
-          <p class="health-card__details">
-            {{ catalogStore.scanReport?.summary ?? catalogStore.statusReport?.summary ?? "No catalog activity has been loaded yet." }}
-          </p>
+
+          <section v-if="scanProgressPercent !== null" class="catalog-progress">
+            <progress :value="scanProgressPercent" max="100" />
+            <strong>{{ scanProgressPercent.toFixed(1) }}%</strong>
+          </section>
         </article>
 
         <article class="panel catalog-panel">
           <div class="settings-section__header">
             <div>
               <h3>Status summary</h3>
-              <p>Latest snapshot and scan-session visibility for the current scope.</p>
+              <p>Latest committed snapshot and latest scan session for the current filter.</p>
             </div>
             <StatusTag :status="latestSessionStatus" />
           </div>
@@ -100,12 +104,12 @@
           <div class="settings-section__header">
             <div>
               <h3>Zero-byte summary</h3>
-              <p>Immediate Phase 1 defects surfaced from the latest committed snapshots.</p>
+              <p>Obvious defects from the latest committed catalog snapshots.</p>
             </div>
             <StatusTag :status="zeroByteStatus" />
           </div>
 
-          <p class="health-card__summary">{{ zeroByteRows.length }} zero-byte files</p>
+          <p class="health-card__summary">{{ zeroByteRows.length }} zero-byte sample rows</p>
           <p class="health-card__details">
             {{ catalogStore.zeroByteReport?.summary ?? "No zero-byte report loaded." }}
           </p>
@@ -180,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import ErrorState from "@/components/common/ErrorState.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
@@ -189,6 +193,7 @@ import StatusTag from "@/components/common/StatusTag.vue";
 import RiskNotice from "@/components/safety/RiskNotice.vue";
 import { useCatalogStore } from "@/stores/catalog";
 import type {
+  CatalogJobProgress,
   CatalogSessionRow,
   CatalogSnapshotRow,
   CatalogValidationReport,
@@ -196,94 +201,120 @@ import type {
 } from "@/api/types/catalog";
 
 const catalogStore = useCatalogStore();
+let pollHandle: number | null = null;
 
 function getSectionRows<T>(
   report: CatalogValidationReport | null,
   sectionName: string,
 ): T[] {
   const section = report?.sections.find((candidate) => candidate.name === sectionName);
-  if (!section) {
-    return [];
+  return section ? (section.rows as T[]) : [];
+}
+
+function toUiStatus(value: string | null | undefined): "ok" | "warning" | "error" | "unknown" {
+  if (!value) {
+    return "unknown";
   }
-  return section.rows as T[];
+  if (["completed", "committed", "PASS", "pass"].includes(value)) {
+    return "ok";
+  }
+  if (["pending", "running", "paused", "WARN", "warn", "partial"].includes(value)) {
+    return "warning";
+  }
+  if (["failed", "FAIL", "fail", "canceled"].includes(value)) {
+    return "error";
+  }
+  return "unknown";
 }
 
 const zeroByteRows = computed<CatalogZeroByteRow[]>(() =>
   getSectionRows<CatalogZeroByteRow>(catalogStore.zeroByteReport, "ZERO_BYTE_FILES"),
 );
-
 const latestSnapshots = computed<CatalogSnapshotRow[]>(() =>
   getSectionRows<CatalogSnapshotRow>(catalogStore.statusReport, "LATEST_SNAPSHOTS"),
 );
-
 const latestSessions = computed<CatalogSessionRow[]>(() =>
   getSectionRows<CatalogSessionRow>(catalogStore.statusReport, "SCAN_SESSIONS"),
 );
-
 const latestSnapshot = computed<CatalogSnapshotRow | null>(() => {
   if (catalogStore.selectedRoot) {
     return (
-      latestSnapshots.value.find((row) => row.root_slug === catalogStore.selectedRoot)
-      ?? null
+      latestSnapshots.value.find((row) => row.root_slug === catalogStore.selectedRoot) ?? null
     );
   }
   return latestSnapshots.value.find((row) => row.snapshot_id !== null) ?? latestSnapshots.value[0] ?? null;
 });
-
 const latestSession = computed<CatalogSessionRow | null>(() => {
   if (catalogStore.selectedRoot) {
     return (
-      latestSessions.value.find((row) => row.root_slug === catalogStore.selectedRoot)
-      ?? null
+      latestSessions.value.find((row) => row.root_slug === catalogStore.selectedRoot) ?? null
     );
   }
   return latestSessions.value[0] ?? null;
 });
-
 const latestSnapshotLabel = computed(() => {
   if (!latestSnapshot.value?.snapshot_id) {
     return "No committed snapshot";
   }
   return `generation ${latestSnapshot.value.generation ?? "?"} (${latestSnapshot.value.status ?? "unknown"})`;
 });
-
 const selectedRootLabel = computed(() => catalogStore.selectedRoot ?? "All configured roots");
 const selectedRootValue = computed(() => catalogStore.selectedRoot ?? "");
-
-const scanBlockedMessage = computed(() => {
-  if (!catalogStore.roots.length) {
-    return "No configured storage roots are available for catalog scanning.";
+const scanProgress = computed<CatalogJobProgress | null>(() => {
+  const candidate = catalogStore.scanJob?.result?.progress;
+  return candidate && typeof candidate === "object" ? (candidate as CatalogJobProgress) : null;
+});
+const scanProgressPercent = computed<number | null>(() => {
+  const value = scanProgress.value?.percent;
+  return typeof value === "number" ? value : null;
+});
+const scanMessage = computed(() => scanProgress.value?.message ?? null);
+const scanStats = computed(() => {
+  if (!scanProgress.value) {
+    return null;
   }
-  if (!catalogStore.selectedRoot && catalogStore.roots.length > 1) {
-    return "Select a single storage root before starting a catalog scan.";
+  if (
+    typeof scanProgress.value.directoriesCompleted === "number"
+    && typeof scanProgress.value.pendingDirectories === "number"
+  ) {
+    const total = scanProgress.value.directoriesCompleted + scanProgress.value.pendingDirectories;
+    return `Directories: ${scanProgress.value.directoriesCompleted} / ${total}`;
+  }
+  if (typeof scanProgress.value.current === "number" && typeof scanProgress.value.total === "number") {
+    return `${scanProgress.value.current} of ${scanProgress.value.total}`;
   }
   return null;
 });
-
-const scanDisabled = computed(() => Boolean(scanBlockedMessage.value) || catalogStore.isScanning);
-
-function toUiStatus(value: string | null | undefined): "ok" | "warning" | "error" | "unknown" {
-  if (!value) {
-    return "unknown";
+const scanSummary = computed(
+  () =>
+    catalogStore.scanJob?.summary
+    ?? catalogStore.statusReport?.summary
+    ?? "No catalog activity has been loaded yet.",
+);
+const scanButtonLabel = computed(() => {
+  if (catalogStore.scanJobActive) {
+    return "Storage scan running...";
   }
-  if (value === "completed" || value === "committed" || value === "PASS") {
-    return "ok";
+  if (catalogStore.hasCommittedSnapshot) {
+    return "Rescan storage index";
   }
-  if (value === "running" || value === "paused" || value === "WARN") {
-    return "warning";
-  }
-  if (value === "failed" || value === "FAIL" || value === "fail") {
+  return "Start storage index";
+});
+const scanDisabled = computed(() => !catalogStore.roots.length || catalogStore.isScanning || catalogStore.scanJobActive);
+const scanPanelStatus = computed(() => {
+  if (catalogStore.scanError) {
     return "error";
   }
-  return "unknown";
-}
-
-const scanPanelStatus = computed(() => toUiStatus(catalogStore.scanReport?.status));
+  if (catalogStore.scanJobActive) {
+    return "warning";
+  }
+  return toUiStatus(catalogStore.scanJob?.state ?? latestSession.value?.status);
+});
 const latestSessionStatus = computed(() => toUiStatus(latestSession.value?.status));
 const zeroByteStatus = computed(() => (zeroByteRows.value.length ? "error" : "ok"));
 
 async function runScan(): Promise<void> {
-  await catalogStore.scan(catalogStore.selectedRoot);
+  await catalogStore.startScan(true);
 }
 
 async function refresh(): Promise<void> {
@@ -296,8 +327,46 @@ async function onRootChange(event: Event): Promise<void> {
   await catalogStore.refresh();
 }
 
+function startPolling(): void {
+  if (pollHandle !== null) {
+    return;
+  }
+  pollHandle = window.setInterval(() => {
+    void catalogStore.refreshScanJob();
+  }, 1500);
+}
+
+function stopPolling(): void {
+  if (pollHandle === null) {
+    return;
+  }
+  window.clearInterval(pollHandle);
+  pollHandle = null;
+}
+
+watch(
+  () => catalogStore.scanJobActive,
+  (active) => {
+    if (active) {
+      startPolling();
+      return;
+    }
+    stopPolling();
+  },
+);
+
 onMounted(async () => {
   await catalogStore.load();
+  if (catalogStore.shouldAutoStartScan) {
+    await catalogStore.startScan(false);
+  }
+  if (catalogStore.scanJobActive) {
+    startPolling();
+  }
+});
+
+onUnmounted(() => {
+  stopPolling();
 });
 </script>
 
@@ -305,6 +374,16 @@ onMounted(async () => {
 .catalog-panel {
   display: grid;
   gap: 0.85rem;
+}
+
+.catalog-progress {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.catalog-progress progress {
+  width: 100%;
+  height: 0.9rem;
 }
 
 .catalog-table-wrapper {

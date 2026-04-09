@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,13 @@ _ROOT_SPECS = {
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 _AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a"}
+_SCAN_PRIORITY = {
+    "uploads": 0,
+    "thumbs": 1,
+    "profile": 2,
+    "video": 3,
+    "library": 4,
+}
 
 
 def _utcnow() -> str:
@@ -34,6 +42,7 @@ def _utcnow() -> str:
 @dataclass(slots=True)
 class CatalogRootRegistry:
     store: CatalogStore = field(default_factory=CatalogStore)
+    filesystem: FilesystemAdapter = field(default_factory=FilesystemAdapter)
 
     def configured_roots(self, settings: AppSettings) -> list[CatalogRootSpec]:
         roots: list[CatalogRootSpec] = []
@@ -56,6 +65,23 @@ class CatalogRootRegistry:
             self.store.upsert_storage_root(settings, root)
         return self.store.list_storage_roots(settings)
 
+    def scan_roots(self, settings: AppSettings) -> list[CatalogRootSpec]:
+        roots = self.configured_roots(settings)
+        effective_roots: list[CatalogRootSpec] = []
+        for root in roots:
+            is_parent_of_other = any(
+                other.slug != root.slug
+                and self.filesystem.is_child_path(root.path, other.path)
+                for other in roots
+            )
+            if is_parent_of_other:
+                continue
+            effective_roots.append(root)
+        effective_roots.sort(
+            key=lambda item: (_SCAN_PRIORITY.get(item.slug, 99), item.slug)
+        )
+        return effective_roots
+
 
 @dataclass(slots=True)
 class CatalogInventoryScanService:
@@ -70,6 +96,7 @@ class CatalogInventoryScanService:
         root_slug: str | None,
         resume_session_id: str | None,
         max_files: int | None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> ValidationReport:
         catalog_path_check = self.filesystem.validate_creatable_directory(
             "catalog_path",
@@ -148,6 +175,7 @@ class CatalogInventoryScanService:
             root_row=selected_root,
             session_row=session,
             max_files=max_files,
+            progress_callback=progress_callback,
         )
         checks.extend(scan_result["checks"])
         return self._build_scan_report(
@@ -213,6 +241,7 @@ class CatalogInventoryScanService:
         root_row: dict[str, object],
         session_row: dict[str, object],
         max_files: int | None,
+        progress_callback: Callable[[dict[str, object]], None] | None,
     ) -> dict[str, object]:
         checks: list[CheckResult] = []
         session_id = str(session_row["id"])
@@ -267,6 +296,36 @@ class CatalogInventoryScanService:
                 last_relative_path=observed["last_relative_path"],
             )
             files_seen += len(observed["files"])
+            updated_session = self.store.get_scan_session(settings, session_id)
+            pending_directories = self.store.count_pending_directories(settings, session_id)
+            if progress_callback is not None and updated_session is not None:
+                total_directories = (
+                    int(updated_session["directories_completed"]) + pending_directories
+                )
+                percent = (
+                    round(
+                        (
+                            int(updated_session["directories_completed"])
+                            / total_directories
+                        )
+                        * 100,
+                        2,
+                    )
+                    if total_directories > 0
+                    else 0.0
+                )
+                progress_callback(
+                    {
+                        "rootSlug": str(root_row["slug"]),
+                        "sessionId": session_id,
+                        "filesSeen": int(updated_session["files_seen"]),
+                        "bytesSeen": int(updated_session["bytes_seen"]),
+                        "directoriesCompleted": int(updated_session["directories_completed"]),
+                        "pendingDirectories": pending_directories,
+                        "lastRelativePath": updated_session["last_relative_path"],
+                        "percent": percent,
+                    }
+                )
             if max_files is not None and files_seen >= max_files:
                 paused_session = self.store.mark_session_paused(settings, session_id)
                 snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))

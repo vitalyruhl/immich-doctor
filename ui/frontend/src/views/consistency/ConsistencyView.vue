@@ -2,8 +2,8 @@
   <section class="page">
     <PageHeader
       eyebrow="Consistency"
-      title="Missing asset references"
-      summary="Review database entries that still reference physically missing original assets, preview safe removals, and manage restore points."
+      title="Consistency"
+      summary="Review cached storage-vs-database mismatches, orphan derivatives, and the original missing-asset repair workflow."
     />
     <DisclaimerBanner />
     <RiskNotice
@@ -23,6 +23,8 @@
     />
 
     <template v-else>
+      <CatalogConsistencyPanel />
+
       <section class="health-grid">
         <article class="panel">
           <div class="health-card__header">
@@ -626,6 +628,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import CatalogConsistencyPanel from '@/components/consistency/CatalogConsistencyPanel.vue';
 import ConfirmOperationDialog from '@/components/safety/ConfirmOperationDialog.vue';
 import DisclaimerBanner from '@/components/safety/DisclaimerBanner.vue';
 import ErrorState from '@/components/common/ErrorState.vue';

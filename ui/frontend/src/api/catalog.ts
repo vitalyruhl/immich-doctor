@@ -1,6 +1,11 @@
 import { request } from "./client";
 import type { ApiResponse } from "./types/common";
-import type { CatalogScanRequest, CatalogValidationReport } from "./types/catalog";
+import type {
+  CatalogJobRequest,
+  CatalogScanRequest,
+  CatalogValidationReport,
+  CatalogWorkflowJobRecord,
+} from "./types/catalog";
 
 function buildQuery(params: Record<string, string | number | null | undefined>): string {
   const search = new URLSearchParams();
@@ -36,4 +41,17 @@ export async function fetchCatalogZeroByte(
   return request<CatalogValidationReport>(
     `/analyze/catalog/zero-byte${buildQuery({ root, limit })}`,
   );
+}
+
+export async function fetchCatalogScanJob(): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job");
+}
+
+export async function startCatalogScanJob(
+  payload: CatalogJobRequest,
+): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job/start", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

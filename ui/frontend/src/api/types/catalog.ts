@@ -1,6 +1,15 @@
 import type { RuntimeCheckResult } from "./runtime";
 
 export type CatalogSectionStatus = "pass" | "fail" | "warn" | "skip";
+export type CatalogJobState =
+  | "pending"
+  | "running"
+  | "partial"
+  | "completed"
+  | "failed"
+  | "unsupported"
+  | "cancel_requested"
+  | "canceled";
 
 export interface CatalogValidationSection<T = Record<string, unknown>> {
   name: string;
@@ -28,6 +37,53 @@ export interface CatalogScanRequest {
   root?: string | null;
   resume_session_id?: string | null;
   max_files?: number | null;
+}
+
+export interface CatalogJobRequest {
+  force: boolean;
+}
+
+export interface CatalogJobProgress {
+  phase?: string | null;
+  current?: number | null;
+  total?: number | null;
+  percent?: number | null;
+  message?: string | null;
+  rootSlug?: string | null;
+  rootsCompleted?: string[];
+  filesSeen?: number | null;
+  filesIndexed?: number | null;
+  bytesSeen?: number | null;
+  directoriesCompleted?: number | null;
+  pendingDirectories?: number | null;
+  lastRelativePath?: string | null;
+  dbMissingCount?: number | null;
+  storageMissingCount?: number | null;
+  orphanCount?: number | null;
+  unmappedCount?: number | null;
+}
+
+export interface CatalogWorkflowJobRecord {
+  jobId: string | null;
+  jobType: string;
+  state: CatalogJobState;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelRequested: boolean;
+  error: string | null;
+  result: Record<string, unknown> & {
+    progress?: CatalogJobProgress;
+    report?: CatalogValidationReport;
+    reports?: Array<{
+      rootSlug: string;
+      report: CatalogValidationReport;
+    }>;
+    blockedBy?: Record<string, unknown>;
+    requiresScan?: boolean;
+  };
 }
 
 export interface CatalogRootRow {

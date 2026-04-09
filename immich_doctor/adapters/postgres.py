@@ -330,6 +330,45 @@ class PostgresAdapter:
         ).format(asset_file_table=sql.Identifier("public", "asset_file"))
         return fetch_all_composed(dsn, timeout_seconds, query, (file_type,))
 
+    def list_all_assets_for_catalog_consistency(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(
+            """
+            SELECT
+                id,
+                type,
+                "ownerId" AS "ownerId",
+                "createdAt" AS "createdAt",
+                "updatedAt" AS "updatedAt",
+                "originalPath" AS "originalPath",
+                "encodedVideoPath" AS "encodedVideoPath"
+            FROM {asset_table}
+            ORDER BY id ASC;
+            """
+        ).format(asset_table=sql.Identifier("public", "asset"))
+        return fetch_all_composed(dsn, timeout_seconds, query)
+
+    def list_all_asset_files_for_catalog_consistency(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        query = sql.SQL(
+            """
+            SELECT
+                id,
+                "assetId" AS "assetId",
+                type,
+                path
+            FROM {asset_file_table}
+            ORDER BY "assetId" ASC, type ASC, id ASC;
+            """
+        ).format(asset_file_table=sql.Identifier("public", "asset_file"))
+        return fetch_all_composed(dsn, timeout_seconds, query)
+
     def list_assets_for_runtime_integrity(
         self,
         dsn: str,

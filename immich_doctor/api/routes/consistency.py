@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import AliasChoices, BaseModel, Field
 
 from immich_doctor.api.models import (
+    CatalogConsistencyJobApiResponse,
     MissingAssetApplyApiResponse,
     MissingAssetPreviewApiResponse,
     MissingAssetRestoreApiResponse,
@@ -11,6 +12,7 @@ from immich_doctor.api.models import (
     MissingAssetRestorePointsApiResponse,
     MissingAssetScanApiResponse,
 )
+from immich_doctor.catalog.workflow_service import CatalogWorkflowService
 from immich_doctor.consistency.missing_asset_service import MissingAssetReferenceService
 from immich_doctor.core.config import load_settings
 
@@ -42,6 +44,10 @@ class MissingAssetDeleteRestorePointsRequest(BaseModel):
         default=False,
         validation_alias=AliasChoices("select_all", "delete_all"),
     )
+
+
+class CatalogConsistencyJobRequest(BaseModel):
+    force: bool = False
 
 
 @consistency_router.get(
@@ -148,3 +154,23 @@ def delete_missing_asset_restore_points(
         .to_dict()
     )
     return MissingAssetRestorePointDeleteApiResponse(data=data)
+
+
+@consistency_router.get("/catalog", response_model=CatalogConsistencyJobApiResponse)
+def get_catalog_consistency_job(request: Request) -> CatalogConsistencyJobApiResponse:
+    data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).get_consistency_job(
+        load_settings()
+    )
+    return CatalogConsistencyJobApiResponse(data=data)
+
+
+@consistency_router.post("/catalog/start", response_model=CatalogConsistencyJobApiResponse)
+def start_catalog_consistency_job(
+    request: Request,
+    payload: CatalogConsistencyJobRequest,
+) -> CatalogConsistencyJobApiResponse:
+    data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).start_consistency(
+        load_settings(),
+        force=payload.force,
+    )
+    return CatalogConsistencyJobApiResponse(data=data)

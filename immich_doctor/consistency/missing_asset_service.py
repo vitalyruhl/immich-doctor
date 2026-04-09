@@ -50,6 +50,7 @@ from immich_doctor.repair import (
     validate_plan_token,
 )
 from immich_doctor.repair.paths import repair_run_directory
+from immich_doctor.storage.path_mapping import ImmichStoragePathResolver
 
 DEFAULT_BATCH_LIMIT = 100
 REPAIRABLE_STATUSES = {MissingAssetReferenceStatus.MISSING_ON_DISK}
@@ -167,11 +168,13 @@ class MissingAssetReferenceService:
             optional_columns=profile.supported_optional_columns,
         )
         scan_timestamp = datetime.now(UTC).isoformat()
+        path_resolver = ImmichStoragePathResolver(settings)
         findings = [
             self._inspect_asset_row(
                 row,
                 scan_timestamp=scan_timestamp,
                 blocking_issues=profile.blocking_issues,
+                path_resolver=path_resolver,
             )
             for row in asset_rows
         ]
@@ -724,10 +727,16 @@ class MissingAssetReferenceService:
         *,
         scan_timestamp: str,
         blocking_issues: tuple[MissingAssetRepairBlocker, ...],
+        path_resolver: ImmichStoragePathResolver,
     ) -> MissingAssetReferenceFinding:
         asset_id = str(row["id"])
         logical_path = str(row.get("originalPath") or "")
-        asset_path = Path(logical_path)
+        resolved_path = path_resolver.resolve(logical_path) if logical_path.strip() else None
+        asset_path = (
+            resolved_path.absolute_path
+            if resolved_path is not None
+            else Path(logical_path)
+        )
         repair_readiness = RepairReadinessStatus.READY
         repair_blockers: list[str] = []
         repair_blocker_details: list[MissingAssetRepairBlocker] = []
@@ -751,44 +760,72 @@ class MissingAssetReferenceService:
             )
             message = "Asset originalPath is empty."
         else:
-            try:
-                self.filesystem.stat_path(asset_path)
-                self.filesystem.read_probe(asset_path)
-            except FileNotFoundError:
-                status = MissingAssetReferenceStatus.MISSING_ON_DISK
-                message = "Asset originalPath does not exist on disk."
-            except PermissionError:
-                status = MissingAssetReferenceStatus.PERMISSION_ERROR
+            if resolved_path is None and path_resolver.looks_like_legacy_immich_path(logical_path):
+                status = MissingAssetReferenceStatus.UNSUPPORTED
                 repair_readiness = RepairReadinessStatus.BLOCKED
                 repair_blocker_details.append(
                     MissingAssetRepairBlocker(
-                        blocker_code="asset_path_permission_error",
-                        blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
-                        summary="Asset path cannot be accessed",
-                        details={"reason": ("The current process cannot access the asset path.")},
+                        blocker_code="asset_path_unmapped",
+                        blocker_type=MissingAssetRepairBlockerType.PATH,
+                        summary="Asset path does not map into configured runtime roots",
+                        details={
+                            "reason": (
+                                "The legacy Immich database path could not be mapped into the "
+                                "configured runtime storage roots."
+                            )
+                        },
                         blocking_severity=MissingAssetBlockingSeverity.ERROR,
                         is_repairable=False,
                     )
                 )
-                message = "Asset originalPath exists but is not accessible to the current process."
-            except OSError as exc:
-                status = (
-                    MissingAssetReferenceStatus.PERMISSION_ERROR
-                    if exc.errno in {errno.EACCES, errno.EPERM}
-                    else MissingAssetReferenceStatus.UNREADABLE_PATH
+                message = (
+                    "Asset originalPath could not be mapped into the configured runtime roots."
                 )
-                repair_readiness = RepairReadinessStatus.BLOCKED
-                repair_blocker_details.append(
-                    MissingAssetRepairBlocker(
-                        blocker_code="asset_path_unreadable",
-                        blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
-                        summary="Asset path could not be inspected",
-                        details={"reason": exc.strerror or str(exc)},
-                        blocking_severity=MissingAssetBlockingSeverity.ERROR,
-                        is_repairable=False,
+            else:
+                try:
+                    self.filesystem.stat_path(asset_path)
+                    self.filesystem.read_probe(asset_path)
+                except FileNotFoundError:
+                    status = MissingAssetReferenceStatus.MISSING_ON_DISK
+                    message = "Asset originalPath does not exist on disk."
+                except PermissionError:
+                    status = MissingAssetReferenceStatus.PERMISSION_ERROR
+                    repair_readiness = RepairReadinessStatus.BLOCKED
+                    repair_blocker_details.append(
+                        MissingAssetRepairBlocker(
+                            blocker_code="asset_path_permission_error",
+                            blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                            summary="Asset path cannot be accessed",
+                            details={
+                                "reason": (
+                                    "The current process cannot access the asset path."
+                                )
+                            },
+                            blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                            is_repairable=False,
+                        )
                     )
-                )
-                message = f"Asset originalPath could not be inspected: {exc.strerror or exc}."
+                    message = (
+                        "Asset originalPath exists but is not accessible to the current process."
+                    )
+                except OSError as exc:
+                    status = (
+                        MissingAssetReferenceStatus.PERMISSION_ERROR
+                        if exc.errno in {errno.EACCES, errno.EPERM}
+                        else MissingAssetReferenceStatus.UNREADABLE_PATH
+                    )
+                    repair_readiness = RepairReadinessStatus.BLOCKED
+                    repair_blocker_details.append(
+                        MissingAssetRepairBlocker(
+                            blocker_code="asset_path_unreadable",
+                            blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
+                            summary="Asset path could not be inspected",
+                            details={"reason": exc.strerror or str(exc)},
+                            blocking_severity=MissingAssetBlockingSeverity.ERROR,
+                            is_repairable=False,
+                        )
+                    )
+                    message = f"Asset originalPath could not be inspected: {exc.strerror or exc}."
 
         if status not in REPAIRABLE_STATUSES:
             repair_readiness = RepairReadinessStatus.BLOCKED
@@ -804,7 +841,7 @@ class MissingAssetReferenceService:
             asset_type=str(row.get("type") or "unknown"),
             status=status,
             logical_path=logical_path,
-            resolved_physical_path=str(asset_path),
+            resolved_physical_path=str(asset_path) if logical_path.strip() else "",
             owner_id=str(row["ownerId"]) if row.get("ownerId") is not None else None,
             created_at=str(row["createdAt"]) if row.get("createdAt") is not None else None,
             updated_at=str(row["updatedAt"]) if row.get("updatedAt") is not None else None,

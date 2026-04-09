@@ -653,6 +653,62 @@ class CatalogStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_latest_snapshot_files(
+        self,
+        settings: AppSettings,
+        *,
+        slug: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, object]]:
+        self.initialize(settings)
+        parameters: list[object] = []
+        slug_filter = ""
+        if slug is not None:
+            slug_filter = "AND root.slug = ?"
+            parameters.append(slug)
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT ?"
+            parameters.append(limit)
+        with self.connect(settings) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    root.slug AS root_slug,
+                    root.root_type AS root_type,
+                    snapshot.id AS snapshot_id,
+                    snapshot.generation,
+                    file.relative_path,
+                    file.parent_relative_path,
+                    file.file_name,
+                    file.extension,
+                    file.size_bytes,
+                    file.modified_at_fs,
+                    file.file_type_guess,
+                    file.media_class_guess,
+                    file.zero_byte_flag
+                FROM file_record AS file
+                JOIN storage_root AS root
+                  ON root.id = file.storage_root_id
+                JOIN scan_snapshot AS snapshot
+                  ON snapshot.id = file.last_seen_snapshot_id
+                WHERE snapshot.status = 'committed'
+                  AND file.last_seen_snapshot_id = (
+                      SELECT inner_snapshot.id
+                      FROM scan_snapshot AS inner_snapshot
+                      WHERE inner_snapshot.storage_root_id = file.storage_root_id
+                        AND inner_snapshot.status = 'committed'
+                      ORDER BY inner_snapshot.generation DESC
+                      LIMIT 1
+                  )
+                  {slug_filter}
+                ORDER BY root.slug ASC, file.relative_path ASC
+                {limit_clause};
+                """,
+                tuple(parameters),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def count_pending_directories(self, settings: AppSettings, session_id: str) -> int:
         self.initialize(settings)
         with self.connect(settings) as connection:

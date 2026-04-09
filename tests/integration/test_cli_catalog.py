@@ -3,6 +3,7 @@ import json
 from typer.testing import CliRunner
 
 from immich_doctor.cli.main import app
+from immich_doctor.core.models import CheckStatus, ValidationReport, ValidationSection
 
 
 def test_analyze_catalog_scan_and_zero_byte_json_output(tmp_path, monkeypatch) -> None:
@@ -49,3 +50,36 @@ def test_analyze_catalog_scan_and_zero_byte_json_output(tmp_path, monkeypatch) -
     assert zero_payload["domain"] == "analyze.catalog"
     assert zero_payload["action"] == "zero-byte"
     assert zero_payload["sections"][0]["rows"][0]["relative_path"] == "empty.jpg"
+
+
+def test_analyze_catalog_consistency_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_run(self, settings):
+        del self, settings
+        return ValidationReport(
+            domain="consistency.catalog",
+            action="validate",
+            summary="Catalog consistency found mismatches.",
+            checks=[],
+            sections=[
+                ValidationSection(
+                    name="DB_ORIGINALS_MISSING_ON_STORAGE",
+                    status=CheckStatus.FAIL,
+                    rows=[{"asset_id": "asset-1", "relative_path": "user-a/missing.jpg"}],
+                )
+            ],
+            metadata={"totals": {"dbOriginalsMissingOnStorage": 1}},
+        )
+
+    monkeypatch.setattr(
+        "immich_doctor.cli.analyze.CatalogConsistencyValidationService.run",
+        fake_run,
+    )
+
+    result = runner.invoke(app, ["analyze", "catalog", "consistency", "--output", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "consistency.catalog"
+    assert payload["sections"][0]["rows"][0]["asset_id"] == "asset-1"

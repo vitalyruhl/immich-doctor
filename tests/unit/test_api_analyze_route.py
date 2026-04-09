@@ -110,3 +110,37 @@ def test_catalog_zero_byte_route_returns_expected_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["action"] == "zero-byte"
     assert payload["data"]["sections"][0]["rows"][0]["relative_path"] == "nested/empty.jpg"
+
+
+def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "get_scan_job",
+        lambda self, settings: {
+            "jobId": "catalog-scan-1",
+            "jobType": "catalog_inventory_scan",
+            "state": "running",
+            "summary": "Catalog scan is running.",
+            "result": {"progress": {"percent": 42.5}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "start_scan",
+        lambda self, settings, *, force: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "pending",
+            "summary": "Catalog scan queued.",
+            "result": {"force": force},
+        },
+    )
+    client = TestClient(create_api_app())
+
+    current_response = client.get("/api/analyze/catalog/scan-job")
+    start_response = client.post("/api/analyze/catalog/scan-job/start", json={"force": True})
+
+    assert current_response.status_code == 200
+    assert current_response.json()["data"]["result"]["progress"]["percent"] == 42.5
+    assert start_response.status_code == 200
+    assert start_response.json()["data"]["result"]["force"] is True

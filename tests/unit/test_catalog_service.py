@@ -3,6 +3,7 @@ from pathlib import Path
 from immich_doctor.catalog.paths import catalog_database_path
 from immich_doctor.catalog.service import (
     CatalogInventoryScanService,
+    CatalogRootRegistry,
     CatalogStatusService,
     CatalogZeroByteReportService,
 )
@@ -114,3 +115,18 @@ def test_catalog_scan_can_resume_paused_session(tmp_path: Path) -> None:
     )
     assert resumed_snapshot.rows[0]["status"] == "committed"
     assert resumed_snapshot.rows[0]["item_count"] == 2
+
+
+def test_catalog_registry_scan_roots_skip_overlapping_parent_paths(tmp_path: Path) -> None:
+    settings = AppSettings(
+        _env_file=None,
+        immich_library_root=tmp_path / "storage",
+        immich_uploads_path=tmp_path / "storage" / "upload",
+        immich_thumbs_path=tmp_path / "storage" / "thumbs",
+        immich_profile_path=tmp_path / "storage" / "profile",
+        immich_video_path=tmp_path / "storage" / "encoded-video",
+    )
+
+    scan_roots = CatalogRootRegistry().scan_roots(settings)
+
+    assert [root.slug for root in scan_roots] == ["uploads", "thumbs", "profile", "video"]

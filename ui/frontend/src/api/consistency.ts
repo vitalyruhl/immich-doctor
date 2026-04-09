@@ -1,5 +1,6 @@
 import { request } from "./client";
 import type { ApiResponse } from "./types/common";
+import type { CatalogJobRequest, CatalogWorkflowJobRecord } from "./types/catalog";
 import type {
   MissingAssetApplyRequest,
   MissingAssetApplyResponse,
@@ -69,6 +70,21 @@ export async function deleteMissingAssetRestorePoints(
       body: JSON.stringify(payload),
     },
   );
+}
+
+export async function fetchCatalogConsistencyJob(): Promise<
+  ApiResponse<CatalogWorkflowJobRecord>
+> {
+  return request<CatalogWorkflowJobRecord>("/consistency/catalog");
+}
+
+export async function startCatalogConsistencyJob(
+  payload: CatalogJobRequest,
+): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/consistency/catalog/start", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export type {

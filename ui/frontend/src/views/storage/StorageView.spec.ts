@@ -6,16 +6,20 @@ const catalogStore: {
   roots: Array<Record<string, unknown>>;
   selectedRoot: string | null;
   rootCount: number;
+  hasCommittedSnapshot: boolean;
+  shouldAutoStartScan: boolean;
   statusReport: Record<string, unknown>;
   zeroByteReport: Record<string, unknown>;
-  scanReport: Record<string, unknown>;
+  scanJob: Record<string, unknown> | null;
+  scanJobActive: boolean;
   isLoading: boolean;
   isScanning: boolean;
   error: string | null;
   scanError: string | null;
   load: ReturnType<typeof vi.fn>;
   refresh: ReturnType<typeof vi.fn>;
-  scan: ReturnType<typeof vi.fn>;
+  refreshScanJob: ReturnType<typeof vi.fn>;
+  startScan: ReturnType<typeof vi.fn>;
   setSelectedRoot: ReturnType<typeof vi.fn>;
 } = {
   roots: [
@@ -32,6 +36,8 @@ const catalogStore: {
   ],
   selectedRoot: "uploads",
   rootCount: 1,
+  hasCommittedSnapshot: true,
+  shouldAutoStartScan: false,
   statusReport: {
     domain: "analyze.catalog",
     action: "status",
@@ -135,19 +141,28 @@ const catalogStore: {
     metrics: [],
     recommendations: [],
   },
-  scanReport: {
-    domain: "analyze.catalog",
-    action: "scan",
-    status: "PASS",
-    summary: "Catalog scan completed for root `uploads`.",
+  scanJob: {
+    jobId: "catalog-scan-1",
+    jobType: "catalog_inventory_scan",
+    state: "completed",
+    summary: "Catalog scan completed across 1 configured root.",
+    result: {
+      progress: {
+        percent: 100,
+        directoriesCompleted: 4,
+        pendingDirectories: 0,
+      },
+    },
   },
+  scanJobActive: false,
   isLoading: false,
   isScanning: false,
   error: null,
   scanError: null,
   load: vi.fn().mockResolvedValue(undefined),
   refresh: vi.fn().mockResolvedValue(undefined),
-  scan: vi.fn().mockResolvedValue(undefined),
+  refreshScanJob: vi.fn().mockResolvedValue(undefined),
+  startScan: vi.fn().mockResolvedValue(undefined),
   setSelectedRoot: vi.fn((root: string | null) => {
     catalogStore.selectedRoot = root;
   }),
@@ -158,7 +173,7 @@ vi.mock("@/stores/catalog", () => ({
 }));
 
 describe("StorageView", () => {
-  it("renders persisted catalog status and triggers scans", async () => {
+  it("renders persisted catalog status and triggers rescans", async () => {
     const wrapper = mount(StorageView, {
       global: {
         stubs: {
@@ -175,17 +190,18 @@ describe("StorageView", () => {
     await nextTick();
     await nextTick();
 
-    expect(wrapper.text()).toContain("Catalog scan");
+    expect(wrapper.text()).toContain("Storage index scan");
     expect(wrapper.text()).toContain("generation 2");
     expect(wrapper.text()).toContain("nested/empty.jpg");
+    expect(wrapper.text()).toContain("Directories: 4 / 4");
 
     const runButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === "Run catalog scan");
+      .find((button) => button.text() === "Rescan storage index");
     expect(runButton).toBeTruthy();
 
     await runButton!.trigger("click");
-    expect(catalogStore.scan).toHaveBeenCalledWith("uploads");
+    expect(catalogStore.startScan).toHaveBeenCalledWith(true);
 
     const refreshButton = wrapper
       .findAll("button")

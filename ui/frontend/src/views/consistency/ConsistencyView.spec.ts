@@ -242,6 +242,7 @@ function mountView() {
     global: {
       stubs: {
         PageHeader: { template: "<div class='page-header-stub' />" },
+        CatalogConsistencyPanel: { template: "<div class='catalog-consistency-panel-stub' />" },
         DisclaimerBanner: { template: "<div class='disclaimer-stub' />" },
         RiskNotice: { template: "<div class='risk-notice-stub' />", props: ["title", "message"] },
         LoadingState: { template: "<div class='loading-stub' />" },

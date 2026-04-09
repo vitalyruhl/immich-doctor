@@ -1,3 +1,4 @@
+from immich_doctor.catalog.consistency_service import CatalogConsistencyValidationService
 from immich_doctor.catalog.service import (
     CatalogInventoryScanService,
     CatalogStatusService,
@@ -5,6 +6,7 @@ from immich_doctor.catalog.service import (
 )
 
 __all__ = [
+    "CatalogConsistencyValidationService",
     "CatalogInventoryScanService",
     "CatalogStatusService",
     "CatalogZeroByteReportService",
