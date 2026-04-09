@@ -14,7 +14,9 @@
         :key="item.label"
         class="app-sidebar__link"
         :class="{ 'is-active': isActive(item.to.name) }"
+        :aria-label="collapsed ? item.label : undefined"
         :to="item.to"
+        :title="collapsed ? item.label : undefined"
       >
         <i :class="item.icon" />
         <div v-if="!collapsed">
