@@ -240,6 +240,40 @@ class CatalogStore:
             connection.commit()
         return self.get_scan_session(settings, session_id)
 
+    def find_latest_incomplete_scan_session(
+        self,
+        settings: AppSettings,
+    ) -> dict[str, object] | None:
+        self.initialize(settings)
+        with self.connect(settings) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    session.id,
+                    session.status,
+                    session.started_at,
+                    session.heartbeat_at,
+                    session.completed_at,
+                    session.max_files,
+                    session.files_seen,
+                    session.bytes_seen,
+                    session.directories_completed,
+                    session.error_count,
+                    session.last_relative_path,
+                    session.snapshot_id,
+                    root.slug AS root_slug,
+                    root.root_type AS root_type,
+                    root.absolute_path AS root_path
+                FROM scan_session AS session
+                JOIN storage_root AS root
+                  ON root.id = session.storage_root_id
+                WHERE session.status IN ('running', 'paused')
+                ORDER BY session.started_at DESC
+                LIMIT 1;
+                """
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def claim_next_directory(self, settings: AppSettings, session_id: str) -> str | None:
         self.initialize(settings)
         with self.connect(settings) as connection:
@@ -268,6 +302,36 @@ class CatalogStore:
             )
             connection.commit()
         return relative_path
+
+    def seed_directory_queue(
+        self,
+        settings: AppSettings,
+        *,
+        session_id: str,
+        relative_paths: list[str],
+    ) -> None:
+        self.initialize(settings)
+        if not relative_paths:
+            return
+
+        now = _utcnow()
+        unique_paths = sorted(set(relative_paths))
+        with self.connect(settings) as connection:
+            connection.execute("BEGIN IMMEDIATE;")
+            connection.executemany(
+                """
+                INSERT INTO scan_directory_queue (
+                    scan_session_id,
+                    relative_path,
+                    status,
+                    discovered_at
+                )
+                VALUES (?, ?, 'pending', ?)
+                ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
+                """,
+                [(session_id, relative_path, now) for relative_path in unique_paths],
+            )
+            connection.commit()
 
     def apply_directory_observation(
         self,

@@ -262,6 +262,18 @@ const progressStats = computed(() => {
     return null;
   }
   if (
+    progress.value.phase === "prepare"
+    && typeof progress.value.directoriesDiscovered === "number"
+  ) {
+    return `Counting directories: ${progress.value.directoriesDiscovered}`;
+  }
+  if (
+    typeof progress.value.directoriesTotal === "number"
+    && typeof progress.value.directoriesCompleted === "number"
+  ) {
+    return `Directories: ${progress.value.directoriesCompleted} / ${progress.value.directoriesTotal}`;
+  }
+  if (
     typeof progress.value.directoriesCompleted === "number"
     && typeof progress.value.pendingDirectories === "number"
   ) {

@@ -274,6 +274,18 @@ const scanStats = computed(() => {
     return null;
   }
   if (
+    scanProgress.value.phase === "prepare"
+    && typeof scanProgress.value.directoriesDiscovered === "number"
+  ) {
+    return `Counting directories: ${scanProgress.value.directoriesDiscovered}`;
+  }
+  if (
+    typeof scanProgress.value.directoriesTotal === "number"
+    && typeof scanProgress.value.directoriesCompleted === "number"
+  ) {
+    return `Directories: ${scanProgress.value.directoriesCompleted} / ${scanProgress.value.directoriesTotal}`;
+  }
+  if (
     typeof scanProgress.value.directoriesCompleted === "number"
     && typeof scanProgress.value.pendingDirectories === "number"
   ) {
@@ -285,12 +297,23 @@ const scanStats = computed(() => {
   }
   return null;
 });
-const scanSummary = computed(
-  () =>
+const scanSummary = computed(() => {
+  if (catalogStore.scanJob?.jobId || catalogStore.scanJobActive) {
+    return catalogStore.scanJob?.summary ?? "Catalog scan is active.";
+  }
+  if (
+    catalogStore.scanCoverage?.requiresScan
+    && Array.isArray(catalogStore.scanCoverage.missingRootSlugs)
+    && catalogStore.scanCoverage.missingRootSlugs.length
+  ) {
+    return `Catalog scan is required for: ${catalogStore.scanCoverage.missingRootSlugs.join(", ")}.`;
+  }
+  return (
     catalogStore.scanJob?.summary
     ?? catalogStore.statusReport?.summary
-    ?? "No catalog activity has been loaded yet.",
-);
+    ?? "No catalog activity has been loaded yet."
+  );
+});
 const scanButtonLabel = computed(() => {
   if (catalogStore.scanJobActive) {
     return "Storage scan running...";

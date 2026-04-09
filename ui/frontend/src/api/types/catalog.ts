@@ -54,6 +54,8 @@ export interface CatalogJobProgress {
   filesSeen?: number | null;
   filesIndexed?: number | null;
   bytesSeen?: number | null;
+  directoriesDiscovered?: number | null;
+  directoriesTotal?: number | null;
   directoriesCompleted?: number | null;
   pendingDirectories?: number | null;
   lastRelativePath?: string | null;
@@ -61,6 +63,7 @@ export interface CatalogJobProgress {
   storageMissingCount?: number | null;
   orphanCount?: number | null;
   unmappedCount?: number | null;
+  resumeSessionId?: string | null;
 }
 
 export interface CatalogWorkflowJobRecord {

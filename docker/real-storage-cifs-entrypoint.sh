@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-if [ "${TESTBED_REAL_STORAGE_MODE:-}" != "cifs" ]; then
+if [ "${TESTBED_STORAGE_SOURCE_MODE:-mock}" != "real" ] || [ "${TESTBED_REAL_STORAGE_MODE:-}" != "cifs" ]; then
   exec /usr/local/bin/immich-doctor-entrypoint "$@"
 fi
 
