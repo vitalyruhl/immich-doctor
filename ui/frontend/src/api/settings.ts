@@ -1,6 +1,10 @@
 import { ApiClientError, request } from "./client";
 import type { ApiResponse } from "./types/common";
-import type { SettingsOverviewResponse } from "./types/settings";
+import type {
+  SettingsOverviewResponse,
+  TestbedDumpImportResponse,
+  TestbedDumpOverviewResponse,
+} from "./types/settings";
 
 const MOCK_SETTINGS: SettingsOverviewResponse = {
   generatedAt: new Date().toISOString(),
@@ -87,6 +91,25 @@ export async function fetchSettingsOverview(): Promise<ApiResponse<SettingsOverv
   }
 
   return request<SettingsOverviewResponse>("/settings");
+}
+
+export async function fetchTestbedDumpOverview(): Promise<ApiResponse<TestbedDumpOverviewResponse>> {
+  return request<TestbedDumpOverviewResponse>("/settings/testbed/dump");
+}
+
+export async function importTestbedDump(payload: {
+  path: string | null;
+  format: string;
+  force: boolean;
+}): Promise<ApiResponse<TestbedDumpImportResponse>> {
+  return request<TestbedDumpImportResponse>(
+    "/settings/testbed/dump/import",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    600000,
+  );
 }
 
 export function buildUnavailableSettingsOverview(reason: string): SettingsOverviewResponse {

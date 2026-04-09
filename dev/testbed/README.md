@@ -24,6 +24,7 @@ Expected files in this folder:
 
 - `dev/testbed/docker-compose.yml`
 - `dev/testbed/.env.example`
+- `dev/testbed/scripts/compose.sh` and/or `compose.ps1`
 - `dev/testbed/scripts/init-db.sh` and/or `init-db.ps1`
 - `dev/testbed/scripts/snapshot-db.sh` and/or `snapshot-db.ps1`
 - `dev/testbed/scripts/restore-db.sh` and/or `restore-db.ps1`
@@ -43,20 +44,23 @@ Planned volumes:
 
 ## Start
 
-1. Copy `.env.example` to `.env`.
-2. Set the database credentials.
-3. If you use `FROM_DUMP`, set `TESTBED_DUMP_PATH` to a dump file path.
+1. Review the tracked `dev/testbed/.env` defaults.
+2. Copy `.env.example` to `.env.local` when you need machine-specific overrides or credentials.
+3. If you use `FROM_DUMP`, set `TESTBED_DUMP_PATH` in `.env.local` or pass it to the init script.
 4. Start the stack:
 
 ```bash
-docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml up -d postgres
+sh dev/testbed/scripts/compose.sh up -d postgres
 ```
 
-Optional developer container:
+Optional runtime/UI container:
 
 ```bash
-docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml --profile doctor up -d
+sh dev/testbed/scripts/compose.sh --profile doctor up -d --build
 ```
+
+The wrapper resolves `TESTBED_STORAGE_SOURCE_MODE` and injects the correct bind source for
+mock or real storage before delegating to `docker compose`.
 
 ## Initialization Modes
 
@@ -106,17 +110,39 @@ Basic EMPTY workflow:
 4. `export-db` if you want a logical backup
 5. `reset-db` to return to a clean empty volume
 
-## No Asset Storage
+## Storage Modes
 
-This testbed intentionally does not mount real Immich asset storage.
+The testbed now keeps storage intent explicit:
 
-That means:
+- `TESTBED_STORAGE_SOURCE_MODE=mock`
+  - mounts `TESTBED_MOCK_STORAGE_PATH`
+  - intended for small synthetic or repo-local datasets
+- `TESTBED_STORAGE_SOURCE_MODE=real`
+  - mounts `TESTBED_REAL_STORAGE_PATH`
+  - intended for realistic validation against a read-only copy or host-prepared mount of real Immich storage
 
-- filesystem asset lookups should naturally fail
-- missing assets are reproducible without touching production files
-- the testbed is suitable for repair and dependency analysis, not media access
+Real-storage semantics remain first-class:
 
-If a placeholder path is mounted, it should be empty or synthetic only.
+- `TESTBED_REAL_STORAGE_PATH` is the bind source used for realistic validation
+- `TESTBED_REAL_STORAGE_MODE`, `TESTBED_REAL_STORAGE_SMB_SOURCE`, and `TESTBED_REAL_STORAGE_SMB_VERS`
+  document how that storage is provided to the local host
+- `TESTBED_REAL_STORAGE_SMB_USERNAME` and `TESTBED_REAL_STORAGE_SMB_PASSWORD`
+  remain supported as local-only settings and must stay in `.env.local`
+
+Safety rules:
+
+- the storage mount is always read-only inside the doctor container
+- doctor-owned writable paths stay separate:
+  - `TESTBED_REPORTS_PATH`
+  - `TESTBED_MANIFESTS_PATH`
+  - `TESTBED_QUARANTINE_PATH`
+  - `TESTBED_LOG_PATH`
+  - `TESTBED_TMP_PATH`
+- the persistent catalog always lives under `MANIFESTS_PATH/catalog/`
+- the catalog must never be written into the storage mount itself
+
+On Windows, real-storage mode may still rely on a host-prepared mount such as a mapped
+drive or `subst` path. The repo does not automate SMB mounting for you.
 
 ## Snapshot and Restore
 
@@ -221,27 +247,36 @@ uv run python -m immich_doctor consistency validate
 uv run python -m immich_doctor consistency repair --all-safe
 ```
 
-To run inside the optional container:
+To start the runtime UI container:
 
 ```bash
-docker compose --env-file dev/testbed/.env -f dev/testbed/docker-compose.yml exec immich-doctor \
-  uv run python -m immich_doctor consistency validate
+sh dev/testbed/scripts/compose.sh --profile doctor up -d --build
 ```
+
+The browser UI is then available at `http://localhost:${TESTBED_DOCTOR_PORT}`.
+
+If you run raw `docker compose` commands instead of the helper wrapper, you must export
+`TESTBED_SELECTED_STORAGE_PATH` yourself so it matches `TESTBED_STORAGE_SOURCE_MODE`.
+
+Catalog Phase 1 validation:
+
+- `POST /api/analyze/catalog/scan` starts a non-destructive inventory scan
+- `GET /api/analyze/catalog/status` shows persisted snapshot/session state
+- `GET /api/analyze/catalog/zero-byte` shows zero-byte findings from the latest committed snapshot
+- the SQLite catalog lives at `MANIFESTS_PATH/catalog/file-catalog.sqlite3`
 
 ## Missing Assets Behavior
 
-Because no real asset storage is mounted:
+In `mock` mode, missing-asset scenarios are easy to reproduce with synthetic content.
+In `real` mode, the testbed can validate a real DB copy against a read-only view of real
+storage while still keeping all doctor-owned writes isolated from that mount.
 
-- missing asset references should appear naturally during inspection
-- `public.asset.originalPath` remains the scan source of truth
-- repair preview and apply can be tested against database-only scenarios
-
-This environment is intended to support future blocked-asset analysis and
-reversible repair development, not production media workflows.
+`public.asset.originalPath` remains the scan source of truth for database-side checks.
 
 ## Safety Notes
 
 - keep database data outside git
+- keep `.env.local` and any credentials outside git
 - use named volumes for repeatability
 - treat snapshots as disposable test artifacts
 - prefer dry-run or preview before any destructive step

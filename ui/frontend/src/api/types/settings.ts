@@ -58,3 +58,29 @@ export interface SettingsSchemaResponse {
   schemaVersion: string;
   sections: SettingsSchemaSection[];
 }
+
+export interface TestbedDumpOverviewResponse {
+  enabled: boolean;
+  environment: string;
+  canImport: boolean;
+  initMode: string;
+  defaultPath: string | null;
+  defaultFormat: string;
+  autoImportOnEmpty: boolean;
+  summary: string;
+}
+
+export interface TestbedDumpImportResponse {
+  state: "pending" | "running" | "partial" | "completed" | "failed" | "unsupported" | "cancel_requested" | "canceled";
+  classification: string;
+  summary: string;
+  requestedPath: string;
+  effectivePath: string;
+  dumpFormat: string;
+  generatedAt: string;
+  dbWasEmpty: boolean;
+  expectedSkippedStatements: number;
+  structuralErrorCount: number;
+  meaningfulErrorCount: number;
+  warnings: string[];
+}

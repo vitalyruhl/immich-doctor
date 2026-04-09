@@ -4,28 +4,47 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TestbedDir = Split-Path -Parent $ScriptDir
 $ComposeFile = Join-Path $TestbedDir "docker-compose.yml"
 $EnvFile = Join-Path $TestbedDir ".env"
+$EnvLocalFile = Join-Path $TestbedDir ".env.local"
+$InitialEnvNames = @{}
+Get-ChildItem Env: | ForEach-Object {
+    $InitialEnvNames[$_.Name] = $true
+}
 
 if (-not (Test-Path $EnvFile)) {
     throw "Missing $EnvFile. Copy .env.example to .env first."
 }
 
 function Import-TestbedEnv {
-    Get-Content $EnvFile | ForEach-Object {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        return
+    }
+    Get-Content $Path | ForEach-Object {
         $line = $_.Trim()
         if (-not $line -or $line.StartsWith("#")) {
             return
         }
         $parts = $line.Split("=", 2)
         if ($parts.Count -eq 2) {
-            [Environment]::SetEnvironmentVariable($parts[0], $parts[1])
+            $name = $parts[0]
+            if ($InitialEnvNames.ContainsKey($name)) {
+                return
+            }
+            [Environment]::SetEnvironmentVariable($name, $parts[1])
         }
     }
 }
 
-Import-TestbedEnv
+Import-TestbedEnv -Path $EnvFile
+Import-TestbedEnv -Path $EnvLocalFile
 
 function Get-ComposeArgs {
-    return @("--env-file", $EnvFile, "-f", $ComposeFile)
+    $args = @("--env-file", $EnvFile)
+    if (Test-Path $EnvLocalFile) {
+        $args += @("--env-file", $EnvLocalFile)
+    }
+    $args += @("-f", $ComposeFile)
+    return $args
 }
 
 function Invoke-Compose {
@@ -72,6 +91,28 @@ function Get-EnvOrDefault {
         return $Default
     }
     return $value
+}
+
+function Resolve-TestbedSelectedStoragePath {
+    $mode = (Get-EnvOrDefault -Name "TESTBED_STORAGE_SOURCE_MODE" -Default "mock").ToLowerInvariant()
+    switch ($mode) {
+        "mock" {
+            $pathValue = Get-EnvOrDefault -Name "TESTBED_MOCK_STORAGE_PATH" -Default "../../data/mock/immich-library"
+        }
+        "real" {
+            $pathValue = Get-EnvOrDefault -Name "TESTBED_REAL_STORAGE_PATH" -Default ""
+            if ([string]::IsNullOrWhiteSpace($pathValue)) {
+                throw "TESTBED_REAL_STORAGE_PATH is required when TESTBED_STORAGE_SOURCE_MODE=real."
+            }
+        }
+        default {
+            throw "Unsupported TESTBED_STORAGE_SOURCE_MODE '$mode'. Use 'mock' or 'real'."
+        }
+    }
+
+    $resolvedPath = Resolve-HostPath -Path $pathValue
+    [Environment]::SetEnvironmentVariable("TESTBED_SELECTED_STORAGE_PATH", $resolvedPath)
+    return $resolvedPath
 }
 
 function Get-DbServiceName {
@@ -155,6 +196,20 @@ function Resolve-HostPath {
     }
     return [System.IO.Path]::GetFullPath((Join-Path $TestbedDir $Path))
 }
+
+Resolve-TestbedSelectedStoragePath *> $null
+
+function Resolve-TestbedDumpMountSource {
+    $dumpPath = Get-EnvOrDefault -Name "TESTBED_DUMP_PATH" -Default ""
+    if ([string]::IsNullOrWhiteSpace($dumpPath)) {
+        [Environment]::SetEnvironmentVariable("TESTBED_DUMP_MOUNT_SOURCE", (Join-Path $TestbedDir "tmp"))
+        return
+    }
+    $resolvedDumpPath = Resolve-HostPath -Path $dumpPath
+    [Environment]::SetEnvironmentVariable("TESTBED_DUMP_MOUNT_SOURCE", (Split-Path -Parent $resolvedDumpPath))
+}
+
+Resolve-TestbedDumpMountSource *> $null
 
 function Get-DefaultExportPath {
     param(

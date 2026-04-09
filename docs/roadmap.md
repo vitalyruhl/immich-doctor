@@ -62,6 +62,13 @@ Goals:
 - inventory Immich storage and database metadata
 - generate analysis reports and manifests
 - compare filesystem and metadata without changing data
+- persistent, resumable file inventory on mounted storage
+- staged DB correlation and later derivative detection without repeated full rescans
+
+Detailed redesign package:
+
+- [`docs/roadmaps/persistent-file-index-redesign.md`](./roadmaps/persistent-file-index-redesign.md)
+- [`docs/architecture/adr-persistent-file-index.md`](./architecture/adr-persistent-file-index.md)
 
 ## Phase 3 - Backup workflows
 
@@ -88,6 +95,7 @@ Goals:
 - dry-run planning for repair actions
 - quarantine-first action design
 - no destructive delete as the first implementation
+- mirrored quarantine recovery with sidecars and append-only journals
 
 ## Phase 5 - API and Web orchestration
 

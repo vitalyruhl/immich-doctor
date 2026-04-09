@@ -11,6 +11,7 @@ from immich_doctor.cli import db as db_cli
 from immich_doctor.cli import remote as remote_cli
 from immich_doctor.cli import repair as repair_cli
 from immich_doctor.cli import runtime as runtime_cli
+from immich_doctor.cli import testbed as testbed_cli
 from immich_doctor.cli.main import app
 from immich_doctor.consistency.models import (
     ConsistencyCategory,
@@ -59,6 +60,7 @@ from immich_doctor.runtime.metadata_failures.models import (
     MetadataRepairStatus,
     SuggestedAction,
 )
+from immich_doctor.services.testbed_dump_service import TestbedDumpImportResult
 
 
 def test_runtime_health_check_json_output() -> None:
@@ -71,6 +73,43 @@ def test_runtime_health_check_json_output() -> None:
     assert payload["domain"] == "runtime.health"
     assert payload["action"] == "check"
     assert payload["status"] == "PASS"
+
+
+def test_testbed_import_dump_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("IMMICH_DOCTOR_ENVIRONMENT", "dev-testbed")
+    monkeypatch.setenv("TESTBED_DUMP_PATH", r"C:\Temp\immich.sql")
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "postgres")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_import_dump(self, settings, *, requested_path=None, dump_format=None, force=False):
+        del self, settings
+        return TestbedDumpImportResult(
+            state="completed",
+            classification="success",
+            summary="Testbed dump import completed successfully.",
+            requestedPath=requested_path or r"C:\Temp\immich.sql",
+            effectivePath="/mnt/testbed/dumps/immich.sql",
+            dumpFormat=dump_format or "auto",
+            generatedAt="2026-04-09T10:00:00+00:00",
+            dbWasEmpty=False,
+            expectedSkippedStatements=0,
+            structuralErrorCount=0,
+            meaningfulErrorCount=0,
+            warnings=[],
+        )
+
+    monkeypatch.setattr(testbed_cli.TestbedDumpImportService, "import_dump", fake_import_dump)
+
+    result = runner.invoke(app, ["testbed", "import-dump", "--force", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["classification"] == "success"
+    assert payload["effectivePath"] == "/mnt/testbed/dumps/immich.sql"
 
 
 def test_storage_paths_check_with_sample_directories(tmp_path, monkeypatch) -> None:

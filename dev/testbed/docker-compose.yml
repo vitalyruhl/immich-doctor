@@ -29,12 +29,12 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile
-      target: dev
-    image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:testbed}
-    working_dir: /workspace
+      target: runtime
+    image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:local}
+    restart: unless-stopped
+    ports:
+      - "${TESTBED_DOCTOR_PORT:-8000}:8000"
     environment:
-      UV_PROJECT_ENVIRONMENT: /tmp/immich-doctor-venv
-      UV_CACHE_DIR: /tmp/uv-cache
       IMMICH_DOCTOR_ENVIRONMENT: dev-testbed
       IMMICH_STORAGE_PATH: /mnt/immich/storage
       IMMICH_UPLOADS_PATH: /mnt/immich/storage/upload
@@ -52,18 +52,24 @@ services:
       DB_USER: ${TESTBED_DB_USER:-postgres}
       DB_PASSWORD: ${TESTBED_DB_PASSWORD:-postgres}
       DB_CONNECT_TIMEOUT_SECONDS: 5
+      TESTBED_INIT_MODE: ${TESTBED_INIT_MODE:-FROM_DUMP}
+      TESTBED_DUMP_PATH: ${TESTBED_DUMP_PATH:-}
+      TESTBED_DUMP_FORMAT: ${TESTBED_DUMP_FORMAT:-auto}
+      TESTBED_AUTO_IMPORT_ON_EMPTY: ${TESTBED_AUTO_IMPORT_ON_EMPTY:-true}
+      TESTBED_DUMP_MOUNT_SOURCE: ${TESTBED_DUMP_MOUNT_SOURCE:-./tmp}
+      TESTBED_CONTAINER_DUMP_DIR: /mnt/testbed/dumps
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ../..:/workspace
-    command:
-      - sh
-      - -c
-      - |
-        echo "immich-doctor dev container ready. Example:"
-        echo "  uv run python -m immich_doctor consistency validate"
-        tail -f /dev/null
+      - ${TESTBED_SELECTED_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${TESTBED_DUMP_MOUNT_SOURCE:-./tmp}:/mnt/testbed/dumps:ro
+      - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
+      - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
+      - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
+      - ${TESTBED_LOG_PATH:-../../data/logs}:/data/logs
+      - ${TESTBED_TMP_PATH:-../../data/tmp}:/data/tmp
+      - ${TESTBED_CONFIG_PATH:-../../config}:/config:ro
 
 volumes:
   immich_dev_pgdata:

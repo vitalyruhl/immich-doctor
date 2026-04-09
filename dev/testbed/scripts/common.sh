@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TESTBED_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 COMPOSE_FILE="$TESTBED_DIR/docker-compose.yml"
 ENV_FILE="$TESTBED_DIR/.env"
+ENV_LOCAL_FILE="$TESTBED_DIR/.env.local"
+INITIAL_ENV_VARS=$(env | sed 's/=.*//')
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: Missing $ENV_FILE. Copy .env.example to .env first." >&2
@@ -12,7 +14,26 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 set -a
-. "$ENV_FILE"
+import_testbed_env() {
+  file_path="$1"
+  [ -f "$file_path" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [ -n "$trimmed" ] || continue
+    case "$trimmed" in
+      \#*) continue ;;
+    esac
+    key=${trimmed%%=*}
+    value=${trimmed#*=}
+    if printf '%s\n' "$INITIAL_ENV_VARS" | grep -Fxq "$key"; then
+      continue
+    fi
+    export "$key=$value"
+  done < "$file_path"
+}
+
+import_testbed_env "$ENV_FILE"
+import_testbed_env "$ENV_LOCAL_FILE"
 set +a
 
 require_command() {
@@ -23,7 +44,11 @@ require_command() {
 }
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  if [ -f "$ENV_LOCAL_FILE" ]; then
+    docker compose --env-file "$ENV_FILE" --env-file "$ENV_LOCAL_FILE" -f "$COMPOSE_FILE" "$@"
+  else
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  fi
 }
 
 db_volume_name() {
@@ -100,6 +125,44 @@ resolve_host_path() {
       ;;
   esac
 }
+
+resolve_selected_storage_path() {
+  mode="${TESTBED_STORAGE_SOURCE_MODE:-mock}"
+  case "$mode" in
+    mock)
+      path_value="${TESTBED_MOCK_STORAGE_PATH:-../../data/mock/immich-library}"
+      ;;
+    real)
+      path_value="${TESTBED_REAL_STORAGE_PATH:-}"
+      if [ -z "$path_value" ]; then
+        echo "ERROR: TESTBED_REAL_STORAGE_PATH is required when TESTBED_STORAGE_SOURCE_MODE=real." >&2
+        exit 1
+      fi
+      ;;
+    *)
+      echo "ERROR: Unsupported TESTBED_STORAGE_SOURCE_MODE '$mode'. Use mock or real." >&2
+      exit 1
+      ;;
+  esac
+  TESTBED_SELECTED_STORAGE_PATH=$(resolve_host_path "$path_value")
+  export TESTBED_SELECTED_STORAGE_PATH
+}
+
+resolve_selected_storage_path
+
+resolve_dump_mount_source() {
+  dump_path="${TESTBED_DUMP_PATH:-}"
+  if [ -z "$dump_path" ]; then
+    TESTBED_DUMP_MOUNT_SOURCE="$TESTBED_DIR/tmp"
+    export TESTBED_DUMP_MOUNT_SOURCE
+    return
+  fi
+  resolved_dump_path=$(resolve_host_path "$dump_path")
+  TESTBED_DUMP_MOUNT_SOURCE=$(dirname "$resolved_dump_path")
+  export TESTBED_DUMP_MOUNT_SOURCE
+}
+
+resolve_dump_mount_source
 
 default_export_path() {
   format="${1:-custom}"

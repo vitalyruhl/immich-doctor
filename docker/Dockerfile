@@ -27,7 +27,7 @@ RUN groupadd --gid 1000 app && \
 
 COPY pyproject.toml uv.lock README.md /opt/immich-doctor/
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssh-client rsync && \
+    apt-get install -y --no-install-recommends openssh-client postgresql-client rsync && \
     rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen --no-dev --no-install-project
 
