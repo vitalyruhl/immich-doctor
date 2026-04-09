@@ -3,17 +3,33 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from threading import Event
+from typing import Any
 
+from immich_doctor.backup.core.job_models import BackgroundJobRecord, BackgroundJobState
+from immich_doctor.catalog.service import CatalogRootRegistry
+from immich_doctor.catalog.store import CatalogStore
 from immich_doctor.catalog.workflow_service import (
     CATALOG_CONSISTENCY_JOB_TYPE,
+    CATALOG_SCAN_JOB_TYPE,
     CatalogWorkflowService,
 )
 from immich_doctor.core.config import AppSettings
+from immich_doctor.core.models import ValidationReport
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 
 
-def _settings(tmp_path: Path) -> AppSettings:
-    return AppSettings(_env_file=None, manifests_path=tmp_path / "manifests")
+def _settings(
+    tmp_path: Path,
+    *,
+    library_root: Path | None = None,
+    uploads_path: Path | None = None,
+) -> AppSettings:
+    return AppSettings(
+        _env_file=None,
+        manifests_path=tmp_path / "manifests",
+        immich_library_root=library_root,
+        immich_uploads_path=uploads_path,
+    )
 
 
 def _wait_for_runtime(runtime: BackgroundJobRuntime, *, job_type: str) -> None:
@@ -69,8 +85,16 @@ def test_catalog_consistency_queues_scan_when_required_snapshot_is_missing(
         service = CatalogWorkflowService(runtime=runtime)
         monkeypatch.setattr(
             CatalogWorkflowService,
-            "_has_required_catalog_snapshot",
-            lambda self, settings: False,
+            "_scan_coverage",
+            lambda self, settings: {
+                "effectiveRootSlugs": ["uploads"],
+                "currentRows": [],
+                "currentBySlug": {},
+                "staleRootSlugs": [],
+                "missingRootSlugs": ["uploads"],
+                "latestScanCommittedAt": None,
+                "hasCompleteCoverage": False,
+            },
         )
         monkeypatch.setattr(
             CatalogWorkflowService,
@@ -89,5 +113,175 @@ def test_catalog_consistency_queues_scan_when_required_snapshot_is_missing(
         assert result["jobId"] is None
         assert result["result"]["requiresScan"] is True
         assert result["result"]["blockedBy"]["jobId"] == "catalog-scan-1"
+    finally:
+        runtime.shutdown()
+
+
+def test_catalog_consistency_job_returns_stale_snapshot_after_scan_basis_changes(
+    tmp_path: Path,
+) -> None:
+    uploads = tmp_path / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    settings = _settings(tmp_path, uploads_path=uploads)
+    store = CatalogStore()
+    runtime = BackgroundJobRuntime()
+
+    try:
+        synced_roots = CatalogRootRegistry(store=store).sync(settings)
+        uploads_root = next(root for root in synced_roots if root["slug"] == "uploads")
+        session = store.create_scan_session(
+            settings,
+            storage_root_id=int(uploads_root["id"]),
+            max_files=None,
+        )
+        committed = store.commit_scan_session(settings, str(session["id"]))
+        assert committed is not None
+        snapshot = store.get_snapshot(settings, int(committed["snapshot_id"]))
+        assert snapshot is not None
+
+        latest_record = BackgroundJobRecord(
+            jobId="catalog-consistency-1",
+            jobType=CATALOG_CONSISTENCY_JOB_TYPE,
+            state=BackgroundJobState.COMPLETED,
+            summary="Catalog consistency completed.",
+            startedAt=snapshot["committed_at"],
+            completedAt=snapshot["committed_at"],
+            result={
+                "state": BackgroundJobState.COMPLETED.value,
+                "summary": "Catalog consistency completed.",
+                "report": {
+                    "domain": "consistency.catalog",
+                    "action": "validate",
+                    "status": "PASS",
+                    "summary": "Catalog consistency completed.",
+                    "generated_at": snapshot["committed_at"],
+                    "metadata": {
+                        "snapshotBasis": [
+                            {
+                                "rootSlug": "uploads",
+                                "snapshotId": snapshot["id"],
+                                "generation": snapshot["generation"],
+                                "committedAt": snapshot["committed_at"],
+                                "absolutePath": str(uploads),
+                            }
+                        ],
+                        "latestScanCommittedAt": snapshot["committed_at"],
+                    },
+                    "checks": [],
+                    "sections": [],
+                    "metrics": [],
+                    "recommendations": [],
+                },
+            },
+        )
+        runtime.store.persist_job(settings, latest_record)
+
+        moved_uploads = tmp_path / "uploads-moved"
+        moved_uploads.mkdir(parents=True, exist_ok=True)
+        moved_settings = _settings(tmp_path, uploads_path=moved_uploads)
+
+        service = CatalogWorkflowService(runtime=runtime, store=store)
+        result = service.get_consistency_job(moved_settings)
+
+        assert result["jobId"] is None
+        assert result["result"]["stale"] is True
+        assert result["result"]["requiresScan"] is True
+        assert result["result"]["staleRootSlugs"] == ["uploads"]
+    finally:
+        runtime.shutdown()
+
+
+def test_catalog_scan_job_recovers_incomplete_session_for_effective_root(
+    tmp_path: Path,
+) -> None:
+    uploads = tmp_path / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    settings = _settings(tmp_path, uploads_path=uploads)
+    store = CatalogStore()
+    runtime = BackgroundJobRuntime()
+    release = Event()
+    resume_calls: list[tuple[str | None, str | None]] = []
+
+    try:
+        synced_roots = CatalogRootRegistry(store=store).sync(settings)
+        uploads_root = next(root for root in synced_roots if root["slug"] == "uploads")
+        session = store.create_scan_session(
+            settings,
+            storage_root_id=int(uploads_root["id"]),
+            max_files=None,
+        )
+        paused = store.mark_session_paused(settings, str(session["id"]))
+        assert paused is not None
+
+        service = CatalogWorkflowService(runtime=runtime, store=store)
+
+        class _FakeScanService:
+            def run(
+                self,
+                settings_arg: Any,
+                *,
+                root_slug: str | None,
+                resume_session_id: str | None,
+                max_files: int | None,
+                progress_callback: Any,
+            ) -> ValidationReport:
+                del settings_arg, max_files, progress_callback
+                resume_calls.append((root_slug, resume_session_id))
+                release.wait(5)
+                return ValidationReport(
+                    domain="analyze.catalog",
+                    action="scan",
+                    summary="Recovered catalog scan completed.",
+                    checks=[],
+                    sections=[],
+                    metadata={},
+                )
+
+        object.__setattr__(service, "scan_service", _FakeScanService())
+
+        result = service.get_scan_job(settings)
+
+        assert result["jobId"] is not None
+        assert result["summary"] == "Catalog scan recovery queued for root `uploads`."
+        active = runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE)
+        assert active is not None
+        deadline = time.monotonic() + 5
+        while not resume_calls:
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+        assert resume_calls == [(None, str(session["id"]))]
+    finally:
+        release.set()
+        _wait_for_runtime(runtime, job_type=CATALOG_SCAN_JOB_TYPE)
+        runtime.shutdown()
+
+
+def test_catalog_scan_job_retires_incomplete_session_for_obsolete_root(tmp_path: Path) -> None:
+    storage = tmp_path / "storage"
+    uploads = storage / "upload"
+    uploads.mkdir(parents=True, exist_ok=True)
+    settings = _settings(tmp_path, library_root=storage, uploads_path=uploads)
+    store = CatalogStore()
+    runtime = BackgroundJobRuntime()
+
+    try:
+        synced_roots = CatalogRootRegistry(store=store).sync(settings)
+        library_root = next(root for root in synced_roots if root["slug"] == "library")
+        session = store.create_scan_session(
+            settings,
+            storage_root_id=int(library_root["id"]),
+            max_files=None,
+        )
+
+        service = CatalogWorkflowService(runtime=runtime, store=store)
+
+        result = service.get_scan_job(settings)
+
+        assert result["jobId"] is None
+        assert result["summary"] == "No catalog scan has been started yet."
+        latest_session = store.get_scan_session(settings, str(session["id"]))
+        assert latest_session is not None
+        assert latest_session["status"] == "failed"
+        assert runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE) is None
     finally:
         runtime.shutdown()

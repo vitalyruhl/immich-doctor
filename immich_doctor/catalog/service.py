@@ -33,6 +33,7 @@ _SCAN_PRIORITY = {
     "video": 3,
     "library": 4,
 }
+_DISCOVERY_PROGRESS_INTERVAL = 250
 
 
 def _utcnow() -> str:
@@ -244,6 +245,13 @@ class CatalogInventoryScanService:
         session_id = str(session_row["id"])
         root_path = Path(str(root_row["absolute_path"]))
         files_seen = int(session_row["files_seen"])
+        self._prepare_directory_queue(
+            settings,
+            session_id=session_id,
+            root_slug=str(root_row["slug"]),
+            root_path=root_path,
+            progress_callback=progress_callback,
+        )
         while True:
             relative_path = self.store.claim_next_directory(settings, session_id)
             if relative_path is None:
@@ -309,10 +317,12 @@ class CatalogInventoryScanService:
                 )
                 progress_callback(
                     {
+                        "phase": "scan",
                         "rootSlug": str(root_row["slug"]),
                         "sessionId": session_id,
                         "filesSeen": int(updated_session["files_seen"]),
                         "bytesSeen": int(updated_session["bytes_seen"]),
+                        "directoriesTotal": total_directories,
                         "directoriesCompleted": int(updated_session["directories_completed"]),
                         "pendingDirectories": pending_directories,
                         "lastRelativePath": updated_session["last_relative_path"],
@@ -402,6 +412,91 @@ class CatalogInventoryScanService:
             "bytes_delta": bytes_delta,
             "last_relative_path": last_relative_path,
         }
+
+    def _prepare_directory_queue(
+        self,
+        settings: AppSettings,
+        *,
+        session_id: str,
+        root_slug: str,
+        root_path: Path,
+        progress_callback: Callable[[dict[str, object]], None] | None,
+    ) -> None:
+        discovered_directories: list[str] = []
+
+        def emit_discovery(count: int) -> None:
+            if progress_callback is None:
+                return
+            progress_callback(
+                {
+                    "phase": "prepare",
+                    "rootSlug": root_slug,
+                    "current": count,
+                    "total": None,
+                    "percent": None,
+                    "directoriesDiscovered": count,
+                    "message": f"Counting directories for root `{root_slug}`.",
+                }
+            )
+
+        stack: list[tuple[Path, str]] = [(root_path, "")]
+        seen_relative_paths = {""}
+
+        while stack:
+            current_path, relative_path = stack.pop()
+            discovered_directories.append(relative_path)
+            discovered_count = len(discovered_directories)
+            if progress_callback is not None and (
+                discovered_count == 1 or discovered_count % _DISCOVERY_PROGRESS_INTERVAL == 0
+            ):
+                emit_discovery(discovered_count)
+
+            try:
+                child_directories: list[tuple[Path, str]] = []
+                with os.scandir(current_path) as iterator:
+                    for entry in iterator:
+                        try:
+                            if not entry.is_dir(follow_symlinks=False):
+                                continue
+                        except OSError:
+                            continue
+                        child_relative_path = self._relative_path(root_path, Path(entry.path))
+                        if child_relative_path in seen_relative_paths:
+                            continue
+                        seen_relative_paths.add(child_relative_path)
+                        child_directories.append((Path(entry.path), child_relative_path))
+                child_directories.sort(key=lambda item: item[1], reverse=True)
+                stack.extend(child_directories)
+            except OSError:
+                continue
+
+        self.store.seed_directory_queue(
+            settings,
+            session_id=session_id,
+            relative_paths=discovered_directories,
+        )
+
+        if progress_callback is None:
+            return
+
+        session_row = self.store.get_scan_session(settings, session_id)
+        pending_directories = self.store.count_pending_directories(settings, session_id)
+        directories_completed = int(session_row["directories_completed"]) if session_row else 0
+        total_directories = directories_completed + pending_directories
+        progress_callback(
+            {
+                "phase": "prepare",
+                "rootSlug": root_slug,
+                "current": len(discovered_directories),
+                "total": len(discovered_directories),
+                "percent": None,
+                "directoriesDiscovered": len(discovered_directories),
+                "directoriesTotal": total_directories,
+                "directoriesCompleted": directories_completed,
+                "pendingDirectories": pending_directories,
+                "message": f"Prepared {total_directories} directories for root `{root_slug}`.",
+            }
+        )
 
     def _build_observation(
         self,
@@ -553,6 +648,7 @@ class CatalogStatusService:
             catalog_root(settings),
         )
         synced_roots = self.registry.sync(settings)
+        effective_scan_roots = self.registry.scan_roots(settings)
         root_check = CheckResult(
             name="configured_catalog_roots",
             status=CheckStatus.PASS if synced_roots else CheckStatus.WARN,
@@ -564,6 +660,37 @@ class CatalogStatusService:
         )
         sessions = self.store.list_scan_sessions(settings, slug=root_slug)
         snapshots = self.store.list_latest_snapshots(settings, slug=root_slug)
+        effective_root_slugs = [root.slug for root in effective_scan_roots]
+        current_root_slugs = sorted(
+            [
+                str(row["root_slug"])
+                for row in snapshots
+                if row.get("snapshot_id") is not None
+                and bool(row.get("snapshot_current"))
+                and str(row["root_slug"]) in effective_root_slugs
+            ]
+        )
+        stale_root_slugs = sorted(
+            [
+                str(row["root_slug"])
+                for row in snapshots
+                if row.get("snapshot_id") is not None
+                and not bool(row.get("snapshot_current"))
+                and str(row["root_slug"]) in effective_root_slugs
+            ]
+        )
+        missing_root_slugs = [
+            slug
+            for slug in effective_root_slugs
+            if slug not in set(current_root_slugs) and slug not in set(stale_root_slugs)
+        ]
+        requires_scan = bool(effective_root_slugs) and bool(missing_root_slugs or stale_root_slugs)
+        active_sessions = [
+            row
+            for row in sessions
+            if str(row["status"]) in {"running", "paused"}
+            and str(row["root_slug"]) in effective_root_slugs
+        ]
         summary = (
             f"Catalog status loaded {len(synced_roots)} roots, "
             f"{len(snapshots)} latest snapshots, and {len(sessions)} scan sessions."
@@ -572,7 +699,28 @@ class CatalogStatusService:
             domain="analyze.catalog",
             action="status",
             summary=summary,
-            checks=[catalog_path_check, root_check],
+            checks=[
+                catalog_path_check,
+                root_check,
+                CheckResult(
+                    name="catalog_scan_coverage",
+                    status=CheckStatus.WARN if requires_scan else CheckStatus.PASS,
+                    message=(
+                        "Current committed catalog snapshots exist for all effective scan roots."
+                        if not requires_scan
+                        else (
+                            "One or more effective scan roots are missing a current committed "
+                            "snapshot."
+                        )
+                    ),
+                    details={
+                        "effective_root_slugs": effective_root_slugs,
+                        "current_root_slugs": current_root_slugs,
+                        "stale_root_slugs": stale_root_slugs,
+                        "missing_root_slugs": missing_root_slugs,
+                    },
+                ),
+            ],
             sections=[
                 ValidationSection(
                     name="CATALOG_ROOTS",
@@ -594,7 +742,18 @@ class CatalogStatusService:
                     rows=sessions,
                 ),
             ],
-            metadata={"catalog_path": str(catalog_database_path(settings))},
+            metadata={
+                "catalog_path": str(catalog_database_path(settings)),
+                "scanCoverage": {
+                    "effectiveRootSlugs": effective_root_slugs,
+                    "currentRootSlugs": current_root_slugs,
+                    "staleRootSlugs": stale_root_slugs,
+                    "missingRootSlugs": missing_root_slugs,
+                    "requiresScan": requires_scan,
+                    "hasCompleteCoverage": not requires_scan,
+                    "activeSessions": active_sessions,
+                },
+            },
         )
 
 

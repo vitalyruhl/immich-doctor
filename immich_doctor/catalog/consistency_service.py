@@ -50,12 +50,27 @@ class CatalogConsistencyValidationService:
         progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> ValidationReport:
         synced_roots = self.registry.sync(settings)
+        effective_root_slugs = [root.slug for root in self.registry.scan_roots(settings)]
         latest_snapshots = self.store.list_latest_snapshots(settings)
         snapshot_by_slug = {
             str(row["root_slug"]): row
             for row in latest_snapshots
-            if row.get("snapshot_id") is not None
+            if row.get("snapshot_id") is not None and bool(row.get("snapshot_current"))
         }
+        stale_root_slugs = sorted(
+            [
+                str(row["root_slug"])
+                for row in latest_snapshots
+                if row.get("snapshot_id") is not None
+                and not bool(row.get("snapshot_current"))
+                and str(row["root_slug"]) in effective_root_slugs
+            ]
+        )
+        missing_root_slugs = [
+            slug
+            for slug in effective_root_slugs
+            if slug not in snapshot_by_slug and slug not in stale_root_slugs
+        ]
         checks = [
             CheckResult(
                 name="catalog_configured_roots",
@@ -67,29 +82,39 @@ class CatalogConsistencyValidationService:
                 ),
             )
         ]
-        if _SOURCE_ROOT_SLUG not in snapshot_by_slug:
+        if missing_root_slugs or stale_root_slugs:
             checks.append(
                 CheckResult(
-                    name="catalog_source_snapshot",
+                    name="catalog_current_snapshots",
                     status=CheckStatus.FAIL,
                     message=(
-                        "No committed uploads catalog snapshot exists yet. "
-                        "Run a catalog scan first."
+                        "Current committed catalog snapshots are not available for every "
+                        "effective storage root. Run a catalog scan first."
                     ),
+                    details={
+                        "effective_root_slugs": effective_root_slugs,
+                        "missing_root_slugs": missing_root_slugs,
+                        "stale_root_slugs": stale_root_slugs,
+                    },
                 )
             )
             return ValidationReport(
                 domain="consistency.catalog",
                 action="validate",
-                summary=("Catalog-backed consistency is waiting for a committed uploads snapshot."),
+                summary=(
+                    "Catalog-backed consistency is waiting for a current committed storage index."
+                ),
                 checks=checks,
                 metadata={
-                    "configuredRoots": [row["slug"] for row in synced_roots],
+                    "configuredRoots": effective_root_slugs,
                     "latestSnapshots": latest_snapshots,
+                    "staleRootSlugs": stale_root_slugs,
+                    "missingRootSlugs": missing_root_slugs,
+                    "requiresCurrentScan": True,
                 },
                 recommendations=[
-                    "Run a catalog scan from the Storage page before starting "
-                    "the consistency validation.",
+                    "Run a catalog scan from the Storage page before starting the "
+                    "consistency validation.",
                 ],
             )
 
@@ -176,33 +201,53 @@ class CatalogConsistencyValidationService:
             original_path = _truthy_path(asset.get("originalPath"))
             if not original_path:
                 continue
+            asset_name = _truthy_path(asset.get("originalFileName"))
 
             resolved_original = resolver.resolve(original_path)
-            if resolved_original is None and resolver.looks_like_legacy_immich_path(original_path):
+            if resolved_original is None:
                 unmapped_rows.append(
                     {
                         "asset_id": asset_id,
+                        "asset_name": asset_name,
                         "path_kind": "original",
                         "database_path": original_path,
+                        "mapping_status": (
+                            "legacy_path_unmapped"
+                            if resolver.looks_like_legacy_immich_path(original_path)
+                            else "unrecognized_path"
+                        ),
                     }
                 )
                 continue
 
-            if resolved_original is not None and resolved_original.root_slug == _SOURCE_ROOT_SLUG:
-                db_original_index.add(resolved_original.relative_path)
-                original_by_asset[asset_id] = resolved_original.relative_path
-                if resolved_original.relative_path not in uploads_index:
-                    db_missing_rows.append(
-                        {
-                            "asset_id": asset_id,
-                            "asset_type": asset.get("type"),
-                            "owner_id": asset.get("ownerId"),
-                            "database_path": original_path,
-                            "resolved_root": resolved_original.root_slug,
-                            "relative_path": resolved_original.relative_path,
-                            "mapping_mode": resolved_original.mapping_mode,
-                        }
-                    )
+            if resolved_original.root_slug != _SOURCE_ROOT_SLUG:
+                unmapped_rows.append(
+                    {
+                        "asset_id": asset_id,
+                        "asset_name": asset_name,
+                        "path_kind": "original",
+                        "database_path": original_path,
+                        "mapping_status": "unexpected_root",
+                        "resolved_root": resolved_original.root_slug,
+                        "mapping_mode": resolved_original.mapping_mode,
+                    }
+                )
+                continue
+
+            db_original_index.add(resolved_original.relative_path)
+            original_by_asset[asset_id] = resolved_original.relative_path
+            if resolved_original.relative_path not in uploads_index:
+                db_missing_rows.append(
+                    {
+                        "asset_id": asset_id,
+                        "asset_name": asset_name,
+                        "asset_type": asset.get("type"),
+                        "database_path": original_path,
+                        "resolved_root": resolved_original.root_slug,
+                        "relative_path": resolved_original.relative_path,
+                        "mapping_mode": resolved_original.mapping_mode,
+                    }
+                )
 
             if progress_callback is not None and index % 2500 == 0:
                 progress_callback(
@@ -330,10 +375,34 @@ class CatalogConsistencyValidationService:
         summary = (
             "Catalog-backed consistency compared the cached storage inventory "
             "against the live database: "
-            f"{len(db_missing_rows)} DB originals missing on storage, "
+            f"{len(db_missing_rows)} DB originals not found in the current storage snapshot, "
             f"{len(storage_missing_rows)} storage originals missing in DB, "
             f"{len(orphan_rows)} orphan derivatives, and "
             f"{len(zero_byte_rows)} zero-byte findings."
+        )
+
+        snapshot_basis = [
+            {
+                "rootSlug": str(row["root_slug"]),
+                "snapshotId": row["snapshot_id"],
+                "generation": row["generation"],
+                "committedAt": row["committed_at"],
+                "absolutePath": row["absolute_path"],
+            }
+            for row in latest_snapshots
+            if row.get("snapshot_id") is not None
+            and bool(row.get("snapshot_current"))
+            and str(row["root_slug"]) in effective_root_slugs
+        ]
+        latest_scan_committed_at = max(
+            (
+                str(row["committed_at"])
+                for row in latest_snapshots
+                if row.get("committed_at")
+                and bool(row.get("snapshot_current"))
+                and str(row["root_slug"]) in effective_root_slugs
+            ),
+            default=None,
         )
 
         return ValidationReport(
@@ -384,6 +453,8 @@ class CatalogConsistencyValidationService:
             metadata={
                 "configuredRoots": [row["slug"] for row in synced_roots],
                 "latestSnapshots": latest_snapshots,
+                "snapshotBasis": snapshot_basis,
+                "latestScanCommittedAt": latest_scan_committed_at,
                 "sampleLimit": self.sample_limit,
                 "totals": {
                     "dbOriginalsMissingOnStorage": len(db_missing_rows),

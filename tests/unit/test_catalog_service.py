@@ -55,6 +55,7 @@ def test_catalog_scan_indexes_files_and_reports_zero_byte(tmp_path: Path) -> Non
     )
     assert latest_snapshot_section.rows[0]["item_count"] == 2
     assert latest_snapshot_section.rows[0]["zero_byte_count"] == 1
+    assert latest_snapshot_section.rows[0]["snapshot_current"] == 1
 
     zero_byte_report = CatalogZeroByteReportService().run(
         settings,
@@ -130,3 +131,106 @@ def test_catalog_registry_scan_roots_skip_overlapping_parent_paths(tmp_path: Pat
     scan_roots = CatalogRootRegistry().scan_roots(settings)
 
     assert [root.slug for root in scan_roots] == ["uploads", "thumbs", "profile", "video"]
+
+
+def test_catalog_scan_reports_prepare_phase_and_fixed_directory_total(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "a" / "b").mkdir(parents=True, exist_ok=True)
+    (uploads / "a" / "asset-a.jpg").write_bytes(b"a")
+    (uploads / "a" / "b" / "asset-b.jpg").write_bytes(b"b")
+
+    settings = _settings(tmp_path, uploads=uploads)
+    progress_payloads: list[dict[str, object]] = []
+
+    CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+        progress_callback=progress_payloads.append,
+    )
+
+    prepare_updates = [
+        payload for payload in progress_payloads if payload.get("phase") == "prepare"
+    ]
+    scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
+
+    assert prepare_updates
+    assert scan_updates
+    assert prepare_updates[-1]["directoriesTotal"] == 3
+    assert {payload["directoriesTotal"] for payload in scan_updates} == {3}
+    assert scan_updates[-1]["percent"] == 100.0
+
+
+def test_catalog_status_reports_missing_effective_root_coverage(tmp_path: Path) -> None:
+    storage = tmp_path / "storage"
+    uploads = storage / "upload"
+    thumbs = storage / "thumbs"
+    profile = storage / "profile"
+    video = storage / "encoded-video"
+    uploads.mkdir(parents=True, exist_ok=True)
+    thumbs.mkdir(parents=True, exist_ok=True)
+    profile.mkdir(parents=True, exist_ok=True)
+    video.mkdir(parents=True, exist_ok=True)
+    (uploads / "asset.jpg").write_bytes(b"asset")
+
+    settings = AppSettings(
+        _env_file=None,
+        immich_library_root=storage,
+        immich_uploads_path=uploads,
+        immich_thumbs_path=thumbs,
+        immich_profile_path=profile,
+        immich_video_path=video,
+        reports_path=tmp_path / "reports",
+        manifests_path=tmp_path / "manifests",
+        quarantine_path=tmp_path / "quarantine",
+        logs_path=tmp_path / "logs",
+        tmp_path=tmp_path / "tmp",
+    )
+
+    CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    status_report = CatalogStatusService().run(settings, root_slug=None)
+    scan_coverage = status_report.metadata["scanCoverage"]
+
+    assert scan_coverage["effectiveRootSlugs"] == ["uploads", "thumbs", "profile", "video"]
+    assert scan_coverage["currentRootSlugs"] == ["uploads"]
+    assert scan_coverage["staleRootSlugs"] == []
+    assert scan_coverage["missingRootSlugs"] == ["thumbs", "profile", "video"]
+    assert scan_coverage["requiresScan"] is True
+
+
+def test_catalog_status_marks_snapshots_stale_after_root_path_change(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    (uploads / "asset.jpg").write_bytes(b"asset")
+    settings = _settings(tmp_path, uploads=uploads)
+
+    CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    moved_uploads = tmp_path / "uploads-moved"
+    moved_uploads.mkdir(parents=True, exist_ok=True)
+    moved_settings = _settings(tmp_path, uploads=moved_uploads)
+
+    status_report = CatalogStatusService().run(moved_settings, root_slug="uploads")
+    latest_snapshot = next(
+        section for section in status_report.sections if section.name == "LATEST_SNAPSHOTS"
+    ).rows[0]
+    scan_coverage = status_report.metadata["scanCoverage"]
+
+    assert latest_snapshot["snapshot_id"] is not None
+    assert latest_snapshot["snapshot_current"] == 0
+    assert latest_snapshot["stale_reason"] == "root_configuration_changed"
+    assert scan_coverage["currentRootSlugs"] == []
+    assert scan_coverage["staleRootSlugs"] == ["uploads"]
+    assert scan_coverage["requiresScan"] is True

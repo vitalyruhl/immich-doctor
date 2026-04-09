@@ -31,6 +31,17 @@ services:
       dockerfile: docker/Dockerfile
       target: runtime
     image: ${TESTBED_IMMICH_DOCTOR_IMAGE:-immich-doctor:local}
+    user: root
+    privileged: true
+    entrypoint:
+      - /usr/local/bin/immich-doctor-real-storage-entrypoint
+    command:
+      - uvicorn
+      - immich_doctor.api:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
     restart: unless-stopped
     ports:
       - "${TESTBED_DOCTOR_PORT:-8000}:8000"
@@ -58,6 +69,15 @@ services:
       TESTBED_AUTO_IMPORT_ON_EMPTY: ${TESTBED_AUTO_IMPORT_ON_EMPTY:-true}
       TESTBED_DUMP_MOUNT_SOURCE: ${TESTBED_DUMP_MOUNT_SOURCE:-./tmp}
       TESTBED_CONTAINER_DUMP_DIR: /mnt/testbed/dumps
+      TESTBED_STORAGE_SOURCE_MODE: ${TESTBED_STORAGE_SOURCE_MODE:-mock}
+      TESTBED_REAL_STORAGE_MODE: ${TESTBED_REAL_STORAGE_MODE:-host-bind}
+      TESTBED_REAL_STORAGE_SMB_SOURCE: ${TESTBED_REAL_STORAGE_SMB_SOURCE:-}
+      TESTBED_REAL_STORAGE_SMB_USERNAME: ${TESTBED_REAL_STORAGE_SMB_USERNAME:-}
+      TESTBED_REAL_STORAGE_SMB_PASSWORD: ${TESTBED_REAL_STORAGE_SMB_PASSWORD:-}
+      TESTBED_REAL_STORAGE_SMB_VERS: ${TESTBED_REAL_STORAGE_SMB_VERS:-3.0}
+      TESTBED_REAL_STORAGE_SMB_DOMAIN: ${TESTBED_REAL_STORAGE_SMB_DOMAIN:-}
+      TESTBED_REAL_STORAGE_SMB_UID: ${TESTBED_REAL_STORAGE_SMB_UID:-1000}
+      TESTBED_REAL_STORAGE_SMB_GID: ${TESTBED_REAL_STORAGE_SMB_GID:-1000}
     depends_on:
       postgres:
         condition: service_healthy

@@ -13,6 +13,16 @@ import type {
   CatalogWorkflowJobRecord,
 } from "@/api/types/catalog";
 
+interface CatalogScanCoverageMetadata {
+  effectiveRootSlugs?: string[];
+  currentRootSlugs?: string[];
+  staleRootSlugs?: string[];
+  missingRootSlugs?: string[];
+  requiresScan?: boolean;
+  hasCompleteCoverage?: boolean;
+  activeSessions?: Array<Record<string, unknown>>;
+}
+
 function toErrorMessage(caughtError: unknown): string {
   return caughtError instanceof ApiClientError ? caughtError.payload.message : "Unknown error.";
 }
@@ -31,6 +41,15 @@ function extractLatestSnapshots(report: CatalogValidationReport | null): Array<R
     return [];
   }
   return section.rows;
+}
+
+function extractScanCoverage(
+  report: CatalogValidationReport | null,
+): CatalogScanCoverageMetadata | null {
+  const metadata = report?.metadata?.scanCoverage;
+  return metadata && typeof metadata === "object"
+    ? (metadata as CatalogScanCoverageMetadata)
+    : null;
 }
 
 function normalizeSelectedRoot(
@@ -128,13 +147,12 @@ export const useCatalogStore = defineStore("catalog", () => {
   }
 
   const latestSnapshots = computed(() => extractLatestSnapshots(statusReport.value));
+  const scanCoverage = computed(() => extractScanCoverage(statusReport.value));
   const hasCommittedSnapshot = computed(() =>
     latestSnapshots.value.some((row) => row.snapshot_id !== null),
   );
   const scanJobActive = computed(() => isActiveScanJob(scanJob.value));
-  const shouldAutoStartScan = computed(
-    () => !hasCommittedSnapshot.value && scanJob.value?.jobId == null,
-  );
+  const shouldAutoStartScan = computed(() => !scanJobActive.value && Boolean(scanCoverage.value?.requiresScan));
   const rootCount = computed(() => roots.value.length);
 
   return {
@@ -149,6 +167,7 @@ export const useCatalogStore = defineStore("catalog", () => {
     rootCount,
     roots,
     scanError,
+    scanCoverage,
     scanJob,
     scanJobActive,
     selectedRoot,
