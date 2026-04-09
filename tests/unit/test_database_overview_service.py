@@ -144,8 +144,7 @@ def test_database_overview_service_marks_related_findings_as_waiting_during_inde
             {
                 "state": "pending",
                 "summary": (
-                    "Catalog consistency validation is waiting for the "
-                    "catalog scan to finish."
+                    "Catalog consistency validation is waiting for the catalog scan to finish."
                 ),
                 "result": {
                     "blockedBy": {

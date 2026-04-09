@@ -150,8 +150,7 @@ def test_dashboard_health_service_reports_consistency_waiting_on_scan() -> None:
                 "jobType": "catalog_consistency_validation",
                 "state": "pending",
                 "summary": (
-                    "Catalog consistency validation is waiting for the "
-                    "catalog scan to finish."
+                    "Catalog consistency validation is waiting for the catalog scan to finish."
                 ),
                 "result": {
                     "blockedBy": {

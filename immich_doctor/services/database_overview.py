@@ -345,8 +345,7 @@ class DatabaseOverviewService:
                 "status": self._catalog_job_status(job).value,
                 "summary": str(job.get("summary") or "Consistency findings are available."),
                 "details": (
-                    "Open the Consistency page for detailed compare rows "
-                    "and repair workflows."
+                    "Open the Consistency page for detailed compare rows and repair workflows."
                 ),
                 "route": "/consistency",
             }

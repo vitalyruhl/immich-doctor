@@ -231,8 +231,7 @@ class DashboardHealthService:
                 status=DashboardHealthStatus.UNKNOWN,
                 summary="Consistency readiness is not available in this process.",
                 details=(
-                    "Open the Consistency page for the current "
-                    "catalog-backed validation state."
+                    "Open the Consistency page for the current catalog-backed validation state."
                 ),
                 updatedAt=timestamp,
                 blocking=False,
