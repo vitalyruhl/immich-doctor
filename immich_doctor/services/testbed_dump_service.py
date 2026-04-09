@@ -92,6 +92,8 @@ class TestbedDumpImportService:
             raise TestbedDumpServiceError(
                 "TESTBED_DUMP_PATH is required for automatic testbed dump initialization."
             )
+        if not self.database_is_empty(settings):
+            return None
         return self.import_dump(settings, force=False)
 
     def import_dump(

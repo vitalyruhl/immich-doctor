@@ -366,6 +366,36 @@ a {
   font-weight: 600;
 }
 
+.settings-page .settings-overview-card__summary,
+.settings-page .settings-capability-card__summary,
+.settings-page .settings-capability-card__details,
+.settings-page .settings-section__summary,
+.settings-page .settings-section__header p,
+.settings-page .settings-section__fields dt,
+.settings-page .settings-section__fields dd,
+.settings-page .backup-form__field span,
+.settings-page .backup-form__field input,
+.settings-page .backup-form__field select,
+.settings-page .consistency-disclaimer__check span,
+.settings-page .runtime-blocking-message {
+  font-size: 0.875rem;
+}
+
+.settings-grid--stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-testbed-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-testbed-card__stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
 .runtime-list {
   display: grid;
   gap: 0.75rem;

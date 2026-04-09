@@ -1,5 +1,5 @@
 <template>
-  <section class="page">
+  <section class="page settings-page">
     <PageHeader
       eyebrow="Settings"
       title="Settings"
@@ -38,7 +38,7 @@
 
       <section
         v-if="settingsStore.testbedDump?.enabled"
-        class="panel settings-overview-card"
+        class="panel settings-testbed-card"
       >
         <div class="settings-section__header">
           <div>
@@ -48,16 +48,18 @@
           <CapabilityTag :state="settingsStore.testbedDump.canImport ? 'READY' : 'PARTIAL'" />
         </div>
         <p class="settings-overview-card__summary">{{ settingsStore.testbedDump.summary }}</p>
-        <dl class="settings-section__fields">
-          <dt>Default dump path</dt>
-          <dd>{{ settingsStore.testbedDump.defaultPath ?? "Not configured" }}</dd>
-          <dt>Init mode</dt>
-          <dd>{{ settingsStore.testbedDump.initMode }}</dd>
-          <dt>Default format</dt>
-          <dd>{{ settingsStore.testbedDump.defaultFormat }}</dd>
-          <dt>Auto import on empty DB</dt>
-          <dd>{{ settingsStore.testbedDump.autoImportOnEmpty ? "Enabled" : "Disabled" }}</dd>
-        </dl>
+        <div class="settings-testbed-card__stack">
+          <dl class="settings-section__fields">
+            <dt>Default dump path</dt>
+            <dd>{{ settingsStore.testbedDump.defaultPath ?? "Not configured" }}</dd>
+            <dt>Init mode</dt>
+            <dd>{{ settingsStore.testbedDump.initMode }}</dd>
+            <dt>Default format</dt>
+            <dd>{{ settingsStore.testbedDump.defaultFormat }}</dd>
+            <dt>Auto import on empty DB</dt>
+            <dd>{{ settingsStore.testbedDump.autoImportOnEmpty ? "Enabled" : "Disabled" }}</dd>
+          </dl>
+        </div>
         <div class="settings-section__header">
           <div>
             <h3>Manual reload</h3>
@@ -122,7 +124,7 @@
         title="No settings sections available"
         message="The backend did not expose settings sections. The page remains available with safe capability reporting."
       />
-      <section v-else class="settings-grid">
+      <section v-else class="settings-grid settings-grid--stacked">
         <article v-for="section in settingsStore.sections" :key="section.id" class="panel">
           <div class="settings-section__header">
             <div>

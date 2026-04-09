@@ -88,12 +88,32 @@ def test_maybe_auto_initialize_imports_dump_for_empty_testbed(tmp_path: Path, mo
         calls.append((requested_path, force))
         return {"classification": "success"}
 
+    monkeypatch.setattr(TestbedDumpImportService, "database_is_empty", lambda self, settings: True)
     monkeypatch.setattr(TestbedDumpImportService, "import_dump", fake_import_dump)
 
     result = service.maybe_auto_initialize(settings)
 
     assert result == {"classification": "success"}
     assert calls == [(None, False)]
+
+
+def test_maybe_auto_initialize_skips_non_empty_database(tmp_path: Path, monkeypatch) -> None:
+    service = TestbedDumpImportService()
+    settings = _settings(
+        tmp_path,
+        testbed_dump_path=str(tmp_path / "immich.sql"),
+        testbed_auto_import_on_empty=True,
+        testbed_init_mode="FROM_DUMP",
+    )
+
+    monkeypatch.setattr(TestbedDumpImportService, "database_is_empty", lambda self, settings: False)
+
+    def fail_import(*args, **kwargs):
+        raise AssertionError("import_dump should not run for a non-empty database")
+
+    monkeypatch.setattr(TestbedDumpImportService, "import_dump", fail_import)
+
+    assert service.maybe_auto_initialize(settings) is None
 
 
 def test_restore_dump_reports_partial_success_for_replay_errors(
