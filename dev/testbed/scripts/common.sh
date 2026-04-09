@@ -4,6 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TESTBED_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 COMPOSE_FILE="$TESTBED_DIR/docker-compose.yml"
+REAL_STORAGE_COMPOSE_FILE="$TESTBED_DIR/docker-compose.real-storage.yml"
 ENV_FILE="$TESTBED_DIR/.env"
 ENV_LOCAL_FILE="$TESTBED_DIR/.env.local"
 INITIAL_ENV_VARS=$(env | sed 's/=.*//')
@@ -45,9 +46,19 @@ require_command() {
 
 compose() {
   if [ -f "$ENV_LOCAL_FILE" ]; then
-    docker compose --env-file "$ENV_FILE" --env-file "$ENV_LOCAL_FILE" -f "$COMPOSE_FILE" "$@"
+    docker compose --env-file "$ENV_FILE" --env-file "$ENV_LOCAL_FILE" -f "$COMPOSE_FILE" $(compose_real_storage_args) "$@"
   else
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" $(compose_real_storage_args) "$@"
+  fi
+}
+
+use_cifs_real_storage_mode() {
+  [ "${TESTBED_STORAGE_SOURCE_MODE:-mock}" = "real" ] && [ "${TESTBED_REAL_STORAGE_MODE:-host-bind}" = "cifs" ]
+}
+
+compose_real_storage_args() {
+  if use_cifs_real_storage_mode && [ -f "$REAL_STORAGE_COMPOSE_FILE" ]; then
+    printf '%s\n' "-f" "$REAL_STORAGE_COMPOSE_FILE"
   fi
 }
 
@@ -128,16 +139,31 @@ resolve_host_path() {
 
 resolve_selected_storage_path() {
   mode="${TESTBED_STORAGE_SOURCE_MODE:-mock}"
+  TESTBED_BIND_STORAGE_TARGET="/mnt/immich/storage"
+  export TESTBED_BIND_STORAGE_TARGET
   case "$mode" in
     mock)
       path_value="${TESTBED_MOCK_STORAGE_PATH:-../../data/mock/immich-library}"
       ;;
     real)
-      path_value="${TESTBED_REAL_STORAGE_PATH:-}"
-      if [ -z "$path_value" ]; then
-        echo "ERROR: TESTBED_REAL_STORAGE_PATH is required when TESTBED_STORAGE_SOURCE_MODE=real." >&2
-        exit 1
-      fi
+      case "${TESTBED_REAL_STORAGE_MODE:-host-bind}" in
+        host-bind)
+          path_value="${TESTBED_REAL_STORAGE_PATH:-}"
+          if [ -z "$path_value" ]; then
+            echo "ERROR: TESTBED_REAL_STORAGE_PATH is required when TESTBED_STORAGE_SOURCE_MODE=real and TESTBED_REAL_STORAGE_MODE=host-bind." >&2
+            exit 1
+          fi
+          ;;
+        cifs)
+          path_value="./tmp"
+          TESTBED_BIND_STORAGE_TARGET="/mnt/immich/storage-placeholder"
+          export TESTBED_BIND_STORAGE_TARGET
+          ;;
+        *)
+          echo "ERROR: Unsupported TESTBED_REAL_STORAGE_MODE '${TESTBED_REAL_STORAGE_MODE:-}'. Use host-bind or cifs." >&2
+          exit 1
+          ;;
+      esac
       ;;
     *)
       echo "ERROR: Unsupported TESTBED_STORAGE_SOURCE_MODE '$mode'. Use mock or real." >&2

@@ -118,8 +118,9 @@ The testbed now keeps storage intent explicit:
   - mounts `TESTBED_MOCK_STORAGE_PATH`
   - intended for small synthetic or repo-local datasets
 - `TESTBED_STORAGE_SOURCE_MODE=real`
-  - mounts `TESTBED_REAL_STORAGE_PATH`
-  - intended for realistic validation against a read-only copy or host-prepared mount of real Immich storage
+  - mounts `TESTBED_REAL_STORAGE_PATH` when `TESTBED_REAL_STORAGE_MODE=host-bind`
+  - mounts `TESTBED_REAL_STORAGE_SMB_SOURCE` from inside the doctor container when `TESTBED_REAL_STORAGE_MODE=cifs`
+  - intended for realistic validation against a read-only copy or direct read-only SMB view of real Immich storage
 
 Real-storage semantics remain first-class:
 
@@ -128,6 +129,8 @@ Real-storage semantics remain first-class:
   document how that storage is provided to the local host
 - `TESTBED_REAL_STORAGE_SMB_USERNAME` and `TESTBED_REAL_STORAGE_SMB_PASSWORD`
   remain supported as local-only settings and must stay in `.env.local`
+- `TESTBED_REAL_STORAGE_SMB_DOMAIN`, `TESTBED_REAL_STORAGE_SMB_UID`, and `TESTBED_REAL_STORAGE_SMB_GID`
+  tune optional CIFS mount behavior inside the doctor container
 
 Safety rules:
 
@@ -141,8 +144,13 @@ Safety rules:
 - the persistent catalog always lives under `MANIFESTS_PATH/catalog/`
 - the catalog must never be written into the storage mount itself
 
-On Windows, real-storage mode may still rely on a host-prepared mount such as a mapped
-drive or `subst` path. The repo does not automate SMB mounting for you.
+When `TESTBED_REAL_STORAGE_MODE=cifs`, the wrapper automatically layers
+`dev/testbed/docker-compose.real-storage.yml` on top of the base compose file,
+starts the doctor container as root, mounts the SMB share read-only inside the
+container, and keeps doctor-owned writable paths outside that mount.
+
+When `TESTBED_REAL_STORAGE_MODE=host-bind`, Windows can still use a host-prepared
+mount such as a mapped drive or `subst` path.
 
 ## Snapshot and Restore
 

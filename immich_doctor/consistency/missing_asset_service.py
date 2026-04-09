@@ -733,9 +733,7 @@ class MissingAssetReferenceService:
         logical_path = str(row.get("originalPath") or "")
         resolved_path = path_resolver.resolve(logical_path) if logical_path.strip() else None
         asset_path = (
-            resolved_path.absolute_path
-            if resolved_path is not None
-            else Path(logical_path)
+            resolved_path.absolute_path if resolved_path is not None else Path(logical_path)
         )
         repair_readiness = RepairReadinessStatus.READY
         repair_blockers: list[str] = []
@@ -797,9 +795,7 @@ class MissingAssetReferenceService:
                             blocker_type=MissingAssetRepairBlockerType.FILESYSTEM,
                             summary="Asset path cannot be accessed",
                             details={
-                                "reason": (
-                                    "The current process cannot access the asset path."
-                                )
+                                "reason": ("The current process cannot access the asset path.")
                             },
                             blocking_severity=MissingAssetBlockingSeverity.ERROR,
                             is_repairable=False,

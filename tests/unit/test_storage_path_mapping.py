@@ -7,6 +7,7 @@ from immich_doctor.storage.path_mapping import ImmichStoragePathResolver
 def _settings(tmp_path: Path) -> AppSettings:
     return AppSettings(
         _env_file=None,
+        immich_library_root=tmp_path / "library",
         immich_uploads_path=tmp_path / "upload",
         immich_thumbs_path=tmp_path / "thumbs",
         immich_profile_path=tmp_path / "profile",
@@ -23,9 +24,7 @@ def test_resolver_maps_legacy_immich_paths_into_configured_roots(tmp_path: Path)
     settings = _settings(tmp_path)
     resolver = ImmichStoragePathResolver(settings)
 
-    resolved = resolver.resolve(
-        "/usr/src/app/upload/upload/user-a/ab/cd/original.jpg"
-    )
+    resolved = resolver.resolve("/usr/src/app/upload/upload/user-a/ab/cd/original.jpg")
 
     assert resolved is not None
     assert resolved.root_slug == "uploads"
@@ -33,6 +32,21 @@ def test_resolver_maps_legacy_immich_paths_into_configured_roots(tmp_path: Path)
     assert resolved.mapping_mode == "legacy"
     assert resolved.absolute_path == (
         settings.immich_uploads_path / "user-a" / "ab" / "cd" / "original.jpg"
+    )
+
+
+def test_resolver_maps_legacy_library_paths_into_library_root(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    resolver = ImmichStoragePathResolver(settings)
+
+    resolved = resolver.resolve("/usr/src/app/upload/library/user-a/ab/cd/original.jpg")
+
+    assert resolved is not None
+    assert resolved.root_slug == "library"
+    assert resolved.relative_path == "user-a/ab/cd/original.jpg"
+    assert resolved.mapping_mode == "legacy"
+    assert resolved.absolute_path == (
+        settings.immich_library_root / "user-a" / "ab" / "cd" / "original.jpg"
     )
 
 

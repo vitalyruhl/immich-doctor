@@ -241,8 +241,7 @@ class SettingsService:
                     id="testbed",
                     title="Dev Testbed",
                     description=(
-                        "Local-only dump bootstrap and reload controls for the "
-                        "DB-backed testbed."
+                        "Local-only dump bootstrap and reload controls for the DB-backed testbed."
                     ),
                     fields=[
                         self._schema_field("testbed_init_mode", "Init mode", "string"),

@@ -359,9 +359,7 @@ class TestbedDumpImportService:
         normalized = dump_format.strip().lower()
         if normalized != "auto":
             if normalized not in {"plain", "custom"}:
-                raise TestbedDumpServiceError(
-                    f"Unsupported dump format option: {dump_format}"
-                )
+                raise TestbedDumpServiceError(f"Unsupported dump format option: {dump_format}")
             return normalized
         suffix = Path(path_text).suffix.lower()
         if suffix in {".dump", ".backup", ".bin"}:
