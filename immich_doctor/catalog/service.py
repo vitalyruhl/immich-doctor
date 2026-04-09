@@ -446,12 +446,8 @@ class CatalogInventoryScanService:
             current_path, relative_path = stack.pop()
             discovered_directories.append(relative_path)
             discovered_count = len(discovered_directories)
-            if (
-                progress_callback is not None
-                and (
-                    discovered_count == 1
-                    or discovered_count % _DISCOVERY_PROGRESS_INTERVAL == 0
-                )
+            if progress_callback is not None and (
+                discovered_count == 1 or discovered_count % _DISCOVERY_PROGRESS_INTERVAL == 0
             ):
                 emit_discovery(discovered_count)
 
@@ -688,9 +684,7 @@ class CatalogStatusService:
             for slug in effective_root_slugs
             if slug not in set(current_root_slugs) and slug not in set(stale_root_slugs)
         ]
-        requires_scan = bool(effective_root_slugs) and bool(
-            missing_root_slugs or stale_root_slugs
-        )
+        requires_scan = bool(effective_root_slugs) and bool(missing_root_slugs or stale_root_slugs)
         active_sessions = [
             row
             for row in sessions
