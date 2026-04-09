@@ -336,31 +336,31 @@ const summaryCards = computed<SummaryCardViewModel[]>(() => [
     label: "DB not found in snapshot",
     count: totals.value.dbOriginalsMissingOnStorage ?? 0,
     status: (totals.value.dbOriginalsMissingOnStorage ?? 0) > 0 ? "warning" : "ok",
-    message: "Sicher gemappte DB-Originale ohne Treffer im aktuellen Storage-Snapshot.",
+    message: "Safely mapped DB originals without a match in the current storage snapshot.",
   },
   {
     label: "Storage missing in DB",
     count: totals.value.storageOriginalsMissingInDb ?? 0,
     status: (totals.value.storageOriginalsMissingInDb ?? 0) > 0 ? "warning" : "ok",
-    message: "Dateien auf Storage ohne passende Original-Referenz in der DB.",
+    message: "Files on storage without a matching original reference in the DB.",
   },
   {
     label: "Orphan derivatives",
     count: totals.value.orphanDerivativesWithoutOriginal ?? 0,
     status: (totals.value.orphanDerivativesWithoutOriginal ?? 0) > 0 ? "warning" : "ok",
-    message: "Thumbnails, Sidecars oder Video-Derivate ohne Originaldatei.",
+    message: "Thumbnails, sidecars, or video derivatives without the original file.",
   },
   {
     label: "Zero-byte files",
     count: totals.value.zeroByteFiles ?? 0,
     status: (totals.value.zeroByteFiles ?? 0) > 0 ? "error" : "ok",
-    message: "Offensichtlich defekte Dateien aus dem letzten Storage-Scan.",
+    message: "Obviously broken files from the latest storage scan.",
   },
   {
     label: "Unmapped DB paths",
     count: totals.value.unmappedDatabasePaths ?? 0,
     status: (totals.value.unmappedDatabasePaths ?? 0) > 0 ? "warning" : "ok",
-    message: "Legacy-DB-Pfade konnten nicht in die aktuelle Runtime gemappt werden.",
+    message: "Legacy DB paths could not be mapped into the current runtime roots.",
   },
 ]);
 const scanTimestampLabel = computed(() => {
@@ -390,10 +390,10 @@ const staleSummary = computed(() => {
   const scopeText = [staleRoots, missingRoots].filter(Boolean).join(", ");
   if (staleState.value.requiresScan) {
     return scopeText
-      ? `Der letzte Compare ist veraltet. Ein frischer Storage-Scan ist für folgende Roots nötig: ${scopeText}.`
-      : "Der letzte Compare ist veraltet. Ein frischer Storage-Scan ist nötig.";
+      ? `The last compare is stale. A fresh storage scan is required for: ${scopeText}.`
+      : "The last compare is stale. A fresh storage scan is required.";
   }
-  return "Der letzte Compare ist veraltet, weil sich der Storage-Index geändert hat. Ein neuer Compare wird automatisch vorbereitet.";
+  return "The last compare is stale because the storage index changed. A new compare is being prepared automatically.";
 });
 const emptyStateTitle = computed(() => {
   if (flowActive.value) {

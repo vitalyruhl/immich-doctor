@@ -192,7 +192,7 @@ describe("CatalogConsistencyPanel", () => {
     await settle();
 
     expect(wrapper.text()).toContain("Catalog compare is rebuilding");
-    expect(wrapper.text()).toContain("Der letzte Compare ist veraltet");
+    expect(wrapper.text()).toContain("The last compare is stale");
     expect(wrapper.text()).not.toContain("DB not found in snapshot");
   });
 });
