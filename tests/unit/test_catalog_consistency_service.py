@@ -28,6 +28,7 @@ class _FakePostgres:
                 "ownerId": "user-1",
                 "createdAt": "2026-04-09T09:00:00+00:00",
                 "updatedAt": "2026-04-09T09:00:00+00:00",
+                "originalFileName": "keep.jpg",
                 "originalPath": "/usr/src/app/upload/upload/user-a/keep.jpg",
                 "encodedVideoPath": "",
             },
@@ -37,6 +38,7 @@ class _FakePostgres:
                 "ownerId": "user-1",
                 "createdAt": "2026-04-09T09:01:00+00:00",
                 "updatedAt": "2026-04-09T09:01:00+00:00",
+                "originalFileName": "missing.jpg",
                 "originalPath": "/usr/src/app/upload/upload/user-a/missing.jpg",
                 "encodedVideoPath": "/usr/src/app/upload/encoded-video/user-a/missing.mp4",
             },
@@ -134,6 +136,7 @@ def test_catalog_consistency_reports_db_storage_and_orphan_findings(tmp_path: Pa
         section for section in report.sections if section.name == "DB_ORIGINALS_MISSING_ON_STORAGE"
     )
     assert db_missing.rows[0]["asset_id"] == "asset-missing"
+    assert db_missing.rows[0]["asset_name"] == "missing.jpg"
     assert db_missing.rows[0]["relative_path"] == "user-a/missing.jpg"
 
     storage_missing = next(
@@ -166,3 +169,57 @@ def test_catalog_consistency_reports_db_storage_and_orphan_findings(tmp_path: Pa
         section for section in report.sections if section.name == "ZERO_BYTE_FILES"
     ).rows
     assert zero_byte_rows[0]["relative_path"] == "user-a/zero.jpg"
+    assert report.metadata["latestScanCommittedAt"] is not None
+    assert len(report.metadata["snapshotBasis"]) == 4
+
+
+def test_catalog_consistency_waits_for_current_snapshots_after_root_change(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+
+    for path in [
+        settings.immich_uploads_path,
+        settings.immich_thumbs_path,
+        settings.immich_profile_path,
+        settings.immich_video_path,
+    ]:
+        assert path is not None
+        path.mkdir(parents=True, exist_ok=True)
+
+    (settings.immich_uploads_path / "user-a").mkdir(parents=True, exist_ok=True)
+    (settings.immich_uploads_path / "user-a" / "keep.jpg").write_bytes(b"ok")
+
+    for root_slug in ["uploads", "thumbs", "profile", "video"]:
+        CatalogInventoryScanService().run(
+            settings,
+            root_slug=root_slug,
+            resume_session_id=None,
+            max_files=None,
+        )
+
+    moved_settings = AppSettings(
+        _env_file=None,
+        immich_uploads_path=tmp_path / "upload-moved",
+        immich_thumbs_path=settings.immich_thumbs_path,
+        immich_profile_path=settings.immich_profile_path,
+        immich_video_path=settings.immich_video_path,
+        manifests_path=tmp_path / "manifests",
+        reports_path=tmp_path / "reports",
+        quarantine_path=tmp_path / "quarantine",
+        logs_path=tmp_path / "logs",
+        tmp_path=tmp_path / "tmp",
+        db_host="postgres",
+        db_name="immich",
+        db_user="postgres",
+        db_password="secret",
+    )
+    assert moved_settings.immich_uploads_path is not None
+    moved_settings.immich_uploads_path.mkdir(parents=True, exist_ok=True)
+
+    report = CatalogConsistencyValidationService(postgres=_FakePostgres(), sample_limit=20).run(
+        moved_settings
+    )
+
+    assert report.overall_status == CheckStatus.FAIL
+    assert report.metadata["requiresCurrentScan"] is True
+    assert report.metadata["staleRootSlugs"] == ["uploads"]
+    assert report.sections == []

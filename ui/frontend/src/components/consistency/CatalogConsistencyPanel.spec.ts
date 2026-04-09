@@ -88,7 +88,7 @@ describe("CatalogConsistencyPanel", () => {
         {
           name: "DB_ORIGINALS_MISSING_ON_STORAGE",
           status: "fail",
-          rows: [{ asset_id: "asset-1", relative_path: "user-a/missing.jpg" }],
+          rows: [{ asset_id: "asset-1", asset_name: "missing.jpg", database_path: "/usr/src/app/upload/upload/user-a/missing.jpg" }],
         },
         {
           name: "STORAGE_ORIGINALS_MISSING_IN_DB",
@@ -114,6 +114,15 @@ describe("CatalogConsistencyPanel", () => {
       metrics: [],
       recommendations: [],
       metadata: {
+        latestScanCommittedAt: "2026-04-09T12:00:00+00:00",
+        snapshotBasis: [
+          {
+            rootSlug: "uploads",
+            snapshotId: 7,
+            generation: 2,
+            committedAt: "2026-04-09T12:00:00+00:00",
+          },
+        ],
         totals: {
           dbOriginalsMissingOnStorage: 1,
           storageOriginalsMissingInDb: 1,
@@ -137,8 +146,9 @@ describe("CatalogConsistencyPanel", () => {
     await settle();
 
     expect(wrapper.text()).toContain("Catalog-backed storage compare");
-    expect(wrapper.text()).toContain("DB missing on storage");
-    expect(wrapper.text()).toContain("user-a/missing.jpg");
+    expect(wrapper.text()).toContain("DB not found in snapshot");
+    expect(wrapper.text()).toContain("missing.jpg");
+    expect(wrapper.text()).toContain("/usr/src/app/upload/upload/user-a/missing.jpg");
 
     const button = wrapper
       .findAll("button")
@@ -147,5 +157,42 @@ describe("CatalogConsistencyPanel", () => {
 
     await button!.trigger("click");
     expect(store.startCatalog).toHaveBeenCalledWith(true);
+  });
+
+  it("shows stale rebuild messaging without rendering stale report tables", async () => {
+    store.catalogJob = {
+      jobId: null,
+      jobType: "catalog_consistency_validation",
+      state: "pending",
+      summary: "Catalog consistency needs a rebuild because the storage index changed.",
+      createdAt: "2026-04-09T12:00:00+00:00",
+      updatedAt: "2026-04-09T12:02:00+00:00",
+      startedAt: null,
+      completedAt: null,
+      cancelRequested: false,
+      error: null,
+      result: {
+        stale: true,
+        staleReason: "catalog_scan_updated",
+        previousCompareGeneratedAt: "2026-04-09T12:01:00+00:00",
+        latestScanCommittedAt: "2026-04-09T12:02:00+00:00",
+      },
+    };
+    store.catalogReport = null;
+
+    const wrapper = mount(CatalogConsistencyPanel, {
+      global: {
+        stubs: {
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
+          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
+        },
+      },
+    });
+
+    await settle();
+
+    expect(wrapper.text()).toContain("Catalog compare is rebuilding");
+    expect(wrapper.text()).toContain("Der letzte Compare ist veraltet");
+    expect(wrapper.text()).not.toContain("DB not found in snapshot");
   });
 });

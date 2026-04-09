@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 CATALOG_SCAN_JOB_TYPE = "catalog_inventory_scan"
 CATALOG_CONSISTENCY_JOB_TYPE = "catalog_consistency_validation"
-_REQUIRED_CONSISTENCY_ROOT = "uploads"
 
 
 def _iso_now() -> str:
@@ -167,18 +166,33 @@ class CatalogWorkflowService:
                 summary="Catalog consistency validation is waiting for the catalog scan to finish.",
                 blocked_by=active_scan,
             )
+        coverage = self._scan_coverage(settings)
         latest = self.runtime.store.find_latest_job(
             settings,
             job_type=CATALOG_CONSISTENCY_JOB_TYPE,
             states=set(TERMINAL_BACKGROUND_JOB_STATES),
         )
-        if latest is not None:
+        if latest is not None and self._consistency_report_is_current(
+            latest,
+            coverage=coverage,
+        ):
             return _record_to_payload(latest)
-        if not self._has_required_catalog_snapshot(settings):
+        if latest is not None:
+            return self._stale_consistency_snapshot(
+                coverage=coverage,
+                latest_consistency=latest,
+            )
+        if not coverage["hasCompleteCoverage"]:
             return self._pending_snapshot(
                 job_type=CATALOG_CONSISTENCY_JOB_TYPE,
-                summary="Catalog consistency is waiting for a committed catalog scan.",
-                result={"requiresScan": True},
+                summary="Catalog consistency is waiting for a current committed catalog scan.",
+                result={
+                    "requiresScan": True,
+                    "stale": bool(coverage["staleRootSlugs"]),
+                    "staleRootSlugs": coverage["staleRootSlugs"],
+                    "missingRootSlugs": coverage["missingRootSlugs"],
+                    "latestScanCommittedAt": coverage["latestScanCommittedAt"],
+                },
             )
         return self._pending_snapshot(
             job_type=CATALOG_CONSISTENCY_JOB_TYPE,
@@ -200,15 +214,23 @@ class CatalogWorkflowService:
         if active_consistency is not None:
             return _record_to_payload(active_consistency)
 
-        if not self._has_required_catalog_snapshot(settings):
+        coverage = self._scan_coverage(settings)
+        if not coverage["hasCompleteCoverage"]:
             scan_snapshot = self.start_scan(settings, force=True)
             return self._pending_snapshot(
                 job_type=CATALOG_CONSISTENCY_JOB_TYPE,
                 summary=(
-                    "Catalog consistency validation is waiting for the first "
+                    "Catalog consistency validation is waiting for a current "
                     "committed catalog scan."
                 ),
-                result={"requiresScan": True, "blockedBy": scan_snapshot},
+                result={
+                    "requiresScan": True,
+                    "blockedBy": scan_snapshot,
+                    "stale": bool(coverage["staleRootSlugs"]),
+                    "staleRootSlugs": coverage["staleRootSlugs"],
+                    "missingRootSlugs": coverage["missingRootSlugs"],
+                    "latestScanCommittedAt": coverage["latestScanCommittedAt"],
+                },
             )
 
         latest_consistency = self.runtime.store.find_latest_job(
@@ -216,7 +238,11 @@ class CatalogWorkflowService:
             job_type=CATALOG_CONSISTENCY_JOB_TYPE,
             states=set(TERMINAL_BACKGROUND_JOB_STATES),
         )
-        if latest_consistency is not None and not force:
+        if (
+            latest_consistency is not None
+            and not force
+            and self._consistency_report_is_current(latest_consistency, coverage=coverage)
+        ):
             return _record_to_payload(latest_consistency)
 
         initial_result = {
@@ -401,16 +427,8 @@ class CatalogWorkflowService:
         )
 
     def _has_complete_scan_coverage(self, settings: AppSettings) -> bool:
-        latest = self.store.list_latest_snapshots(settings)
-        snapshot_by_slug = {
-            str(row["root_slug"]): row
-            for row in latest
-            if row.get("snapshot_id") is not None
-        }
-        effective_root_slugs = [root.slug for root in self.registry.scan_roots(settings)]
-        return bool(effective_root_slugs) and all(
-            slug in snapshot_by_slug for slug in effective_root_slugs
-        )
+        coverage = self._scan_coverage(settings)
+        return bool(coverage["hasCompleteCoverage"])
 
     def _scan_report_state(self, status: CheckStatus) -> BackgroundJobState:
         if status == CheckStatus.FAIL:
@@ -460,13 +478,140 @@ class CatalogWorkflowService:
             "report": report.to_dict(),
         }
 
-    def _has_required_catalog_snapshot(self, settings: AppSettings) -> bool:
+    def _scan_coverage(self, settings: AppSettings) -> dict[str, object]:
+        self.registry.sync(settings)
         latest = self.store.list_latest_snapshots(settings)
-        uploads_snapshot = next(
-            (row for row in latest if row.get("root_slug") == _REQUIRED_CONSISTENCY_ROOT),
-            None,
+        effective_root_slugs = [root.slug for root in self.registry.scan_roots(settings)]
+        current_rows = [
+            row
+            for row in latest
+            if row.get("snapshot_id") is not None
+            and bool(row.get("snapshot_current"))
+            and str(row["root_slug"]) in effective_root_slugs
+        ]
+        current_by_slug = {str(row["root_slug"]): row for row in current_rows}
+        stale_root_slugs = sorted(
+            [
+                str(row["root_slug"])
+                for row in latest
+                if row.get("snapshot_id") is not None
+                and not bool(row.get("snapshot_current"))
+                and str(row["root_slug"]) in effective_root_slugs
+            ]
         )
-        return bool(uploads_snapshot and uploads_snapshot.get("snapshot_id") is not None)
+        missing_root_slugs = [
+            slug
+            for slug in effective_root_slugs
+            if slug not in current_by_slug and slug not in stale_root_slugs
+        ]
+        latest_scan_committed_at = max(
+            (
+                str(row["committed_at"])
+                for row in current_rows
+                if row.get("committed_at") is not None
+            ),
+            default=None,
+        )
+        return {
+            "effectiveRootSlugs": effective_root_slugs,
+            "currentRows": current_rows,
+            "currentBySlug": current_by_slug,
+            "staleRootSlugs": stale_root_slugs,
+            "missingRootSlugs": missing_root_slugs,
+            "latestScanCommittedAt": latest_scan_committed_at,
+            "hasCompleteCoverage": bool(effective_root_slugs)
+            and not stale_root_slugs
+            and not missing_root_slugs,
+        }
+
+    def _snapshot_basis_signature(
+        self,
+        snapshot_basis: object,
+    ) -> tuple[tuple[str, str, str, str], ...]:
+        if not isinstance(snapshot_basis, list):
+            return ()
+        signature: list[tuple[str, str, str, str]] = []
+        for item in snapshot_basis:
+            if not isinstance(item, dict):
+                continue
+            signature.append(
+                (
+                    str(item.get("rootSlug") or ""),
+                    str(item.get("snapshotId") or ""),
+                    str(item.get("generation") or ""),
+                    str(item.get("committedAt") or ""),
+                )
+            )
+        signature.sort()
+        return tuple(signature)
+
+    def _current_snapshot_basis_signature(
+        self,
+        coverage: dict[str, object],
+    ) -> tuple[tuple[str, str, str, str], ...]:
+        rows = coverage.get("currentRows")
+        if not isinstance(rows, list):
+            return ()
+        signature = [
+            (
+                str(row.get("root_slug") or ""),
+                str(row.get("snapshot_id") or ""),
+                str(row.get("generation") or ""),
+                str(row.get("committed_at") or ""),
+            )
+            for row in rows
+        ]
+        signature.sort()
+        return tuple(signature)
+
+    def _consistency_report_is_current(
+        self,
+        record: BackgroundJobRecord,
+        *,
+        coverage: dict[str, object],
+    ) -> bool:
+        if not coverage["hasCompleteCoverage"]:
+            return False
+        report = record.result.get("report")
+        if not isinstance(report, dict):
+            return False
+        metadata = report.get("metadata")
+        if not isinstance(metadata, dict):
+            return False
+        return self._snapshot_basis_signature(
+            metadata.get("snapshotBasis")
+        ) == self._current_snapshot_basis_signature(coverage)
+
+    def _stale_consistency_snapshot(
+        self,
+        *,
+        coverage: dict[str, object],
+        latest_consistency: BackgroundJobRecord,
+    ) -> dict[str, object]:
+        report = latest_consistency.result.get("report")
+        previous_compare_generated_at = (
+            str(report.get("generated_at"))
+            if isinstance(report, dict) and report.get("generated_at") is not None
+            else latest_consistency.completed_at
+        )
+        requires_scan = not bool(coverage["hasCompleteCoverage"])
+        return self._pending_snapshot(
+            job_type=CATALOG_CONSISTENCY_JOB_TYPE,
+            summary=(
+                "Catalog consistency needs a rebuild because the storage index changed."
+                if not requires_scan
+                else "Catalog consistency is waiting for a current committed catalog scan."
+            ),
+            result={
+                "requiresScan": requires_scan,
+                "stale": True,
+                "staleReason": "catalog_scan_updated",
+                "previousCompareGeneratedAt": previous_compare_generated_at,
+                "latestScanCommittedAt": coverage["latestScanCommittedAt"],
+                "staleRootSlugs": coverage["staleRootSlugs"],
+                "missingRootSlugs": coverage["missingRootSlugs"],
+            },
+        )
 
     def _pending_snapshot(
         self,

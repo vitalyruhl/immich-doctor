@@ -55,6 +55,7 @@ def test_catalog_scan_indexes_files_and_reports_zero_byte(tmp_path: Path) -> Non
     )
     assert latest_snapshot_section.rows[0]["item_count"] == 2
     assert latest_snapshot_section.rows[0]["zero_byte_count"] == 1
+    assert latest_snapshot_section.rows[0]["snapshot_current"] == 1
 
     zero_byte_report = CatalogZeroByteReportService().run(
         settings,
@@ -198,6 +199,38 @@ def test_catalog_status_reports_missing_effective_root_coverage(tmp_path: Path) 
     scan_coverage = status_report.metadata["scanCoverage"]
 
     assert scan_coverage["effectiveRootSlugs"] == ["uploads", "thumbs", "profile", "video"]
-    assert scan_coverage["committedRootSlugs"] == ["uploads"]
+    assert scan_coverage["currentRootSlugs"] == ["uploads"]
+    assert scan_coverage["staleRootSlugs"] == []
     assert scan_coverage["missingRootSlugs"] == ["thumbs", "profile", "video"]
+    assert scan_coverage["requiresScan"] is True
+
+
+def test_catalog_status_marks_snapshots_stale_after_root_path_change(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    (uploads / "asset.jpg").write_bytes(b"asset")
+    settings = _settings(tmp_path, uploads=uploads)
+
+    CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    moved_uploads = tmp_path / "uploads-moved"
+    moved_uploads.mkdir(parents=True, exist_ok=True)
+    moved_settings = _settings(tmp_path, uploads=moved_uploads)
+
+    status_report = CatalogStatusService().run(moved_settings, root_slug="uploads")
+    latest_snapshot = next(
+        section for section in status_report.sections if section.name == "LATEST_SNAPSHOTS"
+    ).rows[0]
+    scan_coverage = status_report.metadata["scanCoverage"]
+
+    assert latest_snapshot["snapshot_id"] is not None
+    assert latest_snapshot["snapshot_current"] == 0
+    assert latest_snapshot["stale_reason"] == "root_configuration_changed"
+    assert scan_coverage["currentRootSlugs"] == []
+    assert scan_coverage["staleRootSlugs"] == ["uploads"]
     assert scan_coverage["requiresScan"] is True

@@ -15,7 +15,8 @@ import type {
 
 interface CatalogScanCoverageMetadata {
   effectiveRootSlugs?: string[];
-  committedRootSlugs?: string[];
+  currentRootSlugs?: string[];
+  staleRootSlugs?: string[];
   missingRootSlugs?: string[];
   requiresScan?: boolean;
   hasCompleteCoverage?: boolean;

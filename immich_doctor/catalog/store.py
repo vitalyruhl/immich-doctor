@@ -58,7 +58,14 @@ class CatalogStore:
                     setting_name = excluded.setting_name,
                     root_type = excluded.root_type,
                     absolute_path = excluded.absolute_path,
-                    updated_at = excluded.updated_at,
+                    updated_at = CASE
+                        WHEN storage_root.setting_name != excluded.setting_name
+                          OR storage_root.root_type != excluded.root_type
+                          OR storage_root.absolute_path != excluded.absolute_path
+                          OR storage_root.enabled != 1
+                        THEN excluded.updated_at
+                        ELSE storage_root.updated_at
+                    END,
                     enabled = 1;
                 """,
                 (
@@ -643,13 +650,28 @@ class CatalogStore:
                 SELECT
                     root.slug AS root_slug,
                     root.root_type AS root_type,
+                    root.absolute_path,
+                    root.updated_at AS root_updated_at,
                     snapshot.id AS snapshot_id,
                     snapshot.generation,
                     snapshot.status,
                     snapshot.started_at,
                     snapshot.committed_at,
                     snapshot.item_count,
-                    snapshot.zero_byte_count
+                    snapshot.zero_byte_count,
+                    CASE
+                        WHEN snapshot.id IS NULL THEN 0
+                        WHEN snapshot.committed_at IS NOT NULL
+                             AND snapshot.committed_at >= root.updated_at THEN 1
+                        ELSE 0
+                    END AS snapshot_current,
+                    CASE
+                        WHEN snapshot.id IS NULL THEN 'missing'
+                        WHEN snapshot.committed_at IS NOT NULL
+                             AND snapshot.committed_at < root.updated_at
+                        THEN 'root_configuration_changed'
+                        ELSE NULL
+                    END AS stale_reason
                 FROM storage_root AS root
                 LEFT JOIN scan_snapshot AS snapshot
                   ON snapshot.id = (
@@ -701,11 +723,13 @@ class CatalogStore:
                   ON snapshot.id = file.last_seen_snapshot_id
                 WHERE file.zero_byte_flag = 1
                   AND snapshot.status = 'committed'
+                  AND snapshot.committed_at >= root.updated_at
                   AND file.last_seen_snapshot_id = (
                       SELECT inner_snapshot.id
                       FROM scan_snapshot AS inner_snapshot
                       WHERE inner_snapshot.storage_root_id = file.storage_root_id
                         AND inner_snapshot.status = 'committed'
+                        AND inner_snapshot.committed_at >= root.updated_at
                       ORDER BY inner_snapshot.generation DESC
                       LIMIT 1
                   )
@@ -757,11 +781,13 @@ class CatalogStore:
                 JOIN scan_snapshot AS snapshot
                   ON snapshot.id = file.last_seen_snapshot_id
                 WHERE snapshot.status = 'committed'
+                  AND snapshot.committed_at >= root.updated_at
                   AND file.last_seen_snapshot_id = (
                       SELECT inner_snapshot.id
                       FROM scan_snapshot AS inner_snapshot
                       WHERE inner_snapshot.storage_root_id = file.storage_root_id
                         AND inner_snapshot.status = 'committed'
+                        AND inner_snapshot.committed_at >= root.updated_at
                       ORDER BY inner_snapshot.generation DESC
                       LIMIT 1
                   )

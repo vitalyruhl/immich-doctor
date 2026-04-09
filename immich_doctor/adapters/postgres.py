@@ -343,6 +343,7 @@ class PostgresAdapter:
                 "ownerId" AS "ownerId",
                 "createdAt" AS "createdAt",
                 "updatedAt" AS "updatedAt",
+                "originalFileName" AS "originalFileName",
                 "originalPath" AS "originalPath",
                 "encodedVideoPath" AS "encodedVideoPath"
             FROM {asset_table}

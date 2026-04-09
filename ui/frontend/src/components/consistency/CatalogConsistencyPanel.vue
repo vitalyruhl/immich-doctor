@@ -45,7 +45,16 @@
       <strong>{{ progressPercent.toFixed(1) }}%</strong>
     </section>
 
-    <section class="health-grid catalog-consistency-grid">
+    <dl class="runtime-detail__grid catalog-consistency-metadata">
+      <dt>Storage scan basis</dt>
+      <dd>{{ scanTimestampLabel }}</dd>
+      <dt>Compare built at</dt>
+      <dd>{{ compareTimestampLabel }}</dd>
+    </dl>
+
+    <p v-if="staleSummary" class="runtime-blocking-message">{{ staleSummary }}</p>
+
+    <section v-if="report" class="health-grid catalog-consistency-grid">
       <article
         v-for="card in summaryCards"
         :key="card.label"
@@ -62,8 +71,8 @@
 
     <EmptyState
       v-if="!report"
-      title="No catalog consistency report yet"
-      message="The first validation run starts automatically when this page opens. If no catalog scan exists yet, the storage index is queued first."
+      :title="emptyStateTitle"
+      :message="emptyStateMessage"
     />
 
     <template v-else>
@@ -146,19 +155,29 @@ interface SummaryCardViewModel {
   message: string;
 }
 
+interface CatalogConsistencyJobState {
+  stale?: boolean;
+  staleReason?: string | null;
+  requiresScan?: boolean;
+  previousCompareGeneratedAt?: string | null;
+  latestScanCommittedAt?: string | null;
+  staleRootSlugs?: string[];
+  missingRootSlugs?: string[];
+}
+
 const consistencyStore = useConsistencyStore();
 let pollHandle: number | null = null;
 
 const sectionDescriptors: ReportSectionDescriptor[] = [
   {
     name: "DB_ORIGINALS_MISSING_ON_STORAGE",
-    title: "DB originals missing on storage",
-    description: "Rows that exist in the DB but are absent from the cached storage inventory.",
+    title: "DB originals not found in current storage snapshot",
+    description:
+      "Rows that resolve safely into the uploads root but are absent from the current cached storage snapshot.",
     columns: [
       "asset_id",
+      "asset_name",
       "asset_type",
-      "owner_id",
-      "relative_path",
       "mapping_mode",
       "database_path",
     ],
@@ -190,8 +209,9 @@ const sectionDescriptors: ReportSectionDescriptor[] = [
   {
     name: "UNMAPPED_DATABASE_PATHS",
     title: "Unmapped DB paths",
-    description: "Legacy Immich DB paths that could not be mapped into the configured runtime roots.",
-    columns: ["asset_id", "path_kind", "database_path"],
+    description:
+      "DB paths that could not be resolved safely into the configured runtime roots and therefore are not counted as confirmed missing files.",
+    columns: ["asset_id", "asset_name", "path_kind", "mapping_status", "database_path"],
   },
 ];
 
@@ -255,6 +275,12 @@ const blockedSummary = computed(() => {
   const summary = blockedBy.summary;
   return typeof summary === "string" ? summary : "The workflow is blocked by another job.";
 });
+const staleState = computed(() => {
+  const candidate = job.value?.result;
+  return candidate && typeof candidate === "object"
+    ? (candidate as CatalogConsistencyJobState)
+    : null;
+});
 const currentSummary = computed(() => job.value?.summary ?? "No catalog consistency workflow is active.");
 const progressMessage = computed(() => progress.value?.message ?? null);
 const progressStats = computed(() => {
@@ -289,6 +315,9 @@ const panelStatus = computed<HealthTag>(() => {
   if (consistencyStore.catalogJobError) {
     return "error";
   }
+  if (staleState.value?.stale) {
+    return "warning";
+  }
   if (flowActive.value) {
     return "warning";
   }
@@ -304,10 +333,10 @@ const truncated = computed<Record<string, boolean>>(() => {
 });
 const summaryCards = computed<SummaryCardViewModel[]>(() => [
   {
-    label: "DB missing on storage",
+    label: "DB not found in snapshot",
     count: totals.value.dbOriginalsMissingOnStorage ?? 0,
-    status: (totals.value.dbOriginalsMissingOnStorage ?? 0) > 0 ? "error" : "ok",
-    message: "Originale in der DB, aber nicht im gecachten Storage-Scan.",
+    status: (totals.value.dbOriginalsMissingOnStorage ?? 0) > 0 ? "warning" : "ok",
+    message: "Sicher gemappte DB-Originale ohne Treffer im aktuellen Storage-Snapshot.",
   },
   {
     label: "Storage missing in DB",
@@ -334,6 +363,58 @@ const summaryCards = computed<SummaryCardViewModel[]>(() => [
     message: "Legacy-DB-Pfade konnten nicht in die aktuelle Runtime gemappt werden.",
   },
 ]);
+const scanTimestampLabel = computed(() => {
+  const value =
+    (report.value?.metadata?.latestScanCommittedAt as string | undefined)
+    ?? (staleState.value?.latestScanCommittedAt as string | undefined)
+    ?? null;
+  return displayValue(value);
+});
+const compareTimestampLabel = computed(() => {
+  const value =
+    report.value?.generated_at
+    ?? (staleState.value?.previousCompareGeneratedAt as string | undefined)
+    ?? null;
+  return displayValue(value);
+});
+const staleSummary = computed(() => {
+  if (!staleState.value?.stale) {
+    return null;
+  }
+  const staleRoots = Array.isArray(staleState.value.staleRootSlugs)
+    ? staleState.value.staleRootSlugs.join(", ")
+    : "";
+  const missingRoots = Array.isArray(staleState.value.missingRootSlugs)
+    ? staleState.value.missingRootSlugs.join(", ")
+    : "";
+  const scopeText = [staleRoots, missingRoots].filter(Boolean).join(", ");
+  if (staleState.value.requiresScan) {
+    return scopeText
+      ? `Der letzte Compare ist veraltet. Ein frischer Storage-Scan ist für folgende Roots nötig: ${scopeText}.`
+      : "Der letzte Compare ist veraltet. Ein frischer Storage-Scan ist nötig.";
+  }
+  return "Der letzte Compare ist veraltet, weil sich der Storage-Index geändert hat. Ein neuer Compare wird automatisch vorbereitet.";
+});
+const emptyStateTitle = computed(() => {
+  if (flowActive.value) {
+    return "Catalog compare is running";
+  }
+  if (staleState.value?.stale) {
+    return staleState.value.requiresScan
+      ? "Catalog compare is waiting for a fresh storage scan"
+      : "Catalog compare is rebuilding";
+  }
+  return "No catalog consistency report yet";
+});
+const emptyStateMessage = computed(() => {
+  if (flowActive.value) {
+    return "The workflow is currently rebuilding the catalog-backed compare.";
+  }
+  if (staleSummary.value) {
+    return staleSummary.value;
+  }
+  return "The first validation run starts automatically when this page opens. If no catalog scan exists yet, the storage index is queued first.";
+});
 const reportSections = computed<ReportSectionViewModel[]>(() =>
   sectionDescriptors.map((descriptor) => {
     const section = report.value?.sections.find(
@@ -432,6 +513,10 @@ onUnmounted(() => {
 
 .catalog-consistency-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.catalog-consistency-metadata {
+  margin: 0;
 }
 
 .catalog-consistency-card {

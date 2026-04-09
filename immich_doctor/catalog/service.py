@@ -665,18 +665,32 @@ class CatalogStatusService:
         sessions = self.store.list_scan_sessions(settings, slug=root_slug)
         snapshots = self.store.list_latest_snapshots(settings, slug=root_slug)
         effective_root_slugs = [root.slug for root in effective_scan_roots]
-        committed_root_slugs = sorted(
+        current_root_slugs = sorted(
             [
                 str(row["root_slug"])
                 for row in snapshots
                 if row.get("snapshot_id") is not None
+                and bool(row.get("snapshot_current"))
+                and str(row["root_slug"]) in effective_root_slugs
+            ]
+        )
+        stale_root_slugs = sorted(
+            [
+                str(row["root_slug"])
+                for row in snapshots
+                if row.get("snapshot_id") is not None
+                and not bool(row.get("snapshot_current"))
                 and str(row["root_slug"]) in effective_root_slugs
             ]
         )
         missing_root_slugs = [
-            slug for slug in effective_root_slugs if slug not in set(committed_root_slugs)
+            slug
+            for slug in effective_root_slugs
+            if slug not in set(current_root_slugs) and slug not in set(stale_root_slugs)
         ]
-        requires_scan = bool(effective_root_slugs) and bool(missing_root_slugs)
+        requires_scan = bool(effective_root_slugs) and bool(
+            missing_root_slugs or stale_root_slugs
+        )
         active_sessions = [
             row
             for row in sessions
@@ -698,16 +712,17 @@ class CatalogStatusService:
                     name="catalog_scan_coverage",
                     status=CheckStatus.WARN if requires_scan else CheckStatus.PASS,
                     message=(
-                        "Committed catalog snapshots exist for all effective scan roots."
+                        "Current committed catalog snapshots exist for all effective scan roots."
                         if not requires_scan
                         else (
-                            "One or more effective scan roots are still missing a committed "
+                            "One or more effective scan roots are missing a current committed "
                             "snapshot."
                         )
                     ),
                     details={
                         "effective_root_slugs": effective_root_slugs,
-                        "committed_root_slugs": committed_root_slugs,
+                        "current_root_slugs": current_root_slugs,
+                        "stale_root_slugs": stale_root_slugs,
                         "missing_root_slugs": missing_root_slugs,
                     },
                 ),
@@ -737,7 +752,8 @@ class CatalogStatusService:
                 "catalog_path": str(catalog_database_path(settings)),
                 "scanCoverage": {
                     "effectiveRootSlugs": effective_root_slugs,
-                    "committedRootSlugs": committed_root_slugs,
+                    "currentRootSlugs": current_root_slugs,
+                    "staleRootSlugs": stale_root_slugs,
                     "missingRootSlugs": missing_root_slugs,
                     "requiresScan": requires_scan,
                     "hasCompleteCoverage": not requires_scan,
