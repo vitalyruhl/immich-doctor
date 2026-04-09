@@ -1,0 +1,19 @@
+name: ${TESTBED_PROJECT_NAME:-immich-doctor-testbed}
+
+services:
+  immich-doctor:
+    user: root
+    privileged: true
+    entrypoint:
+      - /usr/local/bin/immich-doctor-real-storage-entrypoint
+    environment:
+      TESTBED_REAL_STORAGE_MODE: ${TESTBED_REAL_STORAGE_MODE:?Set TESTBED_REAL_STORAGE_MODE=cifs for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_SOURCE: ${TESTBED_REAL_STORAGE_SMB_SOURCE:?Set TESTBED_REAL_STORAGE_SMB_SOURCE for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_USERNAME: ${TESTBED_REAL_STORAGE_SMB_USERNAME:?Set TESTBED_REAL_STORAGE_SMB_USERNAME for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_PASSWORD: ${TESTBED_REAL_STORAGE_SMB_PASSWORD:?Set TESTBED_REAL_STORAGE_SMB_PASSWORD for real CIFS verification mode}
+      TESTBED_REAL_STORAGE_SMB_VERS: ${TESTBED_REAL_STORAGE_SMB_VERS:-3.0}
+      TESTBED_REAL_STORAGE_SMB_DOMAIN: ${TESTBED_REAL_STORAGE_SMB_DOMAIN:-}
+      TESTBED_REAL_STORAGE_SMB_UID: ${TESTBED_REAL_STORAGE_SMB_UID:-1000}
+      TESTBED_REAL_STORAGE_SMB_GID: ${TESTBED_REAL_STORAGE_SMB_GID:-1000}
+    tmpfs:
+      - /mnt/immich/storage

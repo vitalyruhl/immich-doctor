@@ -213,6 +213,11 @@ def _settings(tmp_path: Path) -> AppSettings:
         DB_NAME="immich",
         DB_USER="immich",
         DB_PASSWORD="secret",
+        IMMICH_STORAGE_PATH=tmp_path / "storage",
+        IMMICH_UPLOADS_PATH=tmp_path / "storage" / "upload",
+        IMMICH_THUMBS_PATH=tmp_path / "storage" / "thumbs",
+        IMMICH_PROFILE_PATH=tmp_path / "storage" / "profile",
+        IMMICH_VIDEO_PATH=tmp_path / "storage" / "encoded-video",
         MANIFESTS_PATH=tmp_path / "manifests",
         QUARANTINE_PATH=tmp_path / "quarantine",
     )
@@ -329,6 +334,36 @@ def test_scan_detects_missing_asset_reference(tmp_path: Path) -> None:
         "public.asset_file",
         "public.asset_job_status",
     ]
+
+
+def test_scan_maps_legacy_library_paths_through_canonical_resolver(tmp_path: Path) -> None:
+    rows = _rows()
+    rows[("public", "asset")] = [
+        {
+            "id": "asset-missing",
+            "type": "image",
+            "originalPath": "/usr/src/app/upload/library/user-a/ab/cd/original.jpg",
+            "createdAt": "2026-03-28T10:00:00+00:00",
+            "ownerId": "user-1",
+        }
+    ]
+    settings = _settings(tmp_path)
+    expected_resolved_path = settings.immich_library_root / "user-a" / "ab" / "cd" / "original.jpg"
+    service = MissingAssetReferenceService(
+        postgres=_FakePostgres(
+            tables=_tables(),
+            columns_by_table=_columns(),
+            foreign_keys_by_table=_foreign_keys(),
+            rows_by_table=rows,
+        ),
+        filesystem=_FakeFilesystem({str(expected_resolved_path): "missing"}),
+    )
+
+    result = service.scan(settings)
+
+    assert result.findings[0].status == MissingAssetReferenceStatus.MISSING_ON_DISK
+    assert result.findings[0].repair_readiness == RepairReadinessStatus.READY
+    assert result.findings[0].resolved_physical_path == str(expected_resolved_path)
 
 
 def test_scan_blocks_repair_for_unsupported_asset_dependency(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TestbedDir = Split-Path -Parent $ScriptDir
 $ComposeFile = Join-Path $TestbedDir "docker-compose.yml"
+$RealStorageComposeFile = Join-Path $TestbedDir "docker-compose.real-storage.yml"
 $EnvFile = Join-Path $TestbedDir ".env"
 $EnvLocalFile = Join-Path $TestbedDir ".env.local"
 $InitialEnvNames = @{}
@@ -44,6 +45,9 @@ function Get-ComposeArgs {
         $args += @("--env-file", $EnvLocalFile)
     }
     $args += @("-f", $ComposeFile)
+    if ((Use-CifsRealStorageMode) -and (Test-Path $RealStorageComposeFile)) {
+        $args += @("-f", $RealStorageComposeFile)
+    }
     return $args
 }
 
@@ -93,16 +97,35 @@ function Get-EnvOrDefault {
     return $value
 }
 
+function Use-CifsRealStorageMode {
+    $storageSourceMode = (Get-EnvOrDefault -Name "TESTBED_STORAGE_SOURCE_MODE" -Default "mock").ToLowerInvariant()
+    $realStorageMode = (Get-EnvOrDefault -Name "TESTBED_REAL_STORAGE_MODE" -Default "host-bind").ToLowerInvariant()
+    return $storageSourceMode -eq "real" -and $realStorageMode -eq "cifs"
+}
+
 function Resolve-TestbedSelectedStoragePath {
     $mode = (Get-EnvOrDefault -Name "TESTBED_STORAGE_SOURCE_MODE" -Default "mock").ToLowerInvariant()
+    [Environment]::SetEnvironmentVariable("TESTBED_BIND_STORAGE_TARGET", "/mnt/immich/storage")
     switch ($mode) {
         "mock" {
             $pathValue = Get-EnvOrDefault -Name "TESTBED_MOCK_STORAGE_PATH" -Default "../../data/mock/immich-library"
         }
         "real" {
-            $pathValue = Get-EnvOrDefault -Name "TESTBED_REAL_STORAGE_PATH" -Default ""
-            if ([string]::IsNullOrWhiteSpace($pathValue)) {
-                throw "TESTBED_REAL_STORAGE_PATH is required when TESTBED_STORAGE_SOURCE_MODE=real."
+            $realStorageMode = (Get-EnvOrDefault -Name "TESTBED_REAL_STORAGE_MODE" -Default "host-bind").ToLowerInvariant()
+            switch ($realStorageMode) {
+                "host-bind" {
+                    $pathValue = Get-EnvOrDefault -Name "TESTBED_REAL_STORAGE_PATH" -Default ""
+                    if ([string]::IsNullOrWhiteSpace($pathValue)) {
+                        throw "TESTBED_REAL_STORAGE_PATH is required when TESTBED_STORAGE_SOURCE_MODE=real and TESTBED_REAL_STORAGE_MODE=host-bind."
+                    }
+                }
+                "cifs" {
+                    $pathValue = "./tmp"
+                    [Environment]::SetEnvironmentVariable("TESTBED_BIND_STORAGE_TARGET", "/mnt/immich/storage-placeholder")
+                }
+                default {
+                    throw "Unsupported TESTBED_REAL_STORAGE_MODE '$realStorageMode'. Use 'host-bind' or 'cifs'."
+                }
             }
         }
         default {

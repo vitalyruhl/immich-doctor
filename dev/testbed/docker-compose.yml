@@ -62,7 +62,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ${TESTBED_SELECTED_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${TESTBED_SELECTED_STORAGE_PATH:-../../data/mock/immich-library}:${TESTBED_BIND_STORAGE_TARGET:-/mnt/immich/storage}:ro
       - ${TESTBED_DUMP_MOUNT_SOURCE:-./tmp}:/mnt/testbed/dumps:ro
       - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
       - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
