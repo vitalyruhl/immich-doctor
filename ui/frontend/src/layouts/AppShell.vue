@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--compact': appStore.sidebarCollapsed }">
     <AppSidebar :collapsed="appStore.sidebarCollapsed" />
     <div class="app-shell__content">
       <AppTopbar :title="route.meta.title" @toggle-sidebar="appStore.toggleSidebar" />

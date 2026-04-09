@@ -1,12 +1,6 @@
-FROM node:22-alpine AS frontend-build
+FROM scratch AS frontend-build
 
-WORKDIR /frontend
-
-COPY ui/frontend/package.json ui/frontend/package-lock.json ./
-RUN npm ci
-
-COPY ui/frontend/ ./
-RUN npm run build
+COPY ui/frontend/dist /frontend/dist
 
 FROM python:3.13-slim AS base
 
