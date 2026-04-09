@@ -134,8 +134,7 @@ class CatalogWorkflowService:
             return self._blocked_snapshot(
                 job_type=CATALOG_CONSISTENCY_JOB_TYPE,
                 summary=(
-                    "Catalog consistency validation is blocked while the "
-                    "catalog scan is running."
+                    "Catalog consistency validation is blocked while the catalog scan is running."
                 ),
                 blocked_by=active_scan,
             )
@@ -210,16 +209,15 @@ class CatalogWorkflowService:
                 resume_session_id=None,
                 max_files=None,
                 progress_callback=(
-                    lambda payload,
-                    root_index=index,
-                    total_roots=root_count,
-                    slug=root.slug: self._update_scan_progress(
-                        handle,
-                        payload=payload,
-                        root_slug=slug,
-                        root_index=root_index,
-                        total_roots=total_roots,
-                        completed_roots=[item["rootSlug"] for item in reports],
+                    lambda payload, root_index=index, total_roots=root_count, slug=root.slug: (
+                        self._update_scan_progress(
+                            handle,
+                            payload=payload,
+                            root_slug=slug,
+                            root_index=root_index,
+                            total_roots=total_roots,
+                            completed_roots=[item["rootSlug"] for item in reports],
+                        )
                     )
                 ),
             )
@@ -275,8 +273,7 @@ class CatalogWorkflowService:
         result = {
             "state": BackgroundJobState.RUNNING.value,
             "summary": (
-                f"Catalog scan running for root `{root_slug}` "
-                f"({root_index}/{total_roots})."
+                f"Catalog scan running for root `{root_slug}` ({root_index}/{total_roots})."
             ),
             "progress": {
                 "phase": "scan",
@@ -301,10 +298,7 @@ class CatalogWorkflowService:
             handle.settings,
             progress_callback=lambda payload: handle.update(
                 state=BackgroundJobState.RUNNING,
-                summary=str(
-                    payload.get("message")
-                    or "Catalog consistency validation is running."
-                ),
+                summary=str(payload.get("message") or "Catalog consistency validation is running."),
                 result={
                     "state": BackgroundJobState.RUNNING.value,
                     "summary": str(
@@ -342,11 +336,7 @@ class CatalogWorkflowService:
     def _has_required_catalog_snapshot(self, settings: AppSettings) -> bool:
         latest = self.store.list_latest_snapshots(settings)
         uploads_snapshot = next(
-            (
-                row
-                for row in latest
-                if row.get("root_slug") == _REQUIRED_CONSISTENCY_ROOT
-            ),
+            (row for row in latest if row.get("root_slug") == _REQUIRED_CONSISTENCY_ROOT),
             None,
         )
         return bool(uploads_snapshot and uploads_snapshot.get("snapshot_id") is not None)

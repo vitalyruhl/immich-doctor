@@ -8,8 +8,6 @@ def configure_logging() -> None:
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         handler = logging.StreamHandler()
-        handler.setFormatter(
-            logging.Formatter("%(levelname)s %(name)s: %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
     logger.propagate = False

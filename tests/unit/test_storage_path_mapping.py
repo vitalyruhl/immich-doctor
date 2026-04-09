@@ -24,9 +24,7 @@ def test_resolver_maps_legacy_immich_paths_into_configured_roots(tmp_path: Path)
     settings = _settings(tmp_path)
     resolver = ImmichStoragePathResolver(settings)
 
-    resolved = resolver.resolve(
-        "/usr/src/app/upload/upload/user-a/ab/cd/original.jpg"
-    )
+    resolved = resolver.resolve("/usr/src/app/upload/upload/user-a/ab/cd/original.jpg")
 
     assert resolved is not None
     assert resolved.root_slug == "uploads"
@@ -41,9 +39,7 @@ def test_resolver_maps_legacy_library_paths_into_library_root(tmp_path: Path) ->
     settings = _settings(tmp_path)
     resolver = ImmichStoragePathResolver(settings)
 
-    resolved = resolver.resolve(
-        "/usr/src/app/upload/library/user-a/ab/cd/original.jpg"
-    )
+    resolved = resolver.resolve("/usr/src/app/upload/library/user-a/ab/cd/original.jpg")
 
     assert resolved is not None
     assert resolved.root_slug == "library"

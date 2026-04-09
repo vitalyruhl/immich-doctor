@@ -131,17 +131,13 @@ def test_catalog_consistency_reports_db_storage_and_orphan_findings(tmp_path: Pa
     assert totals["zeroByteFiles"] == 1
 
     db_missing = next(
-        section
-        for section in report.sections
-        if section.name == "DB_ORIGINALS_MISSING_ON_STORAGE"
+        section for section in report.sections if section.name == "DB_ORIGINALS_MISSING_ON_STORAGE"
     )
     assert db_missing.rows[0]["asset_id"] == "asset-missing"
     assert db_missing.rows[0]["relative_path"] == "user-a/missing.jpg"
 
     storage_missing = next(
-        section
-        for section in report.sections
-        if section.name == "STORAGE_ORIGINALS_MISSING_IN_DB"
+        section for section in report.sections if section.name == "STORAGE_ORIGINALS_MISSING_IN_DB"
     )
     assert {row["relative_path"] for row in storage_missing.rows} == {
         "user-a/lonely.jpg",

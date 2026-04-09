@@ -81,10 +81,7 @@ class CatalogConsistencyValidationService:
             return ValidationReport(
                 domain="consistency.catalog",
                 action="validate",
-                summary=(
-                    "Catalog-backed consistency is waiting for a committed "
-                    "uploads snapshot."
-                ),
+                summary=("Catalog-backed consistency is waiting for a committed uploads snapshot."),
                 checks=checks,
                 metadata={
                     "configuredRoots": [row["slug"] for row in synced_roots],
@@ -109,8 +106,7 @@ class CatalogConsistencyValidationService:
                 domain="consistency.catalog",
                 action="validate",
                 summary=(
-                    "Catalog-backed consistency failed because database access "
-                    "is not configured."
+                    "Catalog-backed consistency failed because database access is not configured."
                 ),
                 checks=checks,
                 metadata={"latestSnapshots": latest_snapshots},
@@ -124,8 +120,7 @@ class CatalogConsistencyValidationService:
                 domain="consistency.catalog",
                 action="validate",
                 summary=(
-                    "Catalog-backed consistency failed because PostgreSQL "
-                    "could not be reached."
+                    "Catalog-backed consistency failed because PostgreSQL could not be reached."
                 ),
                 checks=checks,
                 metadata={"latestSnapshots": latest_snapshots},
@@ -183,10 +178,7 @@ class CatalogConsistencyValidationService:
                 continue
 
             resolved_original = resolver.resolve(original_path)
-            if (
-                resolved_original is None
-                and resolver.looks_like_legacy_immich_path(original_path)
-            ):
+            if resolved_original is None and resolver.looks_like_legacy_immich_path(original_path):
                 unmapped_rows.append(
                     {
                         "asset_id": asset_id,
@@ -196,10 +188,7 @@ class CatalogConsistencyValidationService:
                 )
                 continue
 
-            if (
-                resolved_original is not None
-                and resolved_original.root_slug == _SOURCE_ROOT_SLUG
-            ):
+            if resolved_original is not None and resolved_original.root_slug == _SOURCE_ROOT_SLUG:
                 db_original_index.add(resolved_original.relative_path)
                 original_by_asset[asset_id] = resolved_original.relative_path
                 if resolved_original.relative_path not in uploads_index:
@@ -222,10 +211,7 @@ class CatalogConsistencyValidationService:
                         "current": index,
                         "total": len(asset_rows),
                         "percent": round(25 + (index / max(len(asset_rows), 1)) * 25, 2),
-                        "message": (
-                            "Compared DB original paths against the cached "
-                            "uploads index."
-                        ),
+                        "message": ("Compared DB original paths against the cached uploads index."),
                         "dbMissingCount": len(db_missing_rows),
                         "unmappedCount": len(unmapped_rows),
                     }
@@ -253,10 +239,7 @@ class CatalogConsistencyValidationService:
                     "current": len(source_only_rows),
                     "total": len(source_only_rows),
                     "percent": 75.0,
-                    "message": (
-                        "Compared cached storage originals against DB "
-                        "original paths."
-                    ),
+                    "message": ("Compared cached storage originals against DB original paths."),
                     "storageMissingCount": len(storage_missing_rows),
                 }
             )
@@ -301,8 +284,7 @@ class CatalogConsistencyValidationService:
                     "total": len(orphan_rows),
                     "percent": 100.0,
                     "message": (
-                        "Derived orphan derivative findings from the cached "
-                        "catalog and DB graph."
+                        "Derived orphan derivative findings from the cached catalog and DB graph."
                     ),
                     "orphanCount": len(orphan_rows),
                 }
@@ -318,8 +300,7 @@ class CatalogConsistencyValidationService:
                 name="catalog_snapshot_coverage",
                 status=CheckStatus.PASS if derivative_snapshot_coverage else CheckStatus.WARN,
                 message=(
-                    "Committed catalog snapshots are available for the "
-                    "required storage roots."
+                    "Committed catalog snapshots are available for the required storage roots."
                     if derivative_snapshot_coverage
                     else "Only a partial set of catalog snapshots is available."
                 ),

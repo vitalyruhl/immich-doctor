@@ -70,16 +70,13 @@ class CatalogRootRegistry:
         effective_roots: list[CatalogRootSpec] = []
         for root in roots:
             is_parent_of_other = any(
-                other.slug != root.slug
-                and self.filesystem.is_child_path(root.path, other.path)
+                other.slug != root.slug and self.filesystem.is_child_path(root.path, other.path)
                 for other in roots
             )
             if is_parent_of_other:
                 continue
             effective_roots.append(root)
-        effective_roots.sort(
-            key=lambda item: (_SCAN_PRIORITY.get(item.slug, 99), item.slug)
-        )
+        effective_roots.sort(key=lambda item: (_SCAN_PRIORITY.get(item.slug, 99), item.slug))
         return effective_roots
 
 
@@ -304,11 +301,7 @@ class CatalogInventoryScanService:
                 )
                 percent = (
                     round(
-                        (
-                            int(updated_session["directories_completed"])
-                            / total_directories
-                        )
-                        * 100,
+                        (int(updated_session["directories_completed"]) / total_directories) * 100,
                         2,
                     )
                     if total_directories > 0

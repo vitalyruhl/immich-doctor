@@ -56,11 +56,15 @@ def catalog_zero_byte(
     root: str | None = None,
     limit: int = Query(default=100, ge=1),
 ) -> CatalogZeroByteApiResponse:
-    data = CatalogZeroByteReportService().run(
-        load_settings(),
-        root_slug=root,
-        limit=limit,
-    ).to_dict()
+    data = (
+        CatalogZeroByteReportService()
+        .run(
+            load_settings(),
+            root_slug=root,
+            limit=limit,
+        )
+        .to_dict()
+    )
     return CatalogZeroByteApiResponse(data=data)
 
 
