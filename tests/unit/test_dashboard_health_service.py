@@ -26,6 +26,7 @@ def test_dashboard_health_service_reports_unknown_when_not_configured() -> None:
     assert items["immich-reachable"].status == DashboardHealthStatus.UNKNOWN
     assert items["db-reachability"].status == DashboardHealthStatus.UNKNOWN
     assert items["storage-reachability"].status == DashboardHealthStatus.UNKNOWN
+    assert items["consistency-readiness"].status == DashboardHealthStatus.UNKNOWN
     assert items["path-readiness"].status == DashboardHealthStatus.UNKNOWN
     assert items["backup-readiness"].status == DashboardHealthStatus.UNKNOWN
     assert items["scheduler-runtime-readiness"].status == DashboardHealthStatus.UNKNOWN
@@ -113,6 +114,7 @@ def test_dashboard_health_service_uses_real_checks_when_available(tmp_path) -> N
 
     assert items["db-reachability"].status == DashboardHealthStatus.OK
     assert items["storage-reachability"].status == DashboardHealthStatus.OK
+    assert items["consistency-readiness"].status == DashboardHealthStatus.UNKNOWN
     assert items["path-readiness"].status == DashboardHealthStatus.OK
     assert items["backup-readiness"].status == DashboardHealthStatus.OK
     assert items["scheduler-runtime-readiness"].status == DashboardHealthStatus.UNKNOWN
@@ -135,5 +137,34 @@ def test_dashboard_health_service_flags_path_problems(tmp_path) -> None:
     )
     items = {item.id: item for item in overview.items}
 
+    assert items["consistency-readiness"].status == DashboardHealthStatus.UNKNOWN
     assert items["path-readiness"].status == DashboardHealthStatus.ERROR
     assert "outside immich_library_root" in items["path-readiness"].details
+
+
+def test_dashboard_health_service_reports_consistency_waiting_on_scan() -> None:
+    class _FakeCatalogWorkflow:
+        def get_consistency_job(self, settings: AppSettings) -> dict[str, object]:
+            return {
+                "jobId": None,
+                "jobType": "catalog_consistency_validation",
+                "state": "pending",
+                "summary": (
+                    "Catalog consistency validation is waiting for the "
+                    "catalog scan to finish."
+                ),
+                "result": {
+                    "blockedBy": {
+                        "jobId": "scan-1",
+                        "jobType": "catalog_inventory_scan",
+                        "state": "running",
+                        "summary": "Catalog scan running for root `uploads` (1/4).",
+                    }
+                },
+            }
+
+    overview = DashboardHealthService(catalog_workflow=_FakeCatalogWorkflow()).run(AppSettings())
+    items = {item.id: item for item in overview.items}
+
+    assert items["consistency-readiness"].status == DashboardHealthStatus.WARNING
+    assert "waiting for the active storage index scan" in items["consistency-readiness"].summary

@@ -1,6 +1,6 @@
 import type { HealthState } from "./common";
 
-export type HealthSource = "immich" | "db" | "storage" | "backup" | "runtime";
+export type HealthSource = "immich" | "db" | "storage" | "backup" | "runtime" | "consistency";
 
 export interface HealthItem {
   id: string;

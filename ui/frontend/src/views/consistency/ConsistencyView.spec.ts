@@ -156,7 +156,7 @@ function buildDeleteResponse() {
   };
 }
 
-function createStore() {
+function createStore(): any {
   return {
     findings,
     restorePoints,
@@ -206,13 +206,18 @@ function createStore() {
     isApplying: false,
     isRestoring: false,
     isDeletingRestorePoints: false,
+    isWaitingOnCatalog: false,
     scanError: null,
+    catalogJobError: null,
     restorePointsError: null,
     previewError: null,
     applyError: null,
     restoreError: null,
     deleteError: null,
+    catalogReadinessTitle: "Consistency data is ready",
+    catalogReadinessMessage: "Catalog-backed consistency data is current.",
     load: vi.fn().mockResolvedValue(undefined),
+    loadCatalogJob: vi.fn().mockResolvedValue(undefined),
     scan: vi.fn().mockResolvedValue(undefined),
     loadRestorePoints: vi.fn().mockResolvedValue(undefined),
     preview: vi.fn(async (payload: { asset_ids: string[]; select_all: boolean }) => {
@@ -525,5 +530,28 @@ describe("ConsistencyView", () => {
       restore_point_ids: ["restore-point-1", "restore-point-2"],
       select_all: true,
     });
+  });
+
+  it("shows a waiting state instead of a scan failure while catalog indexing is active", async () => {
+    store = {
+      ...createStore(),
+      findings: [],
+      scanResult: null,
+      isWaitingOnCatalog: true,
+      scanError: "Request timed out.",
+      catalogReadinessTitle: "Consistency is waiting for storage indexing",
+      catalogReadinessMessage:
+        "Catalog consistency validation is waiting for the catalog scan to finish.",
+    };
+
+    const wrapper = mountView();
+    await settle();
+
+    expect(wrapper.text()).toContain("Consistency is waiting for storage indexing");
+    expect(wrapper.text()).toContain(
+      "Catalog consistency validation is waiting for the catalog scan to finish.",
+    );
+    expect(wrapper.text()).not.toContain("Scan findings unavailable");
+    expect(store.scan).not.toHaveBeenCalled();
   });
 });

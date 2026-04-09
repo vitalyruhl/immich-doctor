@@ -57,6 +57,16 @@ function createUnknownItems(): HealthItem[] {
       source: "ui/unloaded",
     },
     {
+      id: "consistency-readiness",
+      title: "Consistency readiness",
+      status: "unknown",
+      summary: "Backend state not loaded yet.",
+      details: "No request has completed yet.",
+      updatedAt: new Date(0).toISOString(),
+      blocking: false,
+      source: "ui/unloaded",
+    },
+    {
       id: "backup-readiness",
       title: "Backup readiness",
       status: "unknown",

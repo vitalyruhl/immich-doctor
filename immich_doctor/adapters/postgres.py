@@ -71,6 +71,26 @@ class PostgresAdapter:
             raise ValueError("Database size query returned no rows.")
         return int(rows[0]["size_bytes"])
 
+    def fetch_server_version(self, dsn: str, timeout_seconds: int) -> dict[str, str]:
+        rows = fetch_all(
+            dsn,
+            timeout_seconds,
+            (
+                "SELECT "
+                "current_setting('server_version') AS server_version, "
+                "current_setting('server_version_num') AS server_version_num, "
+                "version() AS full_version;"
+            ),
+        )
+        if not rows:
+            raise ValueError("Server version query returned no rows.")
+        row = rows[0]
+        return {
+            "server_version": str(row["server_version"]),
+            "server_version_num": str(row["server_version_num"]),
+            "full_version": str(row["full_version"]),
+        }
+
     def list_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_ALL_INDEXES_QUERY)
 

@@ -29,6 +29,28 @@ function toErrorMessage(caughtError: unknown): string {
   return caughtError instanceof ApiClientError ? caughtError.payload.message : "Unknown error.";
 }
 
+type CatalogReadinessState =
+  | "ready"
+  | "indexing"
+  | "waiting_for_index"
+  | "rebuilding"
+  | "compare_running"
+  | "error";
+
+function catalogBlockedBy(job: CatalogWorkflowJobRecord | null): Record<string, unknown> | null {
+  const result = job?.result;
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const blockedBy = result.blockedBy;
+  return blockedBy && typeof blockedBy === "object" ? (blockedBy as Record<string, unknown>) : null;
+}
+
+function catalogRequiresScan(job: CatalogWorkflowJobRecord | null): boolean {
+  const result = job?.result;
+  return Boolean(result && typeof result === "object" && result.requiresScan);
+}
+
 export const useConsistencyStore = defineStore("consistency", () => {
   const scanResult = ref<MissingAssetScanResponse | null>(null);
   const restorePointsResult = ref<MissingAssetRestorePointsResponse | null>(null);
@@ -55,13 +77,91 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const restoreError = ref<string | null>(null);
   const deleteError = ref<string | null>(null);
 
+  const catalogReadinessState = computed<CatalogReadinessState>(() => {
+    if (catalogJobError.value) {
+      return "error";
+    }
+    const job = catalogJob.value;
+    if (!job) {
+      return "ready";
+    }
+    const blockedBy = catalogBlockedBy(job);
+    if (blockedBy?.jobType === "catalog_inventory_scan") {
+      return "indexing";
+    }
+    if (job.state === "running") {
+      return "compare_running";
+    }
+    if (catalogRequiresScan(job)) {
+      return "waiting_for_index";
+    }
+    const result = job.result && typeof job.result === "object"
+      ? (job.result as Record<string, unknown>)
+      : null;
+    if (
+      job.state === "pending" &&
+      result &&
+      Boolean(result.stale)
+    ) {
+      return "rebuilding";
+    }
+    return "ready";
+  });
+
+  const isWaitingOnCatalog = computed(
+    () =>
+      catalogReadinessState.value === "indexing" ||
+      catalogReadinessState.value === "waiting_for_index" ||
+      catalogReadinessState.value === "rebuilding" ||
+      catalogReadinessState.value === "compare_running",
+  );
+
+  const catalogReadinessTitle = computed(() => {
+    switch (catalogReadinessState.value) {
+      case "indexing":
+        return "Consistency is waiting for storage indexing";
+      case "waiting_for_index":
+        return "Consistency is waiting for a current storage index";
+      case "rebuilding":
+        return "Consistency is rebuilding after the storage index changed";
+      case "compare_running":
+        return "Consistency compare is running";
+      case "error":
+        return "Consistency readiness could not be determined";
+      default:
+        return "Consistency data is ready";
+    }
+  });
+
+  const catalogReadinessMessage = computed(() => {
+    if (catalogJobError.value) {
+      return catalogJobError.value;
+    }
+    if (catalogJob.value?.summary) {
+      return catalogJob.value.summary;
+    }
+    return "Consistency findings become current after the catalog-backed storage index is ready.";
+  });
+
+  const shouldSkipMissingAssetScan = computed(
+    () => isWaitingOnCatalog.value && !scanResult.value,
+  );
+
   async function load(): Promise<void> {
     isLoading.value = true;
     scanError.value = null;
     catalogJobError.value = null;
     restorePointsError.value = null;
     try {
-      await Promise.allSettled([scan(), loadCatalogJob(), loadRestorePoints()]);
+      await loadCatalogJob();
+      if (isWaitingOnCatalog.value) {
+        scanResult.value = null;
+        scanError.value = null;
+      }
+      await Promise.allSettled([
+        loadRestorePoints(),
+        shouldSkipMissingAssetScan.value ? Promise.resolve(null) : scan(),
+      ]);
     } finally {
       isLoading.value = false;
     }
@@ -218,6 +318,9 @@ export const useConsistencyStore = defineStore("consistency", () => {
     applyResult,
     catalogJob,
     catalogJobError,
+    catalogReadinessMessage,
+    catalogReadinessState,
+    catalogReadinessTitle,
     catalogReport,
     deleteError,
     deleteResult,
@@ -232,6 +335,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     isPreviewing,
     isRestoring,
     isScanning,
+    isWaitingOnCatalog,
     load,
     loadCatalogJob,
     loadRestorePoints,
@@ -246,6 +350,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     scan,
     scanError,
     scanResult,
+    shouldSkipMissingAssetScan,
     startCatalog,
   };
 });

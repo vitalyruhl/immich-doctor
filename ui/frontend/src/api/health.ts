@@ -55,6 +55,16 @@ function buildMockHealthItems(): HealthItem[] {
       source: "[MOCKED!] ui/local-adapter",
     },
     {
+      id: "consistency-readiness",
+      title: "Consistency readiness",
+      status: "warning",
+      summary: "[MOCKED!] Consistency is waiting for a current storage index.",
+      details: "Catalog-backed compare remains pending until indexing completes.",
+      updatedAt: new Date().toISOString(),
+      blocking: false,
+      source: "[MOCKED!] ui/local-adapter",
+    },
+    {
       id: "backup-readiness",
       title: "Backup readiness",
       status: "unknown",

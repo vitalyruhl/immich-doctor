@@ -16,7 +16,11 @@ import type {
 } from "./types/consistency";
 
 export async function fetchMissingAssetFindings(): Promise<ApiResponse<MissingAssetScanResponse>> {
-  return request<MissingAssetScanResponse>("/consistency/missing-asset-references/findings");
+  return request<MissingAssetScanResponse>(
+    "/consistency/missing-asset-references/findings",
+    undefined,
+    30000,
+  );
 }
 
 export async function previewMissingAssetRemovals(

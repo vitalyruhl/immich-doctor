@@ -8,11 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from immich_doctor.adapters.filesystem import FilesystemAdapter
 from immich_doctor.backup.verify.service import BackupVerifyService
+from immich_doctor.catalog.workflow_service import CatalogWorkflowService
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus, ValidationReport
 from immich_doctor.core.paths import configured_immich_paths
 from immich_doctor.db.health.service import DbHealthCheckService
 from immich_doctor.runtime.validate.service import RuntimeValidationService
+from immich_doctor.services.backup_job_service import BackgroundJobRuntime
 
 
 class DashboardHealthStatus(StrEnum):
@@ -49,6 +51,8 @@ class DashboardHealthService:
     db_health: DbHealthCheckService = field(default_factory=DbHealthCheckService)
     runtime_validation: RuntimeValidationService = field(default_factory=RuntimeValidationService)
     backup_verify: BackupVerifyService = field(default_factory=BackupVerifyService)
+    runtime: BackgroundJobRuntime | None = None
+    catalog_workflow: CatalogWorkflowService | None = None
 
     def run(self, settings: AppSettings) -> DashboardHealthOverview:
         timestamp = datetime.now(UTC).isoformat()
@@ -57,6 +61,7 @@ class DashboardHealthService:
             self._build_immich_reachable_item(timestamp),
             self._build_db_item(settings, timestamp),
             self._build_storage_item(settings, timestamp),
+            self._build_consistency_item(settings, timestamp),
             self._build_path_readiness_item(settings, timestamp),
             self._build_backup_item(settings, timestamp),
             self._build_runtime_scheduler_item(settings, timestamp),
@@ -208,6 +213,104 @@ class DashboardHealthService:
             updatedAt=timestamp,
             blocking=True,
             source="storage",
+        )
+
+    def _build_consistency_item(
+        self,
+        settings: AppSettings,
+        timestamp: str,
+    ) -> DashboardHealthItem:
+        workflow = self.catalog_workflow
+        if workflow is None and self.runtime is not None:
+            workflow = CatalogWorkflowService(runtime=self.runtime)
+
+        if workflow is None:
+            return DashboardHealthItem(
+                id="consistency-readiness",
+                title="Consistency readiness",
+                status=DashboardHealthStatus.UNKNOWN,
+                summary="Consistency readiness is not available in this process.",
+                details=(
+                    "Open the Consistency page for the current "
+                    "catalog-backed validation state."
+                ),
+                updatedAt=timestamp,
+                blocking=False,
+                source="consistency",
+            )
+
+        try:
+            job = workflow.get_consistency_job(settings)
+        except Exception as exc:
+            return DashboardHealthItem(
+                id="consistency-readiness",
+                title="Consistency readiness",
+                status=DashboardHealthStatus.WARNING,
+                summary="Consistency readiness could not be loaded.",
+                details=str(exc),
+                updatedAt=timestamp,
+                blocking=False,
+                source="consistency",
+            )
+
+        state = str(job.get("state") or "pending")
+        result = job.get("result")
+        blocked_by = result.get("blockedBy") if isinstance(result, dict) else None
+        if isinstance(blocked_by, dict) and blocked_by.get("jobType") == "catalog_inventory_scan":
+            return DashboardHealthItem(
+                id="consistency-readiness",
+                title="Consistency readiness",
+                status=DashboardHealthStatus.WARNING,
+                summary="Consistency is waiting for the active storage index scan.",
+                details=str(
+                    blocked_by.get("summary")
+                    or job.get("summary")
+                    or "Storage indexing is still running."
+                ),
+                updatedAt=timestamp,
+                blocking=False,
+                source="consistency",
+            )
+
+        if isinstance(result, dict) and bool(result.get("requiresScan")):
+            return DashboardHealthItem(
+                id="consistency-readiness",
+                title="Consistency readiness",
+                status=DashboardHealthStatus.WARNING,
+                summary="Consistency is waiting for a current storage index.",
+                details=str(
+                    job.get("summary")
+                    or "A fresh storage scan is required before consistency results are current."
+                ),
+                updatedAt=timestamp,
+                blocking=False,
+                source="consistency",
+            )
+
+        status_mapping = {
+            "completed": DashboardHealthStatus.OK,
+            "partial": DashboardHealthStatus.WARNING,
+            "running": DashboardHealthStatus.WARNING,
+            "pending": DashboardHealthStatus.UNKNOWN,
+            "failed": DashboardHealthStatus.ERROR,
+        }
+        summary = str(
+            job.get("summary") or "Consistency status is available on the Consistency page."
+        )
+        details = (
+            "Catalog-backed storage-vs-database findings are available on the Consistency page."
+            if state == "completed"
+            else "Open the Consistency page for detailed compare progress and findings."
+        )
+        return DashboardHealthItem(
+            id="consistency-readiness",
+            title="Consistency readiness",
+            status=status_mapping.get(state, DashboardHealthStatus.UNKNOWN),
+            summary=summary,
+            details=details,
+            updatedAt=timestamp,
+            blocking=False,
+            source="consistency",
         )
 
     def _build_path_readiness_item(

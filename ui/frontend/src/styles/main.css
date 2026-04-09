@@ -479,6 +479,11 @@ a {
   margin: 0;
 }
 
+.runtime-detail__mono {
+  font-family: "Consolas", "SFMono-Regular", monospace;
+  word-break: break-word;
+}
+
 .runtime-detail__grid dt {
   color: #5c6b77;
   font-weight: 600;

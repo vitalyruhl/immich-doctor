@@ -23,6 +23,12 @@ class HealthOverviewApiResponse(BaseModel):
     mocked: bool = False
 
 
+class DatabaseOverviewApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class SettingsOverviewApiResponse(BaseModel):
     data: SettingsOverview
     source: Literal["backend"] = "backend"

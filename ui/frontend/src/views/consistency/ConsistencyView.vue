@@ -16,6 +16,11 @@
       title="Loading missing asset references"
       message="Collecting scan findings and restore-point history from the backend."
     />
+    <LoadingState
+      v-else-if="consistencyStore.isWaitingOnCatalog && !hasAnyData"
+      :title="consistencyStore.catalogReadinessTitle"
+      :message="consistencyStore.catalogReadinessMessage"
+    />
     <ErrorState
       v-else-if="initialLoadError && !hasAnyData"
       title="Consistency data unavailable"
@@ -31,9 +36,9 @@
             <h3>Scan summary</h3>
             <StatusTag :status="scanStatusTag" />
           </div>
-          <p class="health-card__summary">{{ consistencyStore.findings.length }} findings loaded</p>
+          <p class="health-card__summary">{{ scanSummaryLabel }}</p>
           <p class="health-card__details">
-            {{ consistencyStore.scanResult?.summary ?? 'No scan has been run yet.' }}
+            {{ scanSummaryDetails }}
           </p>
           <dl class="runtime-detail__grid">
             <dt>Scan tables</dt>
@@ -88,7 +93,7 @@
             <button
               class="runtime-action runtime-action--secondary"
               type="button"
-              :disabled="consistencyStore.isScanning"
+              :disabled="consistencyStore.isScanning || consistencyStore.isWaitingOnCatalog"
               @click="void refreshScan()"
             >
               {{ consistencyStore.isScanning ? 'Rescanning' : 'Rescan findings' }}
@@ -96,7 +101,7 @@
             <button
               class="runtime-action"
               type="button"
-              :disabled="!selectedRepairableFindings.length || consistencyStore.isPreviewing"
+              :disabled="consistencyStore.isWaitingOnCatalog || !selectedRepairableFindings.length || consistencyStore.isPreviewing"
               @click="void previewSelected()"
             >
               Preview selected ({{ selectedRepairableFindings.length }})
@@ -104,7 +109,7 @@
             <button
               class="runtime-action"
               type="button"
-              :disabled="!consistencyStore.findings.length || consistencyStore.isPreviewing"
+              :disabled="consistencyStore.isWaitingOnCatalog || !consistencyStore.findings.length || consistencyStore.isPreviewing"
               @click="void previewAll()"
             >
               Preview all ({{ consistencyStore.findings.length }})
@@ -112,7 +117,13 @@
           </div>
         </div>
 
-        <section class="consistency-filter-bar">
+        <RiskNotice
+          v-if="consistencyStore.isWaitingOnCatalog"
+          :title="consistencyStore.catalogReadinessTitle"
+          :message="consistencyStore.catalogReadinessMessage"
+        />
+
+        <section v-if="!consistencyStore.isWaitingOnCatalog" class="consistency-filter-bar">
           <label class="backup-form__field">
             <span>Search</span>
             <input
@@ -146,7 +157,7 @@
         </section>
 
         <section
-          v-if="consistencyStore.findings.length"
+          v-if="consistencyStore.findings.length && !consistencyStore.isWaitingOnCatalog"
           class="consistency-scan-summary"
         >
           <article class="consistency-scan-summary__item">
@@ -167,10 +178,13 @@
         </section>
 
         <ErrorState
-          v-if="consistencyStore.scanError"
+          v-if="consistencyStore.scanError && !consistencyStore.isWaitingOnCatalog"
           title="Scan findings unavailable"
           :message="consistencyStore.scanError"
         />
+        <div v-else-if="consistencyStore.isWaitingOnCatalog" class="runtime-blocking-message">
+          {{ consistencyStore.catalogReadinessMessage }}
+        </div>
         <div v-else class="consistency-table-wrap">
           <table class="consistency-table">
             <thead>
@@ -810,7 +824,17 @@ const allRestorePointsSelected = computed(
 const hasAnyData = computed(
   () => consistencyStore.findings.length > 0 || consistencyStore.restorePoints.length > 0,
 );
-const initialLoadError = computed(() => consistencyStore.scanError ?? consistencyStore.restorePointsError ?? null);
+const initialLoadError = computed(() => {
+  if (consistencyStore.isWaitingOnCatalog) {
+    return consistencyStore.restorePointsError ?? consistencyStore.catalogJobError ?? null;
+  }
+  return (
+    consistencyStore.catalogJobError
+    ?? consistencyStore.scanError
+    ?? consistencyStore.restorePointsError
+    ?? null
+  );
+});
 const missingOnDiskCount = computed(
   () => consistencyStore.findings.filter((finding) => finding.status === 'missing_on_disk').length,
 );
@@ -820,7 +844,24 @@ const readyForRepairCount = computed(
 const blockedForRepairCount = computed(
   () => consistencyStore.findings.filter((finding) => finding.repair_readiness === 'blocked').length,
 );
-const scanStatusTag = computed(() => toHealthState(consistencyStore.scanError, consistencyStore.scanResult));
+const scanStatusTag = computed<HealthState>(() => {
+  if (consistencyStore.isWaitingOnCatalog) {
+    return 'warning';
+  }
+  return toHealthState(consistencyStore.scanError, consistencyStore.scanResult);
+});
+const scanSummaryLabel = computed(() => {
+  if (consistencyStore.isWaitingOnCatalog) {
+    return consistencyStore.catalogReadinessTitle;
+  }
+  return `${consistencyStore.findings.length} findings loaded`;
+});
+const scanSummaryDetails = computed(() => {
+  if (consistencyStore.isWaitingOnCatalog) {
+    return consistencyStore.catalogReadinessMessage;
+  }
+  return consistencyStore.scanResult?.summary ?? 'No scan has been run yet.';
+});
 const missingStatusTag = computed<HealthState>(() => (missingOnDiskCount.value > 0 ? 'warning' : 'ok'));
 const readyStatusTag = computed<HealthState>(() => (blockedForRepairCount.value > 0 ? 'warning' : 'ok'));
 const restorePointStatusTag = computed(() =>
@@ -1221,6 +1262,10 @@ function toHealthState(
 
 async function refreshScan(): Promise<void> {
   clearPreviewState();
+  if (consistencyStore.isWaitingOnCatalog) {
+    await consistencyStore.loadCatalogJob();
+    return;
+  }
   await consistencyStore.scan();
   reconcileSelections();
 }
