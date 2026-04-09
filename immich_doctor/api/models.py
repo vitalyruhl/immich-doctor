@@ -41,6 +41,18 @@ class SettingsUpdateApiResponse(BaseModel):
     mocked: bool = False
 
 
+class TestbedDumpOverviewApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class TestbedDumpImportApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class RuntimeIntegrityApiResponse(BaseModel):
     data: FileIntegrityInspectResult
     source: Literal["backend"] = "backend"

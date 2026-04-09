@@ -23,6 +23,7 @@ from immich_doctor.services.backup_runtime_capability_service import (
     BackupRuntimeCapabilityService,
 )
 from immich_doctor.services.backup_size_service import BackupSizeEstimationService
+from immich_doctor.services.testbed_dump_service import TestbedDumpImportService
 
 DEFAULT_UI_DIST_PATH = Path("/app/ui/dist")
 REPO_UI_DIST_PATH = Path(__file__).resolve().parents[2] / "ui" / "frontend" / "dist"
@@ -34,6 +35,7 @@ def create_api_app(ui_dist_path: Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         try:
+            TestbedDumpImportService().maybe_auto_initialize(load_settings())
             try:
                 BackupRuntimeCapabilityService(runtime=runtime).trigger_startup_probe()
             except Exception:

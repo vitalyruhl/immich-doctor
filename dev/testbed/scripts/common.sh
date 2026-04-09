@@ -150,6 +150,20 @@ resolve_selected_storage_path() {
 
 resolve_selected_storage_path
 
+resolve_dump_mount_source() {
+  dump_path="${TESTBED_DUMP_PATH:-}"
+  if [ -z "$dump_path" ]; then
+    TESTBED_DUMP_MOUNT_SOURCE="$TESTBED_DIR/tmp"
+    export TESTBED_DUMP_MOUNT_SOURCE
+    return
+  fi
+  resolved_dump_path=$(resolve_host_path "$dump_path")
+  TESTBED_DUMP_MOUNT_SOURCE=$(dirname "$resolved_dump_path")
+  export TESTBED_DUMP_MOUNT_SOURCE
+}
+
+resolve_dump_mount_source
+
 default_export_path() {
   format="${1:-custom}"
   case "$format" in

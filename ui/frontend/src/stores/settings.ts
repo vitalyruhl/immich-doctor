@@ -3,9 +3,18 @@ import { defineStore } from "pinia";
 import {
   buildUnavailableSettingsOverview,
   fetchSettingsOverview,
+  fetchTestbedDumpOverview,
+  importTestbedDump,
   summarizeSettingsRequestError,
 } from "@/api/settings";
-import type { SettingsCapability, SettingsOverviewResponse, SettingsSection } from "@/api/types/settings";
+import type {
+  SettingsCapability,
+  SettingsOverviewResponse,
+  SettingsSection,
+  TestbedDumpImportResponse,
+  TestbedDumpOverviewResponse,
+} from "@/api/types/settings";
+import { ApiClientError } from "@/api/client";
 
 export const useSettingsStore = defineStore("settings", () => {
   const overview = ref<SettingsOverviewResponse | null>(null);
@@ -15,6 +24,10 @@ export const useSettingsStore = defineStore("settings", () => {
   const capabilitySummary = ref("Settings capability has not been inspected yet.");
   const capabilityState = ref<SettingsOverviewResponse["capabilityState"]>("NOT_IMPLEMENTED");
   const mocked = ref(false);
+  const testbedDump = ref<TestbedDumpOverviewResponse | null>(null);
+  const testbedImportResult = ref<TestbedDumpImportResponse | null>(null);
+  const isImporting = ref(false);
+  const importError = ref<string | null>(null);
 
   async function load(): Promise<void> {
     isLoading.value = true;
@@ -37,7 +50,40 @@ export const useSettingsStore = defineStore("settings", () => {
       capabilityState.value = fallbackOverview.capabilityState;
       mocked.value = false;
     } finally {
+      try {
+        const response = await fetchTestbedDumpOverview();
+        testbedDump.value = response.data;
+      } catch (caughtError) {
+        if (caughtError instanceof ApiClientError && caughtError.payload.status === 404) {
+          testbedDump.value = null;
+        } else {
+          testbedDump.value = null;
+        }
+      }
       isLoading.value = false;
+    }
+  }
+
+  async function triggerTestbedDumpImport(payload: {
+    path: string | null;
+    format: string;
+    force: boolean;
+  }): Promise<TestbedDumpImportResponse | null> {
+    isImporting.value = true;
+    importError.value = null;
+    try {
+      const response = await importTestbedDump(payload);
+      testbedImportResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      if (caughtError instanceof ApiClientError) {
+        importError.value = caughtError.payload.message;
+      } else {
+        importError.value = "Testbed dump import failed.";
+      }
+      return null;
+    } finally {
+      isImporting.value = false;
     }
   }
 
@@ -45,10 +91,15 @@ export const useSettingsStore = defineStore("settings", () => {
     capabilities,
     capabilityState,
     capabilitySummary,
+    importError,
+    isImporting,
     isLoading,
     load,
     mocked,
     overview,
     sections,
+    testbedDump,
+    testbedImportResult,
+    triggerTestbedDumpImport,
   };
 });

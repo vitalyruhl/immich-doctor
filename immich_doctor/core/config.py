@@ -159,6 +159,48 @@ class AppSettings(BaseSettings):
 
     required_external_tools: list[str] = Field(default_factory=list)
     optional_external_tools: list[str] = Field(default_factory=list)
+    testbed_init_mode: str = Field(
+        default="FROM_DUMP",
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_TESTBED_INIT_MODE",
+            "TESTBED_INIT_MODE",
+        ),
+    )
+    testbed_dump_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_TESTBED_DUMP_PATH",
+            "TESTBED_DUMP_PATH",
+        ),
+    )
+    testbed_dump_format: str = Field(
+        default="auto",
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_TESTBED_DUMP_FORMAT",
+            "TESTBED_DUMP_FORMAT",
+        ),
+    )
+    testbed_auto_import_on_empty: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_TESTBED_AUTO_IMPORT_ON_EMPTY",
+            "TESTBED_AUTO_IMPORT_ON_EMPTY",
+        ),
+    )
+    testbed_dump_mount_source: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_TESTBED_DUMP_MOUNT_SOURCE",
+            "TESTBED_DUMP_MOUNT_SOURCE",
+        ),
+    )
+    testbed_container_dump_dir: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_TESTBED_CONTAINER_DUMP_DIR",
+            "TESTBED_CONTAINER_DUMP_DIR",
+        ),
+    )
 
     @field_validator("required_external_tools", "optional_external_tools", mode="before")
     @classmethod
@@ -184,6 +226,8 @@ class AppSettings(BaseSettings):
         "db_name",
         "db_user",
         "db_password",
+        "testbed_dump_path",
+        "testbed_dump_mount_source",
         mode="before",
     )
     @classmethod

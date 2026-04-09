@@ -199,6 +199,18 @@ function Resolve-HostPath {
 
 Resolve-TestbedSelectedStoragePath *> $null
 
+function Resolve-TestbedDumpMountSource {
+    $dumpPath = Get-EnvOrDefault -Name "TESTBED_DUMP_PATH" -Default ""
+    if ([string]::IsNullOrWhiteSpace($dumpPath)) {
+        [Environment]::SetEnvironmentVariable("TESTBED_DUMP_MOUNT_SOURCE", (Join-Path $TestbedDir "tmp"))
+        return
+    }
+    $resolvedDumpPath = Resolve-HostPath -Path $dumpPath
+    [Environment]::SetEnvironmentVariable("TESTBED_DUMP_MOUNT_SOURCE", (Split-Path -Parent $resolvedDumpPath))
+}
+
+Resolve-TestbedDumpMountSource *> $null
+
 function Get-DefaultExportPath {
     param(
         [ValidateSet("custom", "plain")]

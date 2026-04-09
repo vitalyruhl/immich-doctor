@@ -41,6 +41,7 @@ def test_settings_service_exposes_versioned_schema() -> None:
         "storage",
         "backup",
         "scheduler-runtime",
+        "testbed",
     }
 
 
@@ -52,3 +53,17 @@ def test_settings_service_update_reports_not_implemented() -> None:
     assert result.capability_state == SettingsCapabilityState.NOT_IMPLEMENTED
     assert result.applied is False
     assert result.accepted_sections == ["storage"]
+
+
+def test_settings_service_exposes_testbed_capability_only_in_dev_testbed() -> None:
+    overview = SettingsService().get_overview(
+        AppSettings(
+            _env_file=None,
+            environment="dev-testbed",
+            testbed_dump_path=r"C:\Temp\immich.sql",
+        )
+    )
+
+    assert any(capability.id == "testbed_dump_import" for capability in overview.capabilities)
+    testbed_section = next(section for section in overview.sections if section.id == "testbed")
+    assert testbed_section.state == SettingsCapabilityState.READY

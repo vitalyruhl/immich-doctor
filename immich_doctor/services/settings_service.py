@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from immich_doctor.core.config import AppSettings
+from immich_doctor.services.testbed_dump_service import TestbedDumpImportService
 
 SETTINGS_SCHEMA_VERSION = "v1"
 
@@ -126,6 +127,31 @@ class SettingsService:
                 blocking=True,
             ),
         ]
+        testbed_overview = TestbedDumpImportService().get_overview(settings)
+        if testbed_overview.enabled:
+            capabilities.append(
+                SettingsCapability(
+                    id="testbed_dump_import",
+                    title="Testbed dump import",
+                    state=(
+                        SettingsCapabilityState.READY
+                        if testbed_overview.can_import
+                        else SettingsCapabilityState.PARTIAL
+                    ),
+                    summary=(
+                        "The backend can reload the local testbed database "
+                        "from the configured dump."
+                        if testbed_overview.can_import
+                        else "Testbed dump reload is visible, but no default "
+                        "dump path is configured."
+                    ),
+                    details=(
+                        "This feature is restricted to the dev-testbed environment and remains "
+                        "separate from production-style database handling."
+                    ),
+                    blocking=False,
+                )
+            )
         return SettingsOverview(
             generatedAt=generated_at,
             schemaVersion=SETTINGS_SCHEMA_VERSION,
@@ -211,6 +237,24 @@ class SettingsService:
                         self._schema_field("environment", "Environment", "string"),
                     ],
                 ),
+                SettingsSectionSchema(
+                    id="testbed",
+                    title="Dev Testbed",
+                    description=(
+                        "Local-only dump bootstrap and reload controls for the "
+                        "DB-backed testbed."
+                    ),
+                    fields=[
+                        self._schema_field("testbed_init_mode", "Init mode", "string"),
+                        self._schema_field("testbed_dump_path", "Default dump path", "string"),
+                        self._schema_field("testbed_dump_format", "Default dump format", "string"),
+                        self._schema_field(
+                            "testbed_auto_import_on_empty",
+                            "Auto import on empty DB",
+                            "boolean",
+                        ),
+                    ],
+                ),
             ],
         )
 
@@ -234,6 +278,15 @@ class SettingsService:
         fields = [
             self._build_field(field_schema, settings) for field_schema in schema_section.fields
         ]
+        if schema_section.id == "testbed" and settings.environment.strip().lower() != "dev-testbed":
+            return SettingsSection(
+                id=schema_section.id,
+                title=schema_section.title,
+                description=schema_section.description,
+                state=SettingsCapabilityState.NOT_IMPLEMENTED,
+                summary="Testbed-only settings are hidden outside the dev-testbed environment.",
+                fields=[],
+            )
         state, summary = self._summarize_section(schema_section.id, fields)
         return SettingsSection(
             id=schema_section.id,
@@ -282,6 +335,18 @@ class SettingsService:
                     "Runtime inspection is available, but scheduler-specific settings "
                     "are not implemented."
                 ),
+            )
+
+        if section_id == "testbed":
+            if present_count == 0:
+                return (
+                    SettingsCapabilityState.PARTIAL,
+                    "Testbed dump controls are available, but no default dump "
+                    "configuration is present.",
+                )
+            return (
+                SettingsCapabilityState.READY,
+                "Testbed dump bootstrap settings are available for the local dev-testbed flow.",
             )
 
         if section_id == "immich":

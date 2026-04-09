@@ -52,11 +52,18 @@ services:
       DB_USER: ${TESTBED_DB_USER:-postgres}
       DB_PASSWORD: ${TESTBED_DB_PASSWORD:-postgres}
       DB_CONNECT_TIMEOUT_SECONDS: 5
+      TESTBED_INIT_MODE: ${TESTBED_INIT_MODE:-FROM_DUMP}
+      TESTBED_DUMP_PATH: ${TESTBED_DUMP_PATH:-}
+      TESTBED_DUMP_FORMAT: ${TESTBED_DUMP_FORMAT:-auto}
+      TESTBED_AUTO_IMPORT_ON_EMPTY: ${TESTBED_AUTO_IMPORT_ON_EMPTY:-true}
+      TESTBED_DUMP_MOUNT_SOURCE: ${TESTBED_DUMP_MOUNT_SOURCE:-./tmp}
+      TESTBED_CONTAINER_DUMP_DIR: /mnt/testbed/dumps
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ${TESTBED_SELECTED_STORAGE_PATH:-../../data/mock/immich-library}:/mnt/immich/storage:ro
+      - ${TESTBED_DUMP_MOUNT_SOURCE:-./tmp}:/mnt/testbed/dumps:ro
       - ${TESTBED_REPORTS_PATH:-../../data/reports}:/data/reports
       - ${TESTBED_MANIFESTS_PATH:-../../data/manifests}:/data/manifests
       - ${TESTBED_QUARANTINE_PATH:-../../data/quarantine}:/data/quarantine
