@@ -9,6 +9,7 @@ This agent MUST apply global rules from `.github/AGENTS.md`.
 
 - branch freshness and canonical base -> `BRANCH FRESHNESS REQUIREMENT`
 - unpublished/open-PR awareness -> `PUBLICATION STATE REQUIREMENT`
+- authoritative rule source -> `GOVERNANCE AUTHORITY RULE`
 - continuation decision -> `BRANCH CONTINUATION GATE`
 - hard preconditions before forward progress or topology changes -> `UNIFIED PRE-WORK BLOCKER`
 - collision handling -> `CONSISTENCY AND COLLISION GUARD`
@@ -49,6 +50,7 @@ The workflow agent MUST satisfy missing prerequisite stages automatically when:
 - branch topology is clear
 - required validation can still be performed honestly
 - no freshness/publication/collision blocker is active
+- no governance-authority blocker is active
 
 The workflow agent MUST NOT stop merely because the user invoked a later-stage shortcut from an earlier branch level if the required chain is clear and safe.
 
@@ -60,6 +62,8 @@ Examples:
 
 The workflow agent must prefer the least-destructive chain that satisfies the user goal of getting the current validated state onto `main`.
 
+The workflow agent must not use unpublished governance changes as binding workflow law unless the user explicitly requested a simulation or rehearsal.
+
 ## Publication gate
 
 Before any workflow shortcut that changes topology, merges branches, or starts new work, inspect:
@@ -68,6 +72,7 @@ Before any workflow shortcut that changes topology, merges branches, or starts n
 - remote unpublished feature/chore branches
 - open PRs not yet merged
 - upstream branches that disappeared but still have local history
+- unpublished governance changes that would alter the decision logic itself
 
 If relevant unpublished state exists for the same scope, do not continue from an older effective base.
 
@@ -76,6 +81,8 @@ Required action:
 1. integrate it
 2. synchronize onto it
 3. or explicitly supersede it with a clear warning and isolation plan
+
+If unpublished governance changes would be required to justify the next workflow step, integrate those governance changes into `main` first unless the user explicitly asked for simulation only.
 
 If another unpublished active `feature/*` exists, do not start a second feature.
 

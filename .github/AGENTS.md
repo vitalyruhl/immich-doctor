@@ -193,6 +193,32 @@ If relevant unpublished state exists, the agent must first do one of:
 Silent ignore of unpublished state is forbidden.
 
 ========================================
+GOVERNANCE AUTHORITY RULE
+========================================
+
+Branch, merge, promotion, cleanup, and workflow-routing decisions must follow the governance rules that are already integrated into `main`.
+
+Non-integrated changes to:
+
+- `.github/AGENTS.md`
+- `.github/agents/*.md`
+
+are not yet authoritative for real repository workflow decisions.
+
+They may be used only when the user explicitly requests:
+
+- a simulation
+- a dry workflow rehearsal
+- or an explicit pre-merge governance test
+
+If the active unpublished workstream changes governance or workflow rules and a later branch/topology decision would rely on those new rules, the agent must first:
+
+1. integrate the governance change into `main`
+2. or explicitly ask the user to treat the next step as simulation only
+
+Starting a new branch from `main` while relying on not-yet-merged governance rules is forbidden.
+
+========================================
 BRANCH CONTINUATION GATE
 ========================================
 
@@ -205,6 +231,7 @@ Mandatory pre-write checks:
 - whether unstaged changes exist
 - whether local unpublished commits exist
 - whether relevant remote unpublished branches or open PRs exist
+- whether unpublished governance changes exist outside `main`
 - whether a suspended active feature exists
 - whether the new task overlaps files, contracts, or subsystem strategy with the suspended feature
 - whether current branch scope matches the requested task
@@ -220,6 +247,7 @@ The agent may continue on the current branch only if ALL are true:
 - no branch-topology action is required first
 - current branch is not behind canonical base
 - any cross-topic detour branch has passed the overlap gate
+- any governance rules being relied on are already integrated into `main` or explicitly marked as simulation-only
 
 ========================================
 UNIFIED PRE-WORK BLOCKER
@@ -241,6 +269,7 @@ The agent must STOP before continuing if ANY are true:
 - a second active feature branch would remain while another unpublished feature still exists
 - a second chore branch would remain active under the active feature
 - a cross-topic detour branch would touch overlapping files, contracts, or subsystem strategy
+- a branch or merge decision would rely on unpublished governance rules not yet integrated into `main`
 - branch cleanup is needed before safe continuation
 - stale non-integrated or already-integrated branches are cluttering workflow visibility
 - relevant unpublished state exists and has not been integrated, synchronized, or explicitly superseded
