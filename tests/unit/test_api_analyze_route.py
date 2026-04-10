@@ -135,12 +135,76 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
             "result": {"force": force},
         },
     )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "pause_scan",
+        lambda self, settings: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "pausing",
+            "summary": "Pause requested.",
+            "result": {"runtime": {"scanState": "pausing"}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "resume_scan",
+        lambda self, settings: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "resuming",
+            "summary": "Resume requested.",
+            "result": {"runtime": {"scanState": "resuming"}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "stop_scan",
+        lambda self, settings: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "stopping",
+            "summary": "Stop requested.",
+            "result": {"runtime": {"scanState": "stopping"}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "request_scan_worker_resize",
+        lambda self, settings, *, workers: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "running",
+            "summary": (
+                "Runtime worker resizing is not supported safely in the current architecture."
+            ),
+            "result": {
+                "workerResize": {
+                    "supported": False,
+                    "semantics": "next_run_only",
+                    "requestedWorkerCount": workers,
+                }
+            },
+        },
+    )
     client = TestClient(create_api_app())
 
     current_response = client.get("/api/analyze/catalog/scan-job")
     start_response = client.post("/api/analyze/catalog/scan-job/start", json={"force": True})
+    pause_response = client.post("/api/analyze/catalog/scan-job/pause")
+    resume_response = client.post("/api/analyze/catalog/scan-job/resume")
+    stop_response = client.post("/api/analyze/catalog/scan-job/stop")
+    workers_response = client.post("/api/analyze/catalog/scan-job/workers", json={"workers": 8})
 
     assert current_response.status_code == 200
     assert current_response.json()["data"]["result"]["progress"]["percent"] == 42.5
     assert start_response.status_code == 200
     assert start_response.json()["data"]["result"]["force"] is True
+    assert pause_response.status_code == 200
+    assert pause_response.json()["data"]["state"] == "pausing"
+    assert resume_response.status_code == 200
+    assert resume_response.json()["data"]["state"] == "resuming"
+    assert stop_response.status_code == 200
+    assert stop_response.json()["data"]["state"] == "stopping"
+    assert workers_response.status_code == 200
+    assert workers_response.json()["data"]["result"]["workerResize"]["semantics"] == "next_run_only"

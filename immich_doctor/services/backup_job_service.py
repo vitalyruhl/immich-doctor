@@ -17,7 +17,8 @@ class ManagedJobHandle:
     settings: AppSettings
     store: BackgroundJobStore
     record: BackgroundJobRecord
-    cancel_event: Event
+    stop_event: Event
+    pause_event: Event
 
     def update(
         self,
@@ -34,7 +35,7 @@ class ManagedJobHandle:
                 "updated_at": datetime.now(UTC).isoformat(),
                 "result": result,
                 "error": error,
-                "cancel_requested": self.cancel_event.is_set(),
+                "cancel_requested": self.stop_event.is_set(),
             }
         )
         self.record = self.store.persist_job(self.settings, updated)
@@ -69,18 +70,42 @@ class ManagedJobHandle:
                 "completed_at": completed_at,
                 "result": result,
                 "error": error,
-                "cancel_requested": self.cancel_event.is_set(),
+                "cancel_requested": self.stop_event.is_set(),
             }
         )
         self.record = self.store.persist_job(self.settings, updated)
         return self.record
 
-    def request_cancel(self) -> BackgroundJobRecord:
-        self.cancel_event.set()
+    def request_pause(self) -> BackgroundJobRecord:
+        self.pause_event.set()
         updated = self.record.model_copy(
             update={
-                "state": BackgroundJobState.CANCEL_REQUESTED,
-                "summary": "Cancellation requested.",
+                "state": BackgroundJobState.PAUSING,
+                "summary": "Pause requested.",
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        self.record = self.store.persist_job(self.settings, updated)
+        return self.record
+
+    def request_resume(self) -> BackgroundJobRecord:
+        self.pause_event.clear()
+        updated = self.record.model_copy(
+            update={
+                "state": BackgroundJobState.RESUMING,
+                "summary": "Resume requested.",
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        self.record = self.store.persist_job(self.settings, updated)
+        return self.record
+
+    def request_stop(self) -> BackgroundJobRecord:
+        self.stop_event.set()
+        updated = self.record.model_copy(
+            update={
+                "state": BackgroundJobState.STOPPING,
+                "summary": "Stop requested.",
                 "updated_at": datetime.now(UTC).isoformat(),
                 "cancel_requested": True,
             }
@@ -88,8 +113,17 @@ class ManagedJobHandle:
         self.record = self.store.persist_job(self.settings, updated)
         return self.record
 
+    def request_cancel(self) -> BackgroundJobRecord:
+        return self.request_stop()
+
     def cancel_requested(self) -> bool:
-        return self.cancel_event.is_set()
+        return self.stop_event.is_set()
+
+    def stop_requested(self) -> bool:
+        return self.stop_event.is_set()
+
+    def pause_requested(self) -> bool:
+        return self.pause_event.is_set()
 
 
 @dataclass(slots=True)
@@ -142,7 +176,8 @@ class BackgroundJobRuntime:
             settings=settings,
             store=self.store,
             record=persisted_record,
-            cancel_event=Event(),
+            stop_event=Event(),
+            pause_event=Event(),
         )
         future = self._executor.submit(self._run_job, handle, runner)
         with self._lock:
@@ -160,12 +195,31 @@ class BackgroundJobRuntime:
             return handle.record
 
     def request_cancel(self, *, job_type: str) -> BackgroundJobRecord | None:
+        return self.request_stop(job_type=job_type)
+
+    def request_pause(self, *, job_type: str) -> BackgroundJobRecord | None:
         with self._lock:
             active = self._active_jobs.get(job_type)
         if active is None:
             return None
         handle, _ = active
-        return handle.request_cancel()
+        return handle.request_pause()
+
+    def request_resume(self, *, job_type: str) -> BackgroundJobRecord | None:
+        with self._lock:
+            active = self._active_jobs.get(job_type)
+        if active is None:
+            return None
+        handle, _ = active
+        return handle.request_resume()
+
+    def request_stop(self, *, job_type: str) -> BackgroundJobRecord | None:
+        with self._lock:
+            active = self._active_jobs.get(job_type)
+        if active is None:
+            return None
+        handle, _ = active
+        return handle.request_stop()
 
     def set_capability_snapshot(self, name: str, snapshot: dict[str, object]) -> None:
         with self._lock:

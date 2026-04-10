@@ -20,6 +20,20 @@ docker exec -it immich-doctor python -m immich_doctor runtime metadata-failures 
 docker exec -it immich-doctor python -m immich_doctor runtime metadata-failures repair --diagnostic-id metadata_failure:asset-123 --fix-permissions --apply
 ```
 
+## Catalog Scan Lifecycle Controls
+
+These commands call the running API runtime and expose true scan-job control
+capabilities. Runtime worker resize is currently **next-run-only**.
+
+```bash
+docker exec -it immich-doctor python -m immich_doctor analyze catalog scan-job status
+docker exec -it immich-doctor python -m immich_doctor analyze catalog scan-job start --force
+docker exec -it immich-doctor python -m immich_doctor analyze catalog scan-job pause
+docker exec -it immich-doctor python -m immich_doctor analyze catalog scan-job resume
+docker exec -it immich-doctor python -m immich_doctor analyze catalog scan-job stop
+docker exec -it immich-doctor python -m immich_doctor analyze catalog scan-job workers --workers 8
+```
+
 ## Storage
 
 ```bash
