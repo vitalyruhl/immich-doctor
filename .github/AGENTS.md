@@ -94,10 +94,38 @@ Delegation rules:
 - Specialized agents must not bypass branch hygiene just because branch operations are owned by `workflow.agent`
 
 ========================================
+BRANCH FRESHNESS REQUIREMENT
+========================================
+
+Canonical base:
+
+- `feature/*` -> `origin/main`
+- `chore/<feature>/*` -> `feature/<feature>`
+- `main` -> `origin/main`
+
+Before ANY repository-changing work begins, freshness verification is REQUIRED.
+
+The agent MUST NOT start forward-progress work on a branch that is behind its canonical base.
+
+If behind, work is BLOCKED until synchronization is complete:
+
+1. fetch/prune remote state
+2. update canonical base
+3. merge/rebase current branch with canonical base
+4. resolve conflicts
+5. run required validation
+
+Checkpoint safety exception:
+
+- A checkpoint MAY be created on a stale branch only to preserve coherent local work safely
+- A checkpoint on a stale branch DOES NOT count as freshness pass
+- After such checkpoint, no forward-progress work may continue until synchronization completes
+
+========================================
 BRANCH CONTINUATION GATE
 ========================================
 
-Before starting any file-changing task, the agent must decide whether the work may continue on the current branch or requires a new branch first.
+Before starting any file-changing task, the agent MUST decide whether continuation on the current branch is safe or blocked.
 
 Mandatory pre-write checks:
 - current branch name
@@ -106,21 +134,50 @@ Mandatory pre-write checks:
 - whether unstaged changes exist
 - whether current branch scope matches the requested task
 - whether the branch still represents the active intended work slice
+- freshness status vs canonical base
 
 The agent may continue on the current branch only if ALL are true:
-- working tree is clean, or
-- the existing changes are clearly in-scope carry-over for the same current task
+- working tree is clean, or the existing changes are clearly in-scope carry-over for the same current task
 - branch scope matches the requested task
 - no unrelated leftovers are present
 - no branch-topology action is required first
+- current branch is not behind canonical base
 
-The agent must STOP and hand off to `workflow.agent` before continuing if ANY are true:
+========================================
+UNIFIED PRE-WORK BLOCKER
+========================================
+
+Before forward-progress or topology-changing work, ALL must pass:
+
+1. Freshness check passes (branch not behind canonical base)
+2. Canonical base is determinable and reachable
+3. No overlapping/competing active branch work with unclear boundaries
+4. Branch topology and merge target are unambiguous
+
+The agent must STOP before continuing if ANY are true:
 - the working tree contains unrelated or unclear changes
 - the requested task changes scope significantly
 - the current branch has already completed its intended slice
 - the requested work should be isolated as a new `chore/*` or `feature/*` branch
 - branch cleanup is needed before safe continuation
 - stale non-integrated or already-integrated branches are cluttering workflow visibility
+- freshness check failed
+- canonical base is ambiguous/unreachable
+- overlap/competing work is unresolved
+- branch topology is ambiguous/inconsistent
+
+========================================
+MANDATORY REPORTING CONTRACT
+========================================
+
+For every blocked/proceed decision, agent MUST report:
+
+- current branch
+- canonical base (found/ambiguous/missing)
+- freshness status (ahead/equal/behind)
+- overlap/collision status
+- topology clarity status
+- chosen action (proceed / sync first / consolidate first / stop)
 
 Dirty-tree classification is mandatory:
 - in-scope carry-over
@@ -134,6 +191,7 @@ The agent must explicitly report one of:
 - continue on current branch
 - create/switch to new branch
 - cleanup required first
+- synchronize branch with canonical base first
 
 ========================================
 CONSISTENCY AND COLLISION GUARD
