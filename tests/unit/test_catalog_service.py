@@ -1,13 +1,13 @@
 from pathlib import Path
 
 from immich_doctor.catalog.paths import catalog_database_path
-from immich_doctor.catalog.store import CatalogStore
 from immich_doctor.catalog.service import (
     CatalogInventoryScanService,
     CatalogRootRegistry,
     CatalogStatusService,
     CatalogZeroByteReportService,
 )
+from immich_doctor.catalog.store import CatalogStore
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckStatus
 
@@ -321,5 +321,9 @@ def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
     assert prepare_updates
     assert scan_updates
-    assert {payload["workerCount"] for payload in prepare_updates} == {3}
-    assert {payload["workerCount"] for payload in scan_updates} == {3}
+    assert {payload["configuredWorkerCount"] for payload in prepare_updates} == {3}
+    assert {payload["configuredWorkerCount"] for payload in scan_updates} == {3}
+
+    active_worker_counts = {payload["activeWorkerCount"] for payload in scan_updates}
+    assert active_worker_counts
+    assert all(isinstance(count, int) and count >= 0 for count in active_worker_counts)

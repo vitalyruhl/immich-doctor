@@ -50,9 +50,7 @@ def _catalog_scan_job_api_call(
             f"Catalog scan-job API request failed with HTTP {exc.code}: {detail}"
         ) from exc
     except URLError as exc:
-        raise typer.BadParameter(
-            f"Catalog scan-job API request failed: {exc.reason}"
-        ) from exc
+        raise typer.BadParameter(f"Catalog scan-job API request failed: {exc.reason}") from exc
 
 
 def _emit_catalog_scan_job_response(payload: dict[str, object], output: str) -> None:
@@ -67,9 +65,7 @@ def _emit_catalog_scan_job_response(payload: dict[str, object], output: str) -> 
         state = str(data.get("state") or "unknown")
         summary = str(data.get("summary") or "No summary available.")
         runtime = (
-            data.get("result", {}).get("runtime")
-            if isinstance(data.get("result"), dict)
-            else None
+            data.get("result", {}).get("runtime") if isinstance(data.get("result"), dict) else None
         )
         if not isinstance(runtime, dict):
             runtime = {}
@@ -171,7 +167,10 @@ def analyze_catalog_consistency(
 
 @analyze_catalog_scan_job_app.command("status")
 def analyze_catalog_scan_job_status(
-    api_base_url: Annotated[str, typer.Option("--api-base-url")] = "http://127.0.0.1:8000/api",
+    api_base_url: Annotated[
+        str,
+        typer.Option("--api-base-url"),
+    ] = "http://127.0.0.1:8000/api",
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
     payload = _catalog_scan_job_api_call(
@@ -184,7 +183,10 @@ def analyze_catalog_scan_job_status(
 
 @analyze_catalog_scan_job_app.command("start")
 def analyze_catalog_scan_job_start(
-    api_base_url: Annotated[str, typer.Option("--api-base-url")] = "http://127.0.0.1:8000/api",
+    api_base_url: Annotated[
+        str,
+        typer.Option("--api-base-url"),
+    ] = "http://127.0.0.1:8000/api",
     force: Annotated[bool, typer.Option("--force")] = False,
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
@@ -199,7 +201,10 @@ def analyze_catalog_scan_job_start(
 
 @analyze_catalog_scan_job_app.command("pause")
 def analyze_catalog_scan_job_pause(
-    api_base_url: Annotated[str, typer.Option("--api-base-url")] = "http://127.0.0.1:8000/api",
+    api_base_url: Annotated[
+        str,
+        typer.Option("--api-base-url"),
+    ] = "http://127.0.0.1:8000/api",
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
     payload = _catalog_scan_job_api_call(
@@ -212,7 +217,10 @@ def analyze_catalog_scan_job_pause(
 
 @analyze_catalog_scan_job_app.command("resume")
 def analyze_catalog_scan_job_resume(
-    api_base_url: Annotated[str, typer.Option("--api-base-url")] = "http://127.0.0.1:8000/api",
+    api_base_url: Annotated[
+        str,
+        typer.Option("--api-base-url"),
+    ] = "http://127.0.0.1:8000/api",
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
     payload = _catalog_scan_job_api_call(
@@ -225,7 +233,10 @@ def analyze_catalog_scan_job_resume(
 
 @analyze_catalog_scan_job_app.command("stop")
 def analyze_catalog_scan_job_stop(
-    api_base_url: Annotated[str, typer.Option("--api-base-url")] = "http://127.0.0.1:8000/api",
+    api_base_url: Annotated[
+        str,
+        typer.Option("--api-base-url"),
+    ] = "http://127.0.0.1:8000/api",
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
     payload = _catalog_scan_job_api_call(
@@ -239,7 +250,10 @@ def analyze_catalog_scan_job_stop(
 @analyze_catalog_scan_job_app.command("workers")
 def analyze_catalog_scan_job_workers(
     workers: Annotated[int, typer.Option("--workers", min=1)],
-    api_base_url: Annotated[str, typer.Option("--api-base-url")] = "http://127.0.0.1:8000/api",
+    api_base_url: Annotated[
+        str,
+        typer.Option("--api-base-url"),
+    ] = "http://127.0.0.1:8000/api",
     output: Annotated[str, typer.Option("--output", help="text or json")] = "text",
 ) -> None:
     payload = _catalog_scan_job_api_call(

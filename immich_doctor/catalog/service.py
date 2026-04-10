@@ -535,7 +535,9 @@ class CatalogInventoryScanService:
                 {
                     "phase": "prepare",
                     "rootSlug": root_slug,
-                    "workerCount": worker_count,
+                    "configuredWorkerCount": worker_count,
+                    "activeWorkerCount": 0,
+                    "scanState": "running",
                     "current": count,
                     "total": None,
                     "percent": None,
@@ -592,7 +594,9 @@ class CatalogInventoryScanService:
             {
                 "phase": "prepare",
                 "rootSlug": root_slug,
-                "workerCount": worker_count,
+                "configuredWorkerCount": worker_count,
+                "activeWorkerCount": 0,
+                "scanState": "running",
                 "current": len(discovered_directories),
                 "total": len(discovered_directories),
                 "percent": None,
