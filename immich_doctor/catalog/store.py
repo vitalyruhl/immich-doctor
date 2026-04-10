@@ -491,6 +491,20 @@ class CatalogStore:
             connection.commit()
         return self.get_scan_session(settings, session_id)
 
+    def requeue_processing_directories(self, settings: AppSettings, session_id: str) -> None:
+        self.initialize(settings)
+        with self.connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE scan_directory_queue
+                SET status = 'pending'
+                WHERE scan_session_id = ?
+                  AND status = 'processing';
+                """,
+                (session_id,),
+            )
+            connection.commit()
+
     def mark_session_failed(
         self,
         settings: AppSettings,

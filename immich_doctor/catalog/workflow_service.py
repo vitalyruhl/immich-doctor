@@ -280,11 +280,12 @@ class CatalogWorkflowService:
         worst_state = BackgroundJobState.COMPLETED
         for index, root in enumerate(roots, start=1):
             logger.info(
-                "Catalog scan job %s starting root %s (%s/%s)",
+                "Catalog scan job %s starting root %s (%s/%s) with %s workers",
                 handle.record.job_id,
                 root.slug,
                 index,
                 root_count,
+                handle.settings.catalog_scan_workers,
             )
             report = self.scan_service.run(
                 handle.settings,
@@ -416,6 +417,7 @@ class CatalogWorkflowService:
                     else f"Preparing directory inventory for root `{root_slug}`."
                 ),
                 "rootSlug": root_slug,
+                "scanWorkers": handle.settings.catalog_scan_workers,
                 "rootsCompleted": completed_roots,
                 **payload,
             },

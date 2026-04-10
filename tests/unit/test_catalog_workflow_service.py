@@ -23,12 +23,14 @@ def _settings(
     *,
     library_root: Path | None = None,
     uploads_path: Path | None = None,
+    catalog_scan_workers: int = 4,
 ) -> AppSettings:
     return AppSettings(
         _env_file=None,
         manifests_path=tmp_path / "manifests",
         immich_library_root=library_root,
         immich_uploads_path=uploads_path,
+        catalog_scan_workers=catalog_scan_workers,
     )
 
 
@@ -285,3 +287,32 @@ def test_catalog_scan_job_retires_incomplete_session_for_obsolete_root(tmp_path:
         assert runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE) is None
     finally:
         runtime.shutdown()
+
+
+def test_catalog_scan_progress_payload_contains_worker_count(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, uploads_path=tmp_path / "uploads", catalog_scan_workers=7)
+    service = CatalogWorkflowService(runtime=BackgroundJobRuntime())
+    updates: list[dict[str, object]] = []
+
+    class _FakeHandle:
+        def __init__(self) -> None:
+            self.settings = settings
+            self.record = type("_Record", (), {"job_id": "job-1"})()
+
+        def update(self, *, state, summary: str, result: dict[str, object]) -> None:  # type: ignore[no-untyped-def]
+            del state, summary
+            updates.append(result)
+
+    try:
+        service._update_scan_progress(
+            _FakeHandle(),
+            payload={"phase": "scan", "percent": 50.0},
+            root_slug="uploads",
+            root_index=1,
+            total_roots=2,
+            completed_roots=[],
+        )
+        assert updates
+        assert updates[-1]["progress"]["scanWorkers"] == 7
+    finally:
+        service.runtime.shutdown()

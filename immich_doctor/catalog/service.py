@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import errno
+import logging
 import os
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -34,6 +36,8 @@ _SCAN_PRIORITY = {
     "library": 4,
 }
 _DISCOVERY_PROGRESS_INTERVAL = 250
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> str:
@@ -183,6 +187,7 @@ class CatalogInventoryScanService:
             session_row=scan_result["session"],
             snapshot_row=scan_result["snapshot"],
             summary=scan_result["summary"],
+            run_context=scan_result["run_context"],
         )
 
     def _select_session_or_root(
@@ -245,123 +250,174 @@ class CatalogInventoryScanService:
         session_id = str(session_row["id"])
         root_path = Path(str(root_row["absolute_path"]))
         files_seen = int(session_row["files_seen"])
+        worker_count = settings.catalog_scan_workers
         self._prepare_directory_queue(
             settings,
             session_id=session_id,
             root_slug=str(root_row["slug"]),
             root_path=root_path,
+            worker_count=worker_count,
             progress_callback=progress_callback,
         )
-        while True:
-            relative_path = self.store.claim_next_directory(settings, session_id)
-            if relative_path is None:
-                completed_session = self.store.commit_scan_session(settings, session_id)
-                snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))
-                if completed_session is None or snapshot is None:
-                    raise ValueError(f"Catalog session `{session_id}` could not be finalized.")
-                checks.append(
-                    CheckResult(
-                        name="catalog_scan_session",
-                        status=(
-                            CheckStatus.PASS
-                            if int(completed_session["error_count"]) == 0
-                            else CheckStatus.WARN
-                        ),
-                        message=f"Catalog session `{session_id}` completed for root "
-                        f"`{root_row['slug']}`.",
-                        details={
-                            "snapshot_id": completed_session["snapshot_id"],
-                            "files_seen": completed_session["files_seen"],
-                            "error_count": completed_session["error_count"],
-                        },
-                    )
-                )
-                return {
-                    "checks": checks,
-                    "session": completed_session,
-                    "snapshot": snapshot,
-                    "summary": (
-                        f"Catalog scan completed for root `{root_row['slug']}`. "
-                        f"Indexed {completed_session['files_seen']} files with "
-                        f"{snapshot['zero_byte_count']} zero-byte findings."
-                    ),
-                }
+        inflight: dict[Future[dict[str, object]], tuple[int, str]] = {}
+        completed_by_order: dict[int, tuple[str, dict[str, object]]] = {}
+        next_claim_order = 0
+        next_apply_order = 0
+        pause_requested = False
 
-            observed = self._observe_directory(root_path, relative_path)
-            self.store.apply_directory_observation(
-                settings,
-                session_id=session_id,
-                storage_root_id=int(root_row["id"]),
-                snapshot_id=int(session_row["snapshot_id"]),
-                relative_path=relative_path,
-                subdirectories=observed["subdirectories"],
-                file_observations=observed["files"],
-                error_count=observed["error_count"],
-                bytes_delta=observed["bytes_delta"],
-                last_relative_path=observed["last_relative_path"],
-            )
-            files_seen += len(observed["files"])
-            updated_session = self.store.get_scan_session(settings, session_id)
-            pending_directories = self.store.count_pending_directories(settings, session_id)
-            if progress_callback is not None and updated_session is not None:
-                total_directories = (
-                    int(updated_session["directories_completed"]) + pending_directories
-                )
-                percent = (
-                    round(
-                        (int(updated_session["directories_completed"]) / total_directories) * 100,
-                        2,
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            while True:
+                while not pause_requested and len(inflight) < worker_count:
+                    relative_path = self.store.claim_next_directory(settings, session_id)
+                    if relative_path is None:
+                        break
+                    future = executor.submit(self._observe_directory, root_path, relative_path)
+                    inflight[future] = (next_claim_order, relative_path)
+                    next_claim_order += 1
+
+                if not inflight:
+                    break
+
+                done, _ = wait(set(inflight), return_when=FIRST_COMPLETED)
+                for future in done:
+                    claim_order, relative_path = inflight.pop(future)
+                    try:
+                        observed = future.result()
+                    except Exception:
+                        logger.exception(
+                            "Catalog scan observation failed for root=%s relative_path=%s",
+                            root_row["slug"],
+                            relative_path,
+                        )
+                        observed = {
+                            "subdirectories": [],
+                            "files": [],
+                            "error_count": 1,
+                            "bytes_delta": 0,
+                            "last_relative_path": relative_path,
+                        }
+                    completed_by_order[claim_order] = (relative_path, observed)
+
+                while next_apply_order in completed_by_order:
+                    relative_path, observed = completed_by_order.pop(next_apply_order)
+                    next_apply_order += 1
+
+                    self.store.apply_directory_observation(
+                        settings,
+                        session_id=session_id,
+                        storage_root_id=int(root_row["id"]),
+                        snapshot_id=int(session_row["snapshot_id"]),
+                        relative_path=relative_path,
+                        subdirectories=observed["subdirectories"],
+                        file_observations=observed["files"],
+                        error_count=observed["error_count"],
+                        bytes_delta=observed["bytes_delta"],
+                        last_relative_path=observed["last_relative_path"],
                     )
-                    if total_directories > 0
-                    else 0.0
-                )
-                progress_callback(
-                    {
-                        "phase": "scan",
-                        "rootSlug": str(root_row["slug"]),
-                        "sessionId": session_id,
-                        "filesSeen": int(updated_session["files_seen"]),
-                        "bytesSeen": int(updated_session["bytes_seen"]),
-                        "directoriesTotal": total_directories,
-                        "directoriesCompleted": int(updated_session["directories_completed"]),
-                        "pendingDirectories": pending_directories,
-                        "lastRelativePath": updated_session["last_relative_path"],
-                        "percent": percent,
-                    }
-                )
-            if max_files is not None and files_seen >= max_files:
-                paused_session = self.store.mark_session_paused(settings, session_id)
-                snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))
-                if paused_session is None or snapshot is None:
-                    raise ValueError(f"Catalog session `{session_id}` could not be paused.")
-                checks.append(
-                    CheckResult(
-                        name="catalog_scan_session",
-                        status=CheckStatus.WARN,
-                        message=(
-                            f"Catalog session `{session_id}` paused after reaching the "
-                            f"configured file limit."
-                        ),
-                        details={
-                            "snapshot_id": paused_session["snapshot_id"],
-                            "files_seen": paused_session["files_seen"],
-                            "pending_directories": self.store.count_pending_directories(
-                                settings,
-                                session_id,
+                    files_seen += len(observed["files"])
+                    updated_session = self.store.get_scan_session(settings, session_id)
+                    pending_directories = self.store.count_pending_directories(settings, session_id)
+                    if progress_callback is not None and updated_session is not None:
+                        total_directories = (
+                            int(updated_session["directories_completed"]) + pending_directories
+                        )
+                        percent = (
+                            round(
+                                (int(updated_session["directories_completed"]) / total_directories)
+                                * 100,
+                                2,
+                            )
+                            if total_directories > 0
+                            else 0.0
+                        )
+                        progress_callback(
+                            {
+                                "phase": "scan",
+                                "rootSlug": str(root_row["slug"]),
+                                "sessionId": session_id,
+                                "workerCount": worker_count,
+                                "filesSeen": int(updated_session["files_seen"]),
+                                "bytesSeen": int(updated_session["bytes_seen"]),
+                                "directoriesTotal": total_directories,
+                                "directoriesCompleted": int(updated_session["directories_completed"]),
+                                "pendingDirectories": pending_directories,
+                                "lastRelativePath": updated_session["last_relative_path"],
+                                "percent": percent,
+                            }
+                        )
+                    if max_files is not None and files_seen >= max_files:
+                        pause_requested = True
+                        break
+
+                if pause_requested:
+                    for future in inflight:
+                        future.cancel()
+                    self.store.requeue_processing_directories(settings, session_id)
+                    paused_session = self.store.mark_session_paused(settings, session_id)
+                    snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))
+                    if paused_session is None or snapshot is None:
+                        raise ValueError(f"Catalog session `{session_id}` could not be paused.")
+                    checks.append(
+                        CheckResult(
+                            name="catalog_scan_session",
+                            status=CheckStatus.WARN,
+                            message=(
+                                f"Catalog session `{session_id}` paused after reaching the "
+                                f"configured file limit."
                             ),
-                        },
+                            details={
+                                "snapshot_id": paused_session["snapshot_id"],
+                                "files_seen": paused_session["files_seen"],
+                                "pending_directories": self.store.count_pending_directories(
+                                    settings,
+                                    session_id,
+                                ),
+                                "scan_workers": worker_count,
+                            },
+                        )
                     )
-                )
-                return {
-                    "checks": checks,
-                    "session": paused_session,
-                    "snapshot": snapshot,
-                    "summary": (
-                        f"Catalog scan paused for root `{root_row['slug']}` after "
-                        f"{paused_session['files_seen']} files. Resume with "
-                        f"`--resume-session-id {session_id}`."
-                    ),
-                }
+                    return {
+                        "checks": checks,
+                        "session": paused_session,
+                        "snapshot": snapshot,
+                        "summary": (
+                            f"Catalog scan paused for root `{root_row['slug']}` after "
+                            f"{paused_session['files_seen']} files. Resume with "
+                            f"`--resume-session-id {session_id}`."
+                        ),
+                        "run_context": {"scan_workers": worker_count},
+                    }
+
+        completed_session = self.store.commit_scan_session(settings, session_id)
+        snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))
+        if completed_session is None or snapshot is None:
+            raise ValueError(f"Catalog session `{session_id}` could not be finalized.")
+        checks.append(
+            CheckResult(
+                name="catalog_scan_session",
+                status=(
+                    CheckStatus.PASS if int(completed_session["error_count"]) == 0 else CheckStatus.WARN
+                ),
+                message=f"Catalog session `{session_id}` completed for root `{root_row['slug']}`.",
+                details={
+                    "snapshot_id": completed_session["snapshot_id"],
+                    "files_seen": completed_session["files_seen"],
+                    "error_count": completed_session["error_count"],
+                    "scan_workers": worker_count,
+                },
+            )
+        )
+        return {
+            "checks": checks,
+            "session": completed_session,
+            "snapshot": snapshot,
+            "summary": (
+                f"Catalog scan completed for root `{root_row['slug']}`. "
+                f"Indexed {completed_session['files_seen']} files with "
+                f"{snapshot['zero_byte_count']} zero-byte findings."
+            ),
+            "run_context": {"scan_workers": worker_count},
+        }
 
     def _observe_directory(
         self,
@@ -420,6 +476,7 @@ class CatalogInventoryScanService:
         session_id: str,
         root_slug: str,
         root_path: Path,
+        worker_count: int,
         progress_callback: Callable[[dict[str, object]], None] | None,
     ) -> None:
         discovered_directories: list[str] = []
@@ -431,6 +488,7 @@ class CatalogInventoryScanService:
                 {
                     "phase": "prepare",
                     "rootSlug": root_slug,
+                    "workerCount": worker_count,
                     "current": count,
                     "total": None,
                     "percent": None,
@@ -487,6 +545,7 @@ class CatalogInventoryScanService:
             {
                 "phase": "prepare",
                 "rootSlug": root_slug,
+                "workerCount": worker_count,
                 "current": len(discovered_directories),
                 "total": len(discovered_directories),
                 "percent": None,
@@ -577,6 +636,7 @@ class CatalogInventoryScanService:
         session_row: dict[str, object],
         snapshot_row: dict[str, object] | None,
         summary: str,
+        run_context: dict[str, object],
     ) -> ValidationReport:
         sections = [
             self._roots_section(root_rows),
@@ -603,6 +663,7 @@ class CatalogInventoryScanService:
             metadata={
                 "catalog_path": str(catalog_database_path(settings)),
                 "generated_at_runtime": _utcnow(),
+                **run_context,
             },
             metrics=[
                 {"name": "files_seen", "value": session_row["files_seen"]},
