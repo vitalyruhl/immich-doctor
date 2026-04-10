@@ -36,6 +36,39 @@
         </article>
       </section>
 
+      <section class="panel settings-overview-card">
+        <div class="settings-section__header">
+          <div>
+            <h3>Configured roots</h3>
+            <p>Root registration comes from the runtime container paths, not guessed host paths.</p>
+          </div>
+        </div>
+        <p class="settings-overview-card__summary">
+          {{ catalogStore.rootCount }} configured storage roots are currently visible to the catalog runtime.
+        </p>
+        <p v-if="catalogStore.error" class="runtime-blocking-message">
+          {{ catalogStore.error }}
+        </p>
+        <section v-else-if="catalogStore.roots.length" class="runtime-findings">
+          <article
+            v-for="root in catalogStore.roots"
+            :key="root.slug"
+            class="runtime-finding"
+          >
+            <div class="runtime-finding__header">
+              <strong>{{ root.slug }}</strong>
+            </div>
+            <span>{{ root.absolute_path }}</span>
+            <small>{{ root.root_type }} via {{ root.setting_name }}</small>
+          </article>
+        </section>
+        <EmptyState
+          v-else
+          title="No catalog roots configured"
+          message="Set at least one Immich storage path in the runtime environment before using the persistent catalog."
+        />
+      </section>
+
       <section
         v-if="settingsStore.testbedDump?.enabled"
         class="panel settings-testbed-card"
@@ -152,9 +185,11 @@ import CapabilityTag from "@/components/common/CapabilityTag.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import LoadingState from "@/components/common/LoadingState.vue";
 import PageHeader from "@/components/common/PageHeader.vue";
+import { useCatalogStore } from "@/stores/catalog";
 import { useSettingsStore } from "@/stores/settings";
 
 const settingsStore = useSettingsStore();
+const catalogStore = useCatalogStore();
 const importPath = ref("");
 const importFormat = ref("auto");
 const importConfirmed = ref(false);
@@ -189,6 +224,6 @@ async function triggerImport(): Promise<void> {
 }
 
 onMounted(async () => {
-  await settingsStore.load();
+  await Promise.all([settingsStore.load(), catalogStore.load()]);
 });
 </script>

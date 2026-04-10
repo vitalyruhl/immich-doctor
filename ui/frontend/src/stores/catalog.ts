@@ -4,7 +4,6 @@ import { ApiClientError } from "@/api/client";
 import {
   fetchCatalogScanJob,
   fetchCatalogStatus,
-  fetchCatalogZeroByte,
   pauseCatalogScanJob,
   requestCatalogScanWorkers,
   resumeCatalogScanJob,
@@ -79,7 +78,6 @@ function isActiveScanJob(job: CatalogWorkflowJobRecord | null): boolean {
 
 export const useCatalogStore = defineStore("catalog", () => {
   const statusReport = ref<CatalogValidationReport | null>(null);
-  const zeroByteReport = ref<CatalogValidationReport | null>(null);
   const scanJob = ref<CatalogWorkflowJobRecord | null>(null);
   const roots = ref<CatalogRootRow[]>([]);
   const selectedRoot = ref<string | null>(null);
@@ -93,9 +91,7 @@ export const useCatalogStore = defineStore("catalog", () => {
     const statusResponse = await fetchCatalogStatus(rootSlug);
     const nextRoots = extractRoots(statusResponse.data);
     const normalizedRoot = normalizeSelectedRoot(rootSlug, nextRoots);
-    const zeroByteResponse = await fetchCatalogZeroByte(normalizedRoot);
     statusReport.value = statusResponse.data;
-    zeroByteReport.value = zeroByteResponse.data;
     roots.value = nextRoots;
     selectedRoot.value = normalizedRoot;
   }
@@ -256,6 +252,5 @@ export const useCatalogStore = defineStore("catalog", () => {
     shouldAutoStartScan,
     startScan,
     statusReport,
-    zeroByteReport,
   };
 });

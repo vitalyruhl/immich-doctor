@@ -9,7 +9,6 @@ const catalogStore: {
   hasCommittedSnapshot: boolean;
   shouldAutoStartScan: boolean;
   statusReport: Record<string, unknown>;
-  zeroByteReport: Record<string, unknown>;
   scanJob: Record<string, unknown> | null;
   scanRuntime: Record<string, unknown> | null;
   scanJobActive: boolean;
@@ -115,38 +114,6 @@ const catalogStore: {
     metrics: [],
     recommendations: [],
   },
-  zeroByteReport: {
-    domain: "analyze.catalog",
-    action: "zero-byte",
-    status: "FAIL",
-    summary: "Loaded 1 zero-byte file findings from the latest committed catalog snapshots.",
-    generated_at: "2026-04-08T09:02:00+00:00",
-    metadata: {
-      catalog_path: "/data/manifests/catalog/file-catalog.sqlite3",
-      root_slug: "uploads",
-    },
-    checks: [],
-    sections: [
-      {
-        name: "ZERO_BYTE_FILES",
-        status: "fail",
-        rows: [
-          {
-            root_slug: "uploads",
-            relative_path: "nested/empty.jpg",
-            file_name: "empty.jpg",
-            extension: ".jpg",
-            size_bytes: 0,
-            modified_at_fs: "2026-04-08T09:01:00+00:00",
-            snapshot_id: 7,
-            generation: 2,
-          },
-        ],
-      },
-    ],
-    metrics: [],
-    recommendations: [],
-  },
   scanJob: {
     jobId: "catalog-scan-1",
     jobType: "catalog_inventory_scan",
@@ -223,10 +190,11 @@ describe("StorageView", () => {
 
     expect(wrapper.text()).toContain("Storage index scan");
     expect(wrapper.text()).toContain("generation 2");
-    expect(wrapper.text()).toContain("nested/empty.jpg");
     expect(wrapper.text()).toContain("Directories: 4 / 4");
     expect(wrapper.text()).toContain("Configured workers: 4");
     expect(wrapper.text()).toContain("Active workers: 0");
+    expect(wrapper.text()).not.toContain("Configured roots");
+    expect(wrapper.text()).not.toContain("Zero-byte files");
 
     const runButton = wrapper
       .findAll("button")
