@@ -28,6 +28,7 @@ Escalation:
 
 - if current branch is `main` and the refactor scope is clear, initiate canonical branch creation through `workflow.begin` semantics instead of stopping on `main`
 - if another active chore already exists under the same feature and the requested work is a distinct larger slice, integrate that chore first instead of creating a parallel chore
+- if a cross-topic detour branch is considered, require a strict overlap check first; when overlap is unclear or likely, STOP instead of opening the detour
 - if synchronization, branch creation, promotion, merge prep, or cleanup is needed -> use `workflow.agent`
 - if behavioral change is required -> STOP and request explicit scope change
 - when a chore branch is required, use canonical naming `chore/<feature>/<subtask>`

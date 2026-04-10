@@ -22,6 +22,9 @@ This agent MUST apply global rules from `.github/AGENTS.md`.
 - `feature/*` is the canonical current work carrier for all unpublished work
 - `chore/<feature>/<subtask>` is an optional short-lived, scoped isolation branch under that active feature
 - at most one active `chore/*` may exist under the active feature at a time
+- exception: a temporary cross-topic detour branch may use
+  - `chore/<active-feature>/to-<target-feature>-<subtask>`
+  - it starts from `main`, lands on `main`, and must be deleted before the suspended feature resumes
 - non-canonical `fix/*` branches are retained and reported unless verified safe for cleanup
 
 ## Shortcut invocation syntax
@@ -90,6 +93,16 @@ Required action:
 2. integrate the existing chore into the parent feature first if the new task is a distinct larger slice
 3. only then create the new chore
 
+Detour exception:
+
+- a temporary cross-topic detour branch may be created only when ALL are true:
+  - the active feature is clean, checkpointed, and intentionally suspended
+  - the detour work is urgent
+  - the detour starts from current `main`
+  - overlap with the suspended feature is demonstrably absent or safely extractable
+  - the branch name contains `to-<target-feature>`
+- if overlap is unclear, likely, or strategic rather than surgical, STOP instead of creating the detour
+
 ## Shortcut reference
 
 ### `workflow.begin`
@@ -120,7 +133,10 @@ Deterministic outcome:
 - if a sibling chore already exists under that feature:
   - continue it when the task is the same slice
   - otherwise integrate it first, then create the new chore
-- active branch after success is always `chore/<feature>/<subtask>`
+- for an approved detour request:
+  - checkpoint and suspend the active feature if needed
+  - create `chore/<active-feature>/to-<target-feature>-<subtask>` from current `main`
+- active branch after success is the created or selected working branch, either standard `chore/<feature>/<subtask>` or approved detour `chore/<active-feature>/to-<target-feature>-<subtask>`
 
 ### `workflow.checkpoint`
 
@@ -247,6 +263,7 @@ Automatic prerequisite chain:
 STOP if:
 
 - parent relation is unclear
+- the branch is a `to-<target-feature>` detour branch
 - blockers fail
 - conflicts or required checks fail after sync or merge
 
@@ -268,6 +285,7 @@ Accepted current branches:
 
 - `feature/*`
 - `chore/<feature>/<subtask>` through automatic prerequisite chaining
+- `chore/<active-feature>/to-<target-feature>-<subtask>` as a detour branch that promotes directly to `main`
 
 Preconditions:
 
@@ -278,6 +296,7 @@ Automatic prerequisite chain:
 
 - from `chore/<feature>/<subtask>` -> `workflow.checkpoint` if needed -> optional `workflow.docs` -> checkpoint docs if changed -> `workflow.ready`
 - from resulting `feature/*` -> inspect publication state and synchronize onto the latest effective base before PR creation
+- from `chore/<active-feature>/to-<target-feature>-<subtask>` -> checkpoint if needed -> verify overlap gate passed -> promote directly to `main` without `workflow.ready`
 
 STOP if:
 
@@ -293,6 +312,9 @@ Deterministic outcome:
 - open or update PR to `main`
 - merge only through PR when checks are green
 - keep the feature branch active unless cleanup proves it is fully integrated
+- if the source is a detour branch:
+  - delete the detour after merge
+  - synchronize the suspended active feature to the new `main` before resuming work
 
 ### `workflow.toMain`
 

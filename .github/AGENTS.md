@@ -112,10 +112,21 @@ Working hierarchy:
 - small changes may happen directly on the active `feature/<feature>`
 - larger structural changes should typically use `chore/<feature>/<subtask>`
 
+Exceptional detour branch:
+
+- a short-lived cross-topic detour branch MAY be created when urgent work must land on `main` before the active feature is finished
+- branch form:
+  - `chore/<active-feature>/to-<target-feature>-<subtask>`
+- the `to-<target-feature>` segment is mandatory so the non-parent merge path is obvious
+- this branch does NOT merge back into `feature/<active-feature>`
+- it is a temporary detour from `main` intended to land on `main`, then be deleted
+- after the detour is merged, the previously active feature must be synchronized to the new `main` before continuation
+
 Freshness base mapping:
 
 - `feature/*` -> `origin/main`
 - `chore/<feature>/<subtask>` -> `feature/<feature>`
+- `chore/<active-feature>/to-<target-feature>-<subtask>` -> `origin/main`
 - `main` -> `origin/main`
 
 Worktree ownership rules:
@@ -128,6 +139,13 @@ Worktree ownership rules:
   - otherwise integrate the existing chore into its feature first, then create the new chore
 - the active `feature/*` must remain the latest effective base for all unpublished work
 - a `chore/*` must not become a long-lived competing implementation line
+- a cross-topic detour branch is allowed only when ALL are true:
+  - the current active feature is clean, checkpointed, and intentionally suspended
+  - the detour starts from current `main`
+  - the task is clearly disjoint or safely extractable
+  - the branch name includes the intended target feature via `to-<target-feature>`
+  - the detour is merged to `main` and deleted before resuming the suspended feature
+- if overlap with the suspended feature is unclear or likely, the detour branch is forbidden
 
 Before ANY repository-changing work begins, freshness verification is REQUIRED.
 
@@ -164,6 +182,8 @@ Treat an open PR as unpublished state until it is merged.
 
 The agent MUST NOT start forward-progress work from an older effective base when relevant unpublished state exists for the same feature, subsystem, or merge target.
 
+Cross-topic detour branches are not exempt from this rule.
+
 If relevant unpublished state exists, the agent must first do one of:
 
 1. integrate it
@@ -185,6 +205,8 @@ Mandatory pre-write checks:
 - whether unstaged changes exist
 - whether local unpublished commits exist
 - whether relevant remote unpublished branches or open PRs exist
+- whether a suspended active feature exists
+- whether the new task overlaps files, contracts, or subsystem strategy with the suspended feature
 - whether current branch scope matches the requested task
 - whether the branch still represents the active intended work slice
 - freshness status vs canonical base
@@ -197,6 +219,7 @@ The agent may continue on the current branch only if ALL are true:
 - no other active unpublished feature branch exists that should be integrated first
 - no branch-topology action is required first
 - current branch is not behind canonical base
+- any cross-topic detour branch has passed the overlap gate
 
 ========================================
 UNIFIED PRE-WORK BLOCKER
@@ -217,6 +240,7 @@ The agent must STOP before continuing if ANY are true:
 - the requested work should be isolated as a new `chore/<feature>/<subtask>` or `feature/<feature>` branch
 - a second active feature branch would remain while another unpublished feature still exists
 - a second chore branch would remain active under the active feature
+- a cross-topic detour branch would touch overlapping files, contracts, or subsystem strategy
 - branch cleanup is needed before safe continuation
 - stale non-integrated or already-integrated branches are cluttering workflow visibility
 - relevant unpublished state exists and has not been integrated, synchronized, or explicitly superseded
@@ -270,6 +294,7 @@ Treat as collision when:
 - multiple strategies exist for the same subsystem
 - workflow direction diverges without consolidation
 - new work would partially undo recent work without explicit acknowledgment
+- a detour branch from `main` would edit the same files, interfaces, or subsystem decisions as a suspended feature
 
 Required behavior on collision:
 
