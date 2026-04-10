@@ -27,6 +27,7 @@ The application accepts both:
 | `DB_USER` | PostgreSQL username | Optional |
 | `DB_PASSWORD` | PostgreSQL password | Optional |
 | `IMMICH_DOCTOR_POSTGRES_CONNECT_TIMEOUT_SECONDS` or `DB_CONNECT_TIMEOUT_SECONDS` | PostgreSQL connect timeout | No |
+| `IMMICH_DOCTOR_CATALOG_SCAN_WORKERS` or `CATALOG_SCAN_WORKERS` | Parallel filesystem observation workers for catalog scan (`1`-`64`, default `4`) | No |
 
 ## Runtime artifact paths
 
@@ -87,6 +88,13 @@ Current command behavior:
 - `backup verify` validates current backup target-readiness checks, configured required tools, and persisted snapshot-manifest structure when present
 - `db health check` validates host resolution, TCP reachability, login, and round-trip query execution
 - `db performance indexes check` validates index inventory and index health facts
+
+Catalog scan worker tuning notes:
+
+- `CATALOG_SCAN_WORKERS=1` preserves baseline single-worker behavior.
+- The default is `4`, which is a conservative balance for many systems.
+- Higher values are not always faster: performance can flatten or degrade when storage,
+  filesystem metadata lookups, or SQLite write throughput becomes the bottleneck.
 
 Current backup-related configuration expectations:
 

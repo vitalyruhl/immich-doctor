@@ -30,6 +30,10 @@ class CatalogScanJobRequest(BaseModel):
     force: bool = False
 
 
+class CatalogScanJobWorkersRequest(BaseModel):
+    workers: int = Field(ge=1)
+
+
 @analyze_router.post("/catalog/scan", response_model=CatalogScanApiResponse)
 def start_catalog_scan(payload: CatalogScanRequest) -> CatalogScanApiResponse:
     data = (
@@ -85,4 +89,39 @@ def start_catalog_scan_job(
         load_settings(),
         force=payload.force,
     )
+    return CatalogScanJobApiResponse(data=data)
+
+
+@analyze_router.post("/catalog/scan-job/pause", response_model=CatalogScanJobApiResponse)
+def pause_catalog_scan_job(request: Request) -> CatalogScanJobApiResponse:
+    data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).pause_scan(
+        load_settings()
+    )
+    return CatalogScanJobApiResponse(data=data)
+
+
+@analyze_router.post("/catalog/scan-job/resume", response_model=CatalogScanJobApiResponse)
+def resume_catalog_scan_job(request: Request) -> CatalogScanJobApiResponse:
+    data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).resume_scan(
+        load_settings()
+    )
+    return CatalogScanJobApiResponse(data=data)
+
+
+@analyze_router.post("/catalog/scan-job/stop", response_model=CatalogScanJobApiResponse)
+def stop_catalog_scan_job(request: Request) -> CatalogScanJobApiResponse:
+    data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).stop_scan(
+        load_settings()
+    )
+    return CatalogScanJobApiResponse(data=data)
+
+
+@analyze_router.post("/catalog/scan-job/workers", response_model=CatalogScanJobApiResponse)
+def request_catalog_scan_workers(
+    request: Request,
+    payload: CatalogScanJobWorkersRequest,
+) -> CatalogScanJobApiResponse:
+    data = CatalogWorkflowService(
+        runtime=request.app.state.backup_job_runtime
+    ).request_scan_worker_resize(load_settings(), workers=payload.workers)
     return CatalogScanJobApiResponse(data=data)

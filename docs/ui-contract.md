@@ -91,6 +91,24 @@ The Runtime page must:
 - never encourage blind retries when corruption, truncation, missing files, or
   permission errors are already proven
 
+## Catalog scan lifecycle UI behavior
+
+The storage catalog page must expose only true backend scan controls.
+
+Canonical behavior:
+
+- show configured worker count, active worker count, and scan state
+- show scan states at least as `idle`, `running`, `pausing`, `paused`, `resuming`, `stopping`, `stopped`, `completed`, `failed`
+- expose `Start`, `Pause`, `Resume`, and `Stop` actions with state-based enable/disable rules
+- never present immediate worker-resize controls unless backend confirms safe support
+- when runtime resize is not safely supported, show explicit `next_run_only` semantics
+
+Safety rules:
+
+- pause must stop scheduling new work and let in-flight workers reach a safe boundary
+- resume must continue from persisted progress without replaying completed work
+- stop must be cooperative, preserve partial progress, and must not be shown as completed
+
 ## Missing asset references page
 
 The missing-asset-reference UI must stay review-first and mutation-last.

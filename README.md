@@ -113,6 +113,12 @@ immich-doctor runtime validate
 immich-doctor analyze catalog scan
 immich-doctor analyze catalog status
 immich-doctor analyze catalog zero-byte
+immich-doctor analyze catalog scan-job status
+immich-doctor analyze catalog scan-job start
+immich-doctor analyze catalog scan-job pause
+immich-doctor analyze catalog scan-job resume
+immich-doctor analyze catalog scan-job stop
+immich-doctor analyze catalog scan-job workers
 immich-doctor runtime health check
 immich-doctor runtime integrity inspect
 immich-doctor runtime metadata-failures inspect
@@ -164,8 +170,8 @@ It powers the dashboard health cards with conservative backend-derived states.
 uv sync --dev
 ```
 
-3. Copy `.env.example` to `.env` and adjust your paths and PostgreSQL DSN.
-4. Run the safe MVP commands:
+1. Copy `.env.example` to `.env` and adjust your paths and PostgreSQL DSN.
+2. Run the safe MVP commands:
 
 ```bash
 uv run python -m immich_doctor runtime health check
@@ -173,6 +179,12 @@ uv run python -m immich_doctor runtime validate
 uv run python -m immich_doctor analyze catalog scan --root uploads
 uv run python -m immich_doctor analyze catalog status
 uv run python -m immich_doctor analyze catalog zero-byte --root uploads
+uv run python -m immich_doctor analyze catalog scan-job status
+uv run python -m immich_doctor analyze catalog scan-job start --force
+uv run python -m immich_doctor analyze catalog scan-job pause
+uv run python -m immich_doctor analyze catalog scan-job resume
+uv run python -m immich_doctor analyze catalog scan-job stop
+uv run python -m immich_doctor analyze catalog scan-job workers --workers 8
 uv run python -m immich_doctor runtime integrity inspect
 uv run python -m immich_doctor runtime metadata-failures inspect
 uv run python -m immich_doctor runtime metadata-failures repair
@@ -225,6 +237,10 @@ Implemented now:
 - `analyze catalog` with mounted SQLite catalog bootstrap, resumable per-root
   inventory sessions, committed snapshots, scan status visibility, and
   zero-byte reporting from persisted catalog data
+- `analyze catalog scan-job` lifecycle controls with truthful runtime state:
+  - exposed worker visibility: configured count + active count + scan state
+  - cooperative pause/resume/stop transitions at safe boundaries
+  - runtime worker resize explicitly reported as next-run-only (not immediate)
 - runtime file integrity checks for missing, empty, unreadable, truncated,
   corrupted, container-broken, type-mismatched, and unknown-problem files in
   the supported schema

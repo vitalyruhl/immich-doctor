@@ -18,6 +18,12 @@ uv run python -m immich_doctor --help
 uv run python -m immich_doctor --help
 uv run python -m immich_doctor runtime health check
 uv run python -m immich_doctor runtime validate
+uv run python -m immich_doctor analyze catalog scan-job status
+uv run python -m immich_doctor analyze catalog scan-job start --force
+uv run python -m immich_doctor analyze catalog scan-job pause
+uv run python -m immich_doctor analyze catalog scan-job resume
+uv run python -m immich_doctor analyze catalog scan-job stop
+uv run python -m immich_doctor analyze catalog scan-job workers --workers 8
 uv run python -m immich_doctor storage paths check --output json
 uv run python -m immich_doctor storage permissions check
 uv run python -m immich_doctor backup files

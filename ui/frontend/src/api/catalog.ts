@@ -2,6 +2,7 @@ import { request } from "./client";
 import type { ApiResponse } from "./types/common";
 import type {
   CatalogJobRequest,
+  CatalogJobWorkerResizeRequest,
   CatalogScanRequest,
   CatalogValidationReport,
   CatalogWorkflowJobRecord,
@@ -51,6 +52,33 @@ export async function startCatalogScanJob(
   payload: CatalogJobRequest,
 ): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
   return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job/start", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function pauseCatalogScanJob(): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job/pause", {
+    method: "POST",
+  });
+}
+
+export async function resumeCatalogScanJob(): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job/resume", {
+    method: "POST",
+  });
+}
+
+export async function stopCatalogScanJob(): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job/stop", {
+    method: "POST",
+  });
+}
+
+export async function requestCatalogScanWorkers(
+  payload: CatalogJobWorkerResizeRequest,
+): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job/workers", {
     method: "POST",
     body: JSON.stringify(payload),
   });

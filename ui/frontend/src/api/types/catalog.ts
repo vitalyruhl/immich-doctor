@@ -4,6 +4,11 @@ export type CatalogSectionStatus = "pass" | "fail" | "warn" | "skip";
 export type CatalogJobState =
   | "pending"
   | "running"
+  | "pausing"
+  | "paused"
+  | "resuming"
+  | "stopping"
+  | "stopped"
   | "partial"
   | "completed"
   | "failed"
@@ -43,6 +48,32 @@ export interface CatalogJobRequest {
   force: boolean;
 }
 
+export interface CatalogJobWorkerResizeRequest {
+  workers: number;
+}
+
+export interface CatalogScanRuntimeDetails {
+  scanState:
+    | "idle"
+    | "running"
+    | "pausing"
+    | "paused"
+    | "resuming"
+    | "stopping"
+    | "stopped"
+    | "completed"
+    | "failed";
+  configuredWorkerCount: number;
+  activeWorkerCount: number;
+  workerResize?: {
+    supported: boolean;
+    semantics: "next_run_only" | string;
+    message?: string;
+    requestedWorkerCount?: number;
+    appliedImmediately?: boolean;
+  };
+}
+
 export interface CatalogJobProgress {
   phase?: string | null;
   current?: number | null;
@@ -79,6 +110,15 @@ export interface CatalogWorkflowJobRecord {
   error: string | null;
   result: Record<string, unknown> & {
     progress?: CatalogJobProgress;
+    runtime?: CatalogScanRuntimeDetails;
+    workerResize?: {
+      supported: boolean;
+      semantics: "next_run_only" | string;
+      message?: string;
+      requestedWorkerCount?: number;
+      appliedImmediately?: boolean;
+      configuredWorkerCount?: number;
+    };
     report?: CatalogValidationReport;
     reports?: Array<{
       rootSlug: string;

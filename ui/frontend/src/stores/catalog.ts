@@ -5,10 +5,15 @@ import {
   fetchCatalogScanJob,
   fetchCatalogStatus,
   fetchCatalogZeroByte,
+  pauseCatalogScanJob,
+  requestCatalogScanWorkers,
+  resumeCatalogScanJob,
   startCatalogScanJob,
+  stopCatalogScanJob,
 } from "@/api/catalog";
 import type {
   CatalogRootRow,
+  CatalogScanRuntimeDetails,
   CatalogValidationReport,
   CatalogWorkflowJobRecord,
 } from "@/api/types/catalog";
@@ -66,7 +71,10 @@ function normalizeSelectedRoot(
 }
 
 function isActiveScanJob(job: CatalogWorkflowJobRecord | null): boolean {
-  return job !== null && ["pending", "running", "cancel_requested"].includes(job.state);
+  return (
+    job !== null
+    && ["pending", "running", "pausing", "resuming", "stopping", "cancel_requested"].includes(job.state)
+  );
 }
 
 export const useCatalogStore = defineStore("catalog", () => {
@@ -77,6 +85,7 @@ export const useCatalogStore = defineStore("catalog", () => {
   const selectedRoot = ref<string | null>(null);
   const isLoading = ref(false);
   const isScanning = ref(false);
+  const isLifecycleTransitioning = ref(false);
   const error = ref<string | null>(null);
   const scanError = ref<string | null>(null);
 
@@ -146,12 +155,78 @@ export const useCatalogStore = defineStore("catalog", () => {
     }
   }
 
+  async function pauseScan(): Promise<CatalogWorkflowJobRecord | null> {
+    isLifecycleTransitioning.value = true;
+    scanError.value = null;
+    try {
+      const response = await pauseCatalogScanJob();
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLifecycleTransitioning.value = false;
+    }
+  }
+
+  async function resumeScan(): Promise<CatalogWorkflowJobRecord | null> {
+    isLifecycleTransitioning.value = true;
+    scanError.value = null;
+    try {
+      const response = await resumeCatalogScanJob();
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLifecycleTransitioning.value = false;
+    }
+  }
+
+  async function stopScan(): Promise<CatalogWorkflowJobRecord | null> {
+    isLifecycleTransitioning.value = true;
+    scanError.value = null;
+    try {
+      const response = await stopCatalogScanJob();
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLifecycleTransitioning.value = false;
+    }
+  }
+
+  async function requestScanWorkers(workers: number): Promise<CatalogWorkflowJobRecord | null> {
+    isLifecycleTransitioning.value = true;
+    scanError.value = null;
+    try {
+      const response = await requestCatalogScanWorkers({ workers });
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLifecycleTransitioning.value = false;
+    }
+  }
+
   const latestSnapshots = computed(() => extractLatestSnapshots(statusReport.value));
   const scanCoverage = computed(() => extractScanCoverage(statusReport.value));
   const hasCommittedSnapshot = computed(() =>
     latestSnapshots.value.some((row) => row.snapshot_id !== null),
   );
   const scanJobActive = computed(() => isActiveScanJob(scanJob.value));
+  const scanRuntime = computed<CatalogScanRuntimeDetails | null>(() => {
+    const candidate = scanJob.value?.result?.runtime;
+    return candidate && typeof candidate === "object"
+      ? (candidate as CatalogScanRuntimeDetails)
+      : null;
+  });
   const shouldAutoStartScan = computed(() => !scanJobActive.value && Boolean(scanCoverage.value?.requiresScan));
   const rootCount = computed(() => roots.value.length);
 
@@ -159,6 +234,7 @@ export const useCatalogStore = defineStore("catalog", () => {
     error,
     hasCommittedSnapshot,
     isLoading,
+    isLifecycleTransitioning,
     isScanning,
     latestSnapshots,
     load,
@@ -166,10 +242,15 @@ export const useCatalogStore = defineStore("catalog", () => {
     refreshScanJob,
     rootCount,
     roots,
+    pauseScan,
+    requestScanWorkers,
+    resumeScan,
     scanError,
     scanCoverage,
     scanJob,
     scanJobActive,
+    scanRuntime,
+    stopScan,
     selectedRoot,
     setSelectedRoot,
     shouldAutoStartScan,

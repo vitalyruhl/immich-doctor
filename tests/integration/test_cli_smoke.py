@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from immich_doctor.backup.core.models import BackupContext, BackupResult, BackupTarget
 from immich_doctor.backup.restore import RestoreReadiness, RestoreSimulationResult
+from immich_doctor.cli import analyze as analyze_cli
 from immich_doctor.cli import backup as backup_cli
 from immich_doctor.cli import consistency as consistency_cli
 from immich_doctor.cli import db as db_cli
@@ -73,6 +74,45 @@ def test_runtime_health_check_json_output() -> None:
     assert payload["domain"] == "runtime.health"
     assert payload["action"] == "check"
     assert payload["status"] == "PASS"
+
+
+def test_analyze_catalog_scan_job_status_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def fake_call(*, api_base_url, method, endpoint, payload=None, timeout=8.0):
+        del api_base_url, method, endpoint, payload, timeout
+        return {
+            "data": {
+                "jobId": "catalog-scan-1",
+                "jobType": "catalog_inventory_scan",
+                "state": "running",
+                "summary": "Catalog scan is running.",
+                "result": {
+                    "runtime": {
+                        "scanState": "running",
+                        "configuredWorkerCount": 6,
+                        "activeWorkerCount": 3,
+                        "workerResize": {
+                            "supported": False,
+                            "semantics": "next_run_only",
+                        },
+                    }
+                },
+            }
+        }
+
+    monkeypatch.setattr(analyze_cli, "_catalog_scan_job_api_call", fake_call)
+
+    result = runner.invoke(
+        app,
+        ["analyze", "catalog", "scan-job", "status", "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["state"] == "running"
+    assert payload["result"]["runtime"]["configuredWorkerCount"] == 6
+    assert payload["result"]["runtime"]["activeWorkerCount"] == 3
 
 
 def test_testbed_import_dump_json_output(monkeypatch) -> None:

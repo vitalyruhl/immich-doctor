@@ -7,11 +7,12 @@ from immich_doctor.catalog.service import (
     CatalogStatusService,
     CatalogZeroByteReportService,
 )
+from immich_doctor.catalog.store import CatalogStore
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckStatus
 
 
-def _settings(tmp_path: Path, *, uploads: Path) -> AppSettings:
+def _settings(tmp_path: Path, *, uploads: Path, catalog_scan_workers: int = 4) -> AppSettings:
     return AppSettings(
         _env_file=None,
         immich_uploads_path=uploads,
@@ -20,6 +21,7 @@ def _settings(tmp_path: Path, *, uploads: Path) -> AppSettings:
         quarantine_path=tmp_path / "quarantine",
         logs_path=tmp_path / "logs",
         tmp_path=tmp_path / "tmp",
+        catalog_scan_workers=catalog_scan_workers,
     )
 
 
@@ -234,3 +236,94 @@ def test_catalog_status_marks_snapshots_stale_after_root_path_change(tmp_path: P
     assert scan_coverage["currentRootSlugs"] == []
     assert scan_coverage["staleRootSlugs"] == ["uploads"]
     assert scan_coverage["requiresScan"] is True
+
+
+def test_catalog_scan_worker_1_preserves_baseline_behavior(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "a").mkdir(parents=True, exist_ok=True)
+    (uploads / "a" / "asset-a.jpg").write_bytes(b"a")
+    (uploads / "asset-b.jpg").write_bytes(b"b")
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=1)
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    assert report.overall_status == CheckStatus.PASS
+    assert report.metadata["scan_workers"] == 1
+    session_section = next(section for section in report.sections if section.name == "SCAN_SESSION")
+    assert session_section.rows[0]["status"] == "completed"
+    assert session_section.rows[0]["files_seen"] == 2
+
+
+def test_catalog_scan_parallel_workers_no_duplicates_or_misses(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    expected_paths: set[str] = set()
+    for directory in ["a", "a/b", "a/c", "d"]:
+        (uploads / directory).mkdir(parents=True, exist_ok=True)
+    for relative_path in [
+        "root.txt",
+        "a/asset-1.jpg",
+        "a/b/asset-2.jpg",
+        "a/b/asset-3.jpg",
+        "a/c/asset-4.jpg",
+        "d/asset-5.jpg",
+    ]:
+        (uploads / relative_path).write_bytes(relative_path.encode("utf-8"))
+        expected_paths.add(relative_path)
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=4)
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    assert report.overall_status == CheckStatus.PASS
+    assert report.metadata["scan_workers"] == 4
+
+    store = CatalogStore()
+    files = store.list_latest_snapshot_files(settings, slug="uploads", limit=None)
+    scanned_paths = [str(row["relative_path"]) for row in files]
+
+    assert len(scanned_paths) == len(expected_paths)
+    assert set(scanned_paths) == expected_paths
+    assert len(scanned_paths) == len(set(scanned_paths))
+
+
+def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "a" / "b").mkdir(parents=True, exist_ok=True)
+    (uploads / "a" / "asset-a.jpg").write_bytes(b"a")
+    (uploads / "a" / "b" / "asset-b.jpg").write_bytes(b"b")
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=3)
+    progress_payloads: list[dict[str, object]] = []
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+        progress_callback=progress_payloads.append,
+    )
+
+    assert report.metadata["scan_workers"] == 3
+    prepare_updates = [
+        payload for payload in progress_payloads if payload.get("phase") == "prepare"
+    ]
+    scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
+    assert prepare_updates
+    assert scan_updates
+    assert {payload["configuredWorkerCount"] for payload in prepare_updates} == {3}
+    assert {payload["configuredWorkerCount"] for payload in scan_updates} == {3}
+
+    active_worker_counts = {payload["activeWorkerCount"] for payload in scan_updates}
+    assert active_worker_counts
+    assert all(isinstance(count, int) and count >= 0 for count in active_worker_counts)

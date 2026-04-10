@@ -156,6 +156,13 @@ class AppSettings(BaseSettings):
             "DB_CONNECT_TIMEOUT_SECONDS",
         ),
     )
+    catalog_scan_workers: int = Field(
+        default=4,
+        validation_alias=AliasChoices(
+            "IMMICH_DOCTOR_CATALOG_SCAN_WORKERS",
+            "CATALOG_SCAN_WORKERS",
+        ),
+    )
 
     required_external_tools: list[str] = Field(default_factory=list)
     optional_external_tools: list[str] = Field(default_factory=list)
@@ -234,6 +241,15 @@ class AppSettings(BaseSettings):
     def empty_values_to_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("catalog_scan_workers")
+    @classmethod
+    def validate_catalog_scan_workers(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("Catalog scan workers must be greater than or equal to 1.")
+        if value > 64:
+            raise ValueError("Catalog scan workers must be less than or equal to 64.")
         return value
 
     def postgres_dsn_value(self) -> str | None:
