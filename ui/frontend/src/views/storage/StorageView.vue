@@ -3,7 +3,7 @@
     <PageHeader
       eyebrow="Storage / Catalog"
       title="Persistent Catalog"
-      summary="Cached storage scan, persisted status, zero-byte detection, and reusable inventory for consistency validation."
+      summary="Cached storage scan, persisted status, and reusable inventory for consistency validation."
     />
     <RiskNotice
       title="Read-only storage inventory"
@@ -13,7 +13,7 @@
     <LoadingState
       v-if="catalogStore.isLoading && !catalogStore.statusReport"
       title="Loading catalog state"
-      message="Collecting configured roots, latest snapshots, zero-byte findings, and current scan state."
+      message="Collecting configured roots, latest snapshots, and current scan state."
     />
     <ErrorState
       v-else-if="catalogStore.error"
@@ -117,8 +117,6 @@
           <dl class="runtime-detail__grid">
             <dt>Scope</dt>
             <dd>{{ selectedRootLabel }}</dd>
-            <dt>Configured roots</dt>
-            <dd>{{ catalogStore.rootCount }}</dd>
             <dt>Latest snapshot</dt>
             <dd>{{ latestSnapshotLabel }}</dd>
             <dt>Files indexed</dt>
@@ -129,86 +127,7 @@
             <dd>{{ latestSession?.directories_completed ?? 0 }}</dd>
           </dl>
         </article>
-
-        <article class="panel catalog-panel">
-          <div class="settings-section__header">
-            <div>
-              <h3>Zero-byte summary</h3>
-              <p>Obvious defects from the latest committed catalog snapshots.</p>
-            </div>
-            <StatusTag :status="zeroByteStatus" />
-          </div>
-
-          <p class="health-card__summary">{{ zeroByteRows.length }} zero-byte sample rows</p>
-          <p class="health-card__details">
-            {{ catalogStore.zeroByteReport?.summary ?? "No zero-byte report loaded." }}
-          </p>
-        </article>
       </section>
-
-      <article class="panel catalog-panel">
-        <div class="settings-section__header">
-          <div>
-            <h3>Configured roots</h3>
-            <p>Root registration comes from the runtime container paths, not guessed host paths.</p>
-          </div>
-        </div>
-        <section v-if="catalogStore.roots.length" class="runtime-findings">
-          <article
-            v-for="root in catalogStore.roots"
-            :key="root.slug"
-            class="runtime-finding"
-            :class="{ 'catalog-root--selected': root.slug === catalogStore.selectedRoot }"
-          >
-            <div class="runtime-finding__header">
-              <strong>{{ root.slug }}</strong>
-              <StatusTag :status="root.slug === catalogStore.selectedRoot ? 'ok' : 'unknown'" />
-            </div>
-            <span>{{ root.absolute_path }}</span>
-            <small>{{ root.root_type }} via {{ root.setting_name }}</small>
-          </article>
-        </section>
-        <EmptyState
-          v-else
-          title="No catalog roots configured"
-          message="Set at least one Immich storage path in the runtime environment before using the persistent catalog."
-        />
-      </article>
-
-      <article class="panel catalog-panel">
-        <div class="settings-section__header">
-          <div>
-            <h3>Zero-byte files</h3>
-            <p>Read-only findings from the latest committed snapshot for the selected scope.</p>
-          </div>
-        </div>
-
-        <EmptyState
-          v-if="!zeroByteRows.length"
-          title="No zero-byte files found"
-          message="Run a catalog scan to populate the persisted inventory, then review findings here."
-        />
-        <div v-else class="catalog-table-wrapper">
-          <table class="catalog-table">
-            <thead>
-              <tr>
-                <th>Root</th>
-                <th>Relative path</th>
-                <th>Size</th>
-                <th>Snapshot</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in zeroByteRows" :key="`${row.root_slug}:${row.relative_path}`">
-                <td>{{ row.root_slug }}</td>
-                <td>{{ row.relative_path }}</td>
-                <td>{{ row.size_bytes }} bytes</td>
-                <td>#{{ row.generation }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
     </template>
   </section>
 </template>
@@ -227,7 +146,6 @@ import type {
   CatalogSessionRow,
   CatalogSnapshotRow,
   CatalogValidationReport,
-  CatalogZeroByteRow,
 } from "@/api/types/catalog";
 
 const catalogStore = useCatalogStore();
@@ -259,9 +177,6 @@ function toUiStatus(value: string | null | undefined): "ok" | "warning" | "error
   return "unknown";
 }
 
-const zeroByteRows = computed<CatalogZeroByteRow[]>(() =>
-  getSectionRows<CatalogZeroByteRow>(catalogStore.zeroByteReport, "ZERO_BYTE_FILES"),
-);
 const latestSnapshots = computed<CatalogSnapshotRow[]>(() =>
   getSectionRows<CatalogSnapshotRow>(catalogStore.statusReport, "LATEST_SNAPSHOTS"),
 );
@@ -387,8 +302,6 @@ const scanPanelStatus = computed(() => {
   return toUiStatus(catalogStore.scanJob?.state ?? latestSession.value?.status);
 });
 const latestSessionStatus = computed(() => toUiStatus(latestSession.value?.status));
-const zeroByteStatus = computed(() => (zeroByteRows.value.length ? "error" : "ok"));
-
 async function runScan(): Promise<void> {
   await catalogStore.startScan(true);
 }

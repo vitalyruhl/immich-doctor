@@ -3,6 +3,22 @@ import { nextTick } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsView from "./SettingsView.vue";
 
+function createCatalogStore() {
+  return {
+    roots: [
+      {
+        slug: "uploads",
+        setting_name: "immich_uploads_path",
+        root_type: "source",
+        absolute_path: "/mnt/immich/storage/upload",
+      },
+    ],
+    rootCount: 1,
+    error: null as string | null,
+    load: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createStore() {
   return {
     overview: {
@@ -42,9 +58,14 @@ function createStore() {
 }
 
 let store = createStore();
+let catalogStore = createCatalogStore();
 
 vi.mock("@/stores/settings", () => ({
   useSettingsStore: () => store,
+}));
+
+vi.mock("@/stores/catalog", () => ({
+  useCatalogStore: () => catalogStore,
 }));
 
 function mountView() {
@@ -68,6 +89,7 @@ async function settle() {
 describe("SettingsView", () => {
   beforeEach(() => {
     store = createStore();
+    catalogStore = createCatalogStore();
     vi.clearAllMocks();
   });
 
@@ -75,6 +97,10 @@ describe("SettingsView", () => {
     const wrapper = mountView();
     await settle();
 
+    expect(store.load).toHaveBeenCalled();
+    expect(catalogStore.load).toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Configured roots");
+    expect(wrapper.text()).toContain("/mnt/immich/storage/upload");
     expect(wrapper.text()).not.toContain("Testbed dump reload");
   });
 
