@@ -48,7 +48,7 @@ function createStore() {
       testedAgainstImmichVersion: "2.5.6",
     },
     isLoading: false,
-    error: null,
+    error: null as string | null,
     load: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -87,5 +87,28 @@ describe("DatabaseView", () => {
     expect(wrapper.text()).toContain("Detected Immich 2.5.6 with schema profile supported.");
     expect(wrapper.text()).toContain("Consistency findings are waiting for a current storage index.");
     expect(wrapper.text()).toContain("Immich 2.5.6");
+  });
+
+  it("keeps cached database details visible when a later refresh error exists", async () => {
+    store.error = "Request timed out.";
+
+    const wrapper = mount(DatabaseView, {
+      global: {
+        stubs: {
+          PageHeader: { template: "<div class='page-header-stub' />" },
+          DisclaimerBanner: { template: "<div class='disclaimer-stub' />" },
+          RiskNotice: { template: "<div class='risk-notice-stub'>{{ message }}</div>", props: ["message"] },
+          LoadingState: { template: "<div class='loading-stub' />" },
+          ErrorState: { template: "<div class='error-stub'>error</div>" },
+          StatusTag: { template: "<span class='status-tag-stub'>{{ status }}</span>", props: ["status"] },
+          RouterLink: { template: "<a><slot /></a>" },
+        },
+      },
+    });
+
+    await Promise.resolve();
+
+    expect(wrapper.text()).toContain("Database access works against postgres:5432.");
+    expect(wrapper.text()).not.toContain("error");
   });
 });

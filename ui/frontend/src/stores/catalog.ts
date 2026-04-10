@@ -109,13 +109,21 @@ export const useCatalogStore = defineStore("catalog", () => {
   async function load(rootSlug: string | null = selectedRoot.value): Promise<void> {
     isLoading.value = true;
     error.value = null;
-    try {
-      await Promise.all([loadReports(rootSlug), loadScanJob()]);
-    } catch (caughtError) {
-      error.value = toErrorMessage(caughtError);
-    } finally {
-      isLoading.value = false;
+    scanError.value = null;
+    const [reportsResult, scanJobResult] = await Promise.allSettled([
+      loadReports(rootSlug),
+      loadScanJob(),
+    ]);
+
+    if (reportsResult.status === "rejected") {
+      error.value = toErrorMessage(reportsResult.reason);
     }
+
+    if (scanJobResult.status === "rejected") {
+      scanError.value = toErrorMessage(scanJobResult.reason);
+    }
+
+    isLoading.value = false;
   }
 
   async function refresh(): Promise<void> {

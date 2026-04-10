@@ -221,4 +221,28 @@ describe("StorageView", () => {
     const stopButton = wrapper.findAll("button").find((button) => button.text() === "Stop");
     expect(stopButton).toBeTruthy();
   });
+
+  it("keeps cached storage status visible when a later request error exists", async () => {
+    catalogStore.error = "Request timed out.";
+
+    const wrapper = mount(StorageView, {
+      global: {
+        stubs: {
+          PageHeader: { template: "<div><slot /></div>" },
+          RiskNotice: { template: "<div><slot /></div>", props: ["title", "message"] },
+          LoadingState: { template: "<div />" },
+          ErrorState: { template: "<div class='error-stub'>error</div>" },
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
+          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
+        },
+      },
+    });
+
+    await nextTick();
+    await nextTick();
+
+    expect(wrapper.text()).toContain("Storage index scan");
+    expect(wrapper.text()).toContain("Request timed out.");
+    expect(wrapper.text()).not.toContain("error");
+  });
 });

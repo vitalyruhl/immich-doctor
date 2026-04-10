@@ -16,11 +16,17 @@
       message="Collecting configured roots, latest snapshots, and current scan state."
     />
     <ErrorState
-      v-else-if="catalogStore.error"
+      v-else-if="catalogStore.error && !catalogStore.statusReport"
       title="Catalog state unavailable"
       :message="catalogStore.error"
     />
     <template v-else>
+      <p
+        v-if="catalogStore.error && catalogStore.statusReport"
+        class="runtime-blocking-message"
+      >
+        {{ catalogStore.error }}
+      </p>
       <section class="settings-grid">
         <article class="panel catalog-panel">
           <div class="settings-section__header">

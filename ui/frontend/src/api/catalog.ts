@@ -8,6 +8,9 @@ import type {
   CatalogWorkflowJobRecord,
 } from "./types/catalog";
 
+const CATALOG_READ_TIMEOUT_MS = 30000;
+const CATALOG_JOB_TIMEOUT_MS = 15000;
+
 function buildQuery(params: Record<string, string | number | null | undefined>): string {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -32,7 +35,11 @@ export async function startCatalogScan(
 export async function fetchCatalogStatus(
   root?: string | null,
 ): Promise<ApiResponse<CatalogValidationReport>> {
-  return request<CatalogValidationReport>(`/analyze/catalog/status${buildQuery({ root })}`);
+  return request<CatalogValidationReport>(
+    `/analyze/catalog/status${buildQuery({ root })}`,
+    undefined,
+    CATALOG_READ_TIMEOUT_MS,
+  );
 }
 
 export async function fetchCatalogZeroByte(
@@ -45,7 +52,11 @@ export async function fetchCatalogZeroByte(
 }
 
 export async function fetchCatalogScanJob(): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
-  return request<CatalogWorkflowJobRecord>("/analyze/catalog/scan-job");
+  return request<CatalogWorkflowJobRecord>(
+    "/analyze/catalog/scan-job",
+    undefined,
+    CATALOG_JOB_TIMEOUT_MS,
+  );
 }
 
 export async function startCatalogScanJob(
