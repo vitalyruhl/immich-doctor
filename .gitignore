@@ -41,3 +41,4 @@ dev/testbed/.env.local
 dev/testbed/imports/
 dev/testbed/exports/
 dev/testbed/tmp/
+__Temp/
