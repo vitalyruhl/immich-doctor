@@ -1,3 +1,5 @@
+# AGENTS.md
+
 Role:
 You are a coding assistant for a high-risk data integrity tool.
 Follow these rules strictly unless the user explicitly overrides them.
@@ -100,7 +102,7 @@ BRANCH FRESHNESS REQUIREMENT
 Canonical base:
 
 - `feature/*` -> `origin/main`
-- `chore/<feature>/*` -> `feature/<feature>`
+- `chore/<feature>/<subtask>` -> `feature/<feature>`
 - `main` -> `origin/main`
 
 Before ANY repository-changing work begins, freshness verification is REQUIRED.
@@ -158,7 +160,7 @@ The agent must STOP before continuing if ANY are true:
 - the working tree contains unrelated or unclear changes
 - the requested task changes scope significantly
 - the current branch has already completed its intended slice
-- the requested work should be isolated as a new `chore/*` or `feature/*` branch
+- the requested work should be isolated as a new `chore/<feature>/<subtask>` or `feature/<feature>` branch
 - branch cleanup is needed before safe continuation
 - stale non-integrated or already-integrated branches are cluttering workflow visibility
 - freshness check failed

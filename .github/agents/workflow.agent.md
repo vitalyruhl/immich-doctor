@@ -19,12 +19,20 @@ This agent MUST apply global rules from `.github/AGENTS.md`.
 
 - `main` is protected
 - `feature/*` carries major work
-- `chore/<feature>/*` carries short-lived feature subtasks
+- `chore/<feature>/<subtask>` carries short-lived feature subtasks
 - non-canonical `fix/*` is retained/reported unless verified for safe deletion
+
+## Shortcut invocation syntax (canonical)
+
+- Canonical form: `workflow.<shortcut>`
+- Optional alias form: `.<shortcut>`
+- Do not mix undocumented invocation styles.
 
 ## Shortcut catalog
 
-`.begin` `.checkpoint` `.docs` `.audit` `.ship` `.ready` `.promoteMain` `.toMain` `.cleanBranches` `.end`
+`workflow.begin` `workflow.checkpoint` `workflow.docs` `workflow.audit` `workflow.ship` `workflow.ready` `workflow.promoteMain` `workflow.toMain` `workflow.cleanBranches` `workflow.end`
+
+Alias equivalents: `.begin` `.checkpoint` `.docs` `.audit` `.ship` `.ready` `.promoteMain` `.toMain` `.cleanBranches` `.end`
 
 ---
 
@@ -34,7 +42,7 @@ Purpose:
 Start work on the correct branch level.
 
 Input:
-`use workflow.begin <feature>/<subtask>`
+`workflow.begin <feature>/<subtask>`
 
 Preconditions:
 - current branch is `main` or `feature/<feature>`
@@ -42,14 +50,15 @@ Preconditions:
 - apply `UNIFIED PRE-WORK BLOCKER`
 
 STOP if:
-- current branch is `chore/*`
+- current branch is `chore/<feature>/<subtask>`
 - feature segment mismatches current `feature/*`
 - input normalization fails
 - blocker fails
 
 Deterministic outcome:
-- from `main` -> create `feature/<feature>`
-- from `feature/<feature>` -> create `chore/<subtask>`
+- from `main` -> create/switch `feature/<feature>`, then create/switch `chore/<feature>/<subtask>`
+- from `feature/<feature>` -> create/switch `chore/<feature>/<subtask>`
+- active branch after success is always `chore/<feature>/<subtask>`
 
 ## .checkpoint
 
@@ -57,7 +66,7 @@ Purpose:
 Create an intermediate checkpoint.
 
 Input:
-`use workflow.checkpoint [topic]`
+`workflow.checkpoint [topic]`
 
 Preconditions:
 - current branch is not `main`
@@ -83,7 +92,7 @@ Purpose:
 Small documentation synchronization only.
 
 Input:
-`use workflow.docs`
+`workflow.docs`
 
 Preconditions:
 - documentation-only, narrow scope
@@ -105,7 +114,7 @@ Purpose:
 Read-only consistency and risk audit.
 
 Input:
-`use workflow.audit [scope]`
+`workflow.audit [scope]`
 
 Preconditions:
 - repository state readable
@@ -124,7 +133,7 @@ Purpose:
 Build and verify artifacts/images.
 
 Input:
-`use workflow.ship`
+`workflow.ship`
 
 Preconditions:
 - repository state safe for build/packaging
@@ -143,13 +152,13 @@ Deterministic outcome:
 ## .ready
 
 Purpose:
-Promote `chore/*` into its parent `feature/*`.
+Promote `chore/<feature>/<subtask>` into its parent `feature/*`.
 
 Input:
-`use workflow.ready`
+`workflow.ready`
 
 Preconditions:
-- current branch is `chore/*`
+- current branch is `chore/<feature>/<subtask>`
 - parent `feature/*` determinable
 - required checks complete
 - apply `UNIFIED PRE-WORK BLOCKER`
@@ -170,7 +179,7 @@ Purpose:
 Merge stable subset of current `feature/*` into `main` via PR while keeping feature active.
 
 Input:
-`use workflow.promoteMain`
+`workflow.promoteMain`
 
 Preconditions:
 - current branch is `feature/*`
@@ -196,7 +205,7 @@ Purpose:
 Merge complete `feature/*` into `main` via PR.
 
 Input:
-`use workflow.toMain`
+`workflow.toMain`
 
 Preconditions:
 - current branch is `feature/*`
@@ -221,7 +230,7 @@ Purpose:
 Delete branches already fully integrated into canonical targets.
 
 Input:
-`use workflow.cleanBranches`
+`workflow.cleanBranches`
 
 Preconditions:
 - repository state readable
@@ -237,7 +246,7 @@ STOP if:
 - unresolved conflicts/state ambiguity
 
 Deterministic outcome:
-- evaluate `chore/*` against parent feature, `feature/*` against `origin/main`
+- evaluate `chore/<feature>/<subtask>` against parent feature, `feature/*` against `origin/main`
 - delete local/remote branches only when verified integrated
 - report retained branches with reasons
 
@@ -247,7 +256,7 @@ Purpose:
 End session safely without merge claim.
 
 Input:
-`use workflow.end`
+`workflow.end`
 
 Preconditions:
 - repository state readable

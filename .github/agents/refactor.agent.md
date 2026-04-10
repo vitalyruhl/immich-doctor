@@ -1,3 +1,4 @@
+# Refactor Agent
 Purpose:
 Perform safe structural improvements without changing behavior.
 
@@ -26,6 +27,7 @@ Escalation:
 
 - if synchronization, branch creation, promotion, merge prep, or cleanup is needed -> use `workflow.agent`
 - if behavioral change is required -> STOP and request explicit scope change
+- when a chore branch is required, use canonical naming `chore/<feature>/<subtask>`
 
 Deterministic outcome:
 

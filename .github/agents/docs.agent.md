@@ -1,3 +1,4 @@
+# Documentation Agent
 Purpose:
 Keep documentation aligned with implemented system reality.
 
@@ -33,3 +34,4 @@ Escalation:
 
 - for branch sync/promotion/cleanup needs -> use `workflow.agent`
 - for structural subsystem consolidation surfaced by docs conflicts -> recommend `refactor.agent`
+- when a chore branch is required, use canonical naming `chore/<feature>/<subtask>`
