@@ -104,12 +104,12 @@ BRANCH FRESHNESS REQUIREMENT
 Working hierarchy:
 
 - `main` is the public, runnable baseline
-- each work domain or problem owns exactly one active `feature/<feature>`
-- each feature may have at most one active `chore/<feature>/<subtask>` at a time
+- there must be exactly one active `feature/<feature>` workstream at a time
+- the active feature may have at most one active `chore/<feature>/<subtask>` at a time
 - branch topology must follow the work:
-  - `main` -> `feature/<feature>` for the active problem domain
+  - `main` -> `feature/<feature>` for the current active workstream
   - `feature/<feature>` -> optional `chore/<feature>/<subtask>` for a larger isolated work slice
-- small changes may happen directly on `feature/<feature>`
+- small changes may happen directly on the active `feature/<feature>`
 - larger structural changes should typically use `chore/<feature>/<subtask>`
 
 Freshness base mapping:
@@ -120,13 +120,13 @@ Freshness base mapping:
 
 Worktree ownership rules:
 
-- never create a second active `feature/*` for the same domain or subsystem
-- never keep two active `chore/*` branches under the same feature
+- never create or keep a second active `feature/*` while another feature remains unpublished or not fully integrated into `main`
+- never keep two active `chore/*` branches under the active feature
 - if a new larger task arrives while a `chore/<feature>/<subtask>` already exists:
   - if the work is the same in-scope continuation, continue on that chore
-  - if the work is a small additive change, it may happen on the parent feature after integrating the chore first
+  - if the work is a small additive change, it may happen on the active feature after integrating the chore first
   - otherwise integrate the existing chore into its feature first, then create the new chore
-- the parent `feature/*` must remain the latest effective base for its problem domain
+- the active `feature/*` must remain the latest effective base for all unpublished work
 - a `chore/*` must not become a long-lived competing implementation line
 
 Before ANY repository-changing work begins, freshness verification is REQUIRED.
@@ -194,6 +194,7 @@ The agent may continue on the current branch only if ALL are true:
 - branch scope matches the requested task
 - no unrelated leftovers are present
 - no sibling feature or sibling chore branch exists that should be the real current work carrier
+- no other active unpublished feature branch exists that should be integrated first
 - no branch-topology action is required first
 - current branch is not behind canonical base
 
@@ -214,8 +215,8 @@ The agent must STOP before continuing if ANY are true:
 - the requested task changes scope significantly
 - the current branch has already completed its intended slice
 - the requested work should be isolated as a new `chore/<feature>/<subtask>` or `feature/<feature>` branch
-- a second feature branch would be created for the same domain
-- a second chore branch would remain active under the same feature
+- a second active feature branch would remain while another unpublished feature still exists
+- a second chore branch would remain active under the active feature
 - branch cleanup is needed before safe continuation
 - stale non-integrated or already-integrated branches are cluttering workflow visibility
 - relevant unpublished state exists and has not been integrated, synchronized, or explicitly superseded

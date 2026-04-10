@@ -18,10 +18,10 @@ This agent MUST apply global rules from `.github/AGENTS.md`.
 ## Branch model
 
 - `main` is protected and must never receive direct work commits
-- each work domain owns exactly one active `feature/*`
-- `feature/*` is the canonical current work carrier for that domain
-- `chore/<feature>/<subtask>` is an optional short-lived, scoped isolation branch under that feature
-- at most one active `chore/*` may exist under the same feature at a time
+- there is exactly one active `feature/*` workstream at a time until it is integrated into `main`
+- `feature/*` is the canonical current work carrier for all unpublished work
+- `chore/<feature>/<subtask>` is an optional short-lived, scoped isolation branch under that active feature
+- at most one active `chore/*` may exist under the active feature at a time
 - non-canonical `fix/*` branches are retained and reported unless verified safe for cleanup
 
 ## Shortcut invocation syntax
@@ -74,7 +74,15 @@ Required action:
 2. synchronize onto it
 3. or explicitly supersede it with a clear warning and isolation plan
 
-If an active sibling `chore/*` already exists under the same feature, do not start a second one.
+If another unpublished active `feature/*` exists, do not start a second feature.
+
+Required action:
+
+1. integrate the current active feature into `main`
+2. clean fully integrated branches
+3. only then create the next feature
+
+If an active `chore/*` already exists under the active feature, do not start a second one.
 
 Required action:
 
