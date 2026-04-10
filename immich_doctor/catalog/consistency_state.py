@@ -372,8 +372,7 @@ class CatalogConsistencyStateCollector:
                     "total": len(orphan_rows),
                     "percent": 100.0,
                     "message": (
-                        "Derived orphan derivative findings from the cached catalog "
-                        "and DB graph."
+                        "Derived orphan derivative findings from the cached catalog and DB graph."
                     ),
                     "orphanCount": len(orphan_rows),
                 }

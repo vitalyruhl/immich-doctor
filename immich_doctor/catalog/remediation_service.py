@@ -745,12 +745,10 @@ class CatalogRemediationService:
                             original_relative_path=relative_path,
                             eligible_actions=(),
                             action_reason=(
-                                "The zero-byte upload is referenced by the DB "
-                                "as the original file."
+                                "The zero-byte upload is referenced by the DB as the original file."
                             ),
                             message=(
-                                "The original upload is zero bytes and must "
-                                "not be auto-deleted."
+                                "The original upload is zero bytes and must not be auto-deleted."
                             ),
                         )
                     )
@@ -771,8 +769,7 @@ class CatalogRemediationService:
                         eligible_actions=(CatalogRemediationActionKind.ZERO_BYTE_DELETE,),
                         action_reason="The zero-byte upload has no DB original reference.",
                         message=(
-                            "The zero-byte upload is an orphan storage artifact "
-                            "and can be deleted."
+                            "The zero-byte upload is an orphan storage artifact and can be deleted."
                         ),
                     )
                 )
@@ -898,8 +895,7 @@ class CatalogRemediationService:
                         in_use_check_tool=tool,
                         in_use_check_reason=reason,
                         message=(
-                            "The orphan artifact can be deleted through an "
-                            "explicit apply step."
+                            "The orphan artifact can be deleted through an explicit apply step."
                         ),
                     )
                 )
