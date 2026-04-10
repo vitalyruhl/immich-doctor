@@ -1,715 +1,272 @@
 # Workflow Agent
 
 Purpose:
-Provide standardized repository lifecycle and Git workflow operations.
+Provide repository workflow operations (branch lifecycle, promotion, cleanup, artifact shipping).
 
-This agent is responsible for:
-- branch lifecycle
-- promotion between branch levels
-- merge readiness enforcement
-- session hygiene
-- artifact shipping coordination
+This agent MUST apply global rules from `.github/AGENTS.md`.
 
-This agent MUST respect rules from .github/AGENTS.md.
+## Global dependency map (canonical source)
 
-==================================================
-BRANCH MODEL
-==================================================
+- Branch freshness + canonical base: `BRANCH FRESHNESS REQUIREMENT`
+- Continuation decision: `BRANCH CONTINUATION GATE`
+- Hard preconditions before forward-progress/topology changes: `UNIFIED PRE-WORK BLOCKER`
+- Stale-branch checkpoint handling: `BRANCH FRESHNESS REQUIREMENT` (checkpoint safety exception)
+- Collision handling: `CONSISTENCY AND COLLISION GUARD`
+- Reporting fields: `MANDATORY REPORTING CONTRACT`
+- Main protection / PR discipline: `GIT AND BRANCH SAFETY`
 
-- main is protected
-- main must always represent the latest runnable stable state
-- never commit directly to main
-- main updates must happen through a pull request
+## Branch model (workflow-specific)
 
-Branch types:
+- `main` is protected
+- `feature/*` carries major work
+- `chore/<feature>/<subtask>` carries short-lived feature subtasks
+- non-canonical `fix/*` is retained/reported unless verified for safe deletion
 
-feature/*
-chore/*
+## Shortcut invocation syntax (canonical)
 
-Branch model:
+- Canonical form: `workflow.<shortcut>`
+- Optional alias form: `.<shortcut>`
+- Do not mix undocumented invocation styles.
 
-- Large topics belong to feature branches
-- Short-lived work branches belong under the relevant feature branch
-- Bugfix work is handled as chore work under the relevant feature
-- chore branches must merge back into their feature first
-- Only completed and runnable features may merge to main
+## Shortcut catalog
 
-Branch-model drift note:
+`workflow.begin` `workflow.checkpoint` `workflow.docs` `workflow.audit` `workflow.ship` `workflow.ready` `workflow.promoteMain` `workflow.toMain` `workflow.cleanBranches` `workflow.end`
 
-- `fix/*` is non-canonical under the current governance
-- if `fix/*` branches are encountered during audit or cleanup:
-  - retain them by default
-  - report them as branch-model drift
-  - do not auto-delete unless their integration target is clearly verified
+Alias equivalents: `.begin` `.checkpoint` `.docs` `.audit` `.ship` `.ready` `.promoteMain` `.toMain` `.cleanBranches` `.end`
 
-==================================================
-SHORTCUT COMMANDS
-==================================================
+---
 
-.begin
-.checkpoint
-.docs
-.audit
-.ship
-.ready
-.promoteMain
-.toMain
-.cleanBranches
-.end
-
-==================================================
-GENERAL RULES
-==================================================
-
-- Never invent branch targets
-- Never perform destructive branch deletion unless explicitly allowed
-- Never merge to main when important checks fail
-- Never push directly to `main`; prepare or update a PR instead
-- Never perform large refactors during workflow shortcuts
-- Prefer small, safe, reviewable changes
-- Always report what was done, what was skipped, and why
-- If a shortcut is not safely applicable -> STOP and explain
-
-==================================================
-BRANCH CONTINUATION ENFORCEMENT
-==================================================
+## .begin
 
 Purpose:
-Enforce the global Branch Continuation Gate from AGENTS.md before any workflow operation.
+Start work on the correct branch level.
 
-This applies implicitly before:
-- .begin
-- .ready
-- .promoteMain
-- .toMain
-- .cleanBranches
-- any workflow that affects repository structure or merges
-
-Required behavior:
-
-1. Inspect repository state
-- read current branch
-- run git status --short
-- detect staged and unstaged changes
-- detect if working tree is clean or dirty
-
-2. Classify working tree
-- in-scope carry-over
-- unrelated leftovers
-- unknown / unclear
-
-3. Decision
-
-Continue on current branch only if:
-- working tree is clean OR clearly in-scope
-- branch scope matches task
-
-Otherwise:
-- STOP normal workflow execution
-- recommend:
-  - new branch via .begin
-  - or cleanup via .cleanBranches
-  - or checkpoint via .checkpoint
-
-4. Dirty tree handling
-
-If dirty but coherent:
-- create checkpoint commit before continuing
-
-If dirty and mixed:
-- STOP
-- require cleanup or branch isolation
-
-5. Mandatory reporting
-
-The agent must explicitly state:
-- current branch
-- tree state (clean / dirty)
-- classification result
-- chosen action (continue / checkpoint / new branch / cleanup)
-
-==================================================
-SHORTCUT COLLISION CHECK
-==================================================
-
-Before executing any shortcut, check for contradictions with:
-
-- current branch purpose
-- open feature/chore scope
-- recent subsystem strategy
-- recent workflow decisions
-
-If contradiction is detected:
-
-- WARN before execution if the collision is informational but non-destructive
-- STOP before execution if the collision would create competing implementation paths, duplicate strategy, or partially invalidate recent unfinished work
-- explain the conflict briefly
-- recommend consolidation first when directions diverge
-- recommend `refactor.agent` when consolidation is structural
-
-==================================================
-PRE-ACTION CHECKPOINT RULE
-==================================================
-
-Before executing any shortcut that may delete branches, rewrite structure, or affect merge topology, check the working tree first.
-
-Applies to:
-
-- .ready
-- .promoteMain
-- .toMain
-- .cleanBranches
-- any shortcut that may delete branches, rewrite structure, or affect merge topology
-
-Required behavior:
-
-- a dirty working tree is not an automatic STOP
-- if changes are coherent and belong to the current branch scope:
-  - stage and create a checkpoint or finalization commit
-  - optionally split into coherent commits if that improves clarity
-  - then continue with the requested workflow
-
-STOP if:
-
-- changes are unrelated or mixed across conflicting scopes
-- file ownership is unclear
-- unresolved conflicts exist
-- safe merge or promotion cannot be described honestly
-
-Does not apply to:
-
-- .audit
-- .docs
-- .checkpoint
-- .end
-- .ship
-
-==================================================
-.begin
-==================================================
-
-Purpose:
-Start new work on the correct branch level.
-
-Input grammar:
-
-use workflow.begin <feature>/<subtask>
+Input:
+`workflow.begin <feature>/<subtask>`
 
 Preconditions:
-
-- input must contain exactly two non-empty path segments
-- both segments are normalized to lowercase kebab-case
-- current branch must be `main` or `feature/<feature>`
+- current branch is `main` or `feature/<feature>`
+- input has exactly two kebab-case segments
+- apply `UNIFIED PRE-WORK BLOCKER`
 
 STOP if:
-
-- current branch is `chore/*`
-- the current feature branch does not match `<feature>`
-- the topic cannot be normalized safely
+- current branch is `chore/<feature>/<subtask>`
+- feature segment mismatches current `feature/*`
+- input normalization fails
+- blocker fails
 
 Deterministic outcome:
+- from `main` -> create/switch `feature/<feature>`, then create/switch `chore/<feature>/<subtask>`
+- from `feature/<feature>` -> create/switch `chore/<feature>/<subtask>`
+- active branch after success is always `chore/<feature>/<subtask>`
 
-- if current branch is `main` -> create `feature/<feature>`
-- if current branch is `feature/<feature>` -> create `chore/<subtask>`
-
-==================================================
-.checkpoint
-==================================================
+## .checkpoint
 
 Purpose:
-Create safe intermediate development checkpoint.
+Create an intermediate checkpoint.
 
-Input grammar:
-
-use workflow.checkpoint
-use workflow.checkpoint <topic>
+Input:
+`workflow.checkpoint [topic]`
 
 Preconditions:
+- current branch is not `main`
+- working tree state is readable
 
-- current branch must not be `main`
-- working tree state must be readable
+Behavior:
+- if branch is fresh: normal checkpoint
+- if branch is stale: allow checkpoint ONLY as safety-preserving action per global checkpoint exception
 
 STOP if:
-
-- merge conflicts are unresolved
-- repository state is unclear
-- the current changes are too mixed to describe honestly in one checkpoint commit
+- unresolved conflicts
+- repository state unclear
+- changes too mixed for one honest checkpoint commit
 
 Deterministic outcome:
+- stage + commit + push
+- no merge
+- if stale-branch checkpoint: explicitly report "sync required before continued forward-progress"
 
-- stage current work
-- create checkpoint commit
-- push branch if configured
-- DO NOT merge
-- DO NOT change project completion status
-
-Commit message rules:
-
-If `<topic>` is provided:
-- use `checkpoint: <topic>`
-- or `wip(checkpoint): <topic>` if the state is clearly incomplete
-
-If no `<topic>` is provided:
-- generate a short checkpoint topic from:
-  - current branch name
-  - changed file paths
-  - dominant changed subsystem
-  - dominant changed file group or directory
-- use repository-observable state only
-- do not derive from:
-  - vague conversational context
-  - inferred intention not grounded in repository state
-- prefer concrete scope over generic wording
-- avoid vague messages such as:
-  - update
-  - changes
-  - work in progress
-- if no honest derived topic can be produced from repository-observable state:
-  - STOP and explain that the changes are too mixed for a safe checkpoint topic
-- use:
-  - `checkpoint: <derived-topic>`
-  - or `wip(checkpoint): <derived-topic>` if clearly incomplete
-
-Preferred derived-topic examples:
-
-- `checkpoint: workflow-agent-cleanup`
-- `checkpoint: backup-target-validation`
-- `wip(checkpoint): governance-agent-rules`
-- `checkpoint: docs-command-sync`
-
-==================================================
-.docs
-==================================================
+## .docs
 
 Purpose:
-Synchronize and repair minor documentation inconsistencies.
+Small documentation synchronization only.
 
-Input grammar:
-
-use workflow.docs
+Input:
+`workflow.docs`
 
 Preconditions:
-
-- scope is documentation-only
-- scope is limited to small typo fixes, minor CLI option sync, or small drift correction
+- documentation-only, narrow scope
+- apply `BRANCH CONTINUATION GATE`
+- for repository-changing docs work, apply `BRANCH FRESHNESS REQUIREMENT`
 
 STOP if:
-
-- implementation truth is unclear
-- the requested work is a README rewrite, architecture documentation, new subsystem documentation, release notes, or UX/system documentation
+- implementation truth unclear
+- scope is rewrite/architecture/new subsystem docs/release notes/UX system docs
 
 Deterministic outcome:
+- minimal factual doc correction only
+- no product logic changes
+- hand off broad docs work to `docs.agent`
 
-- detect documentation drift
-- update only necessary scope
-- preserve factual correctness
-- remove misleading statements
-- touch only markdown/docs/examples
-- do not change product logic
-- for broader documentation scope, hand off to `docs.agent`
-
-==================================================
-.audit
-==================================================
+## .audit
 
 Purpose:
-Perform repository consistency and risk audit.
+Read-only consistency and risk audit.
 
-Input grammar:
-
-use workflow.audit
-use workflow.audit <scope>
+Input:
+`workflow.audit [scope]`
 
 Preconditions:
-
-- repository state must be readable
-- requested scope must be inspectable without changing behavior
+- repository state readable
+- scope is inspectable read-only
 
 STOP if:
-
-- audit scope is unverifiable
+- scope unverifiable
 
 Deterministic outcome:
+- read-only findings with priorities
+- include freshness/collision risk observations where relevant
 
-- inspect naming, architecture, workflow, CI, docs
-- produce structured audit report
-- classify findings:
-  - confirmed
-  - likely
-  - unknown
-- prioritize risks
-- perform read-only analysis only
-- do not make structural changes
-- do not refactor
-- do not modify behavior
-
-==================================================
-.ship
-==================================================
+## .ship
 
 Purpose:
-Build and verify release artifacts or images.
+Build and verify artifacts/images.
 
-Input grammar:
-
-use workflow.ship
+Input:
+`workflow.ship`
 
 Preconditions:
-
-- repository state must be safe for build and packaging work
+- repository state safe for build/packaging
 
 STOP if:
-
 - build fails
 - verification fails
-- repository state is unsafe
+- repository state unsafe
 
 Deterministic outcome:
-
-- verify repository state
-- execute build/package
+- run build/package
 - verify outputs
 - report exact artifact names/tags
-- DO NOT merge or publish implicitly
+- no implicit merge/publish
 
-==================================================
-.ready
-==================================================
+## .ready
 
 Purpose:
-Promote completed chore branch to its feature parent.
+Promote `chore/<feature>/<subtask>` into its parent `feature/*`.
 
-Input grammar:
-
-use workflow.ready
+Input:
+`workflow.ready`
 
 Preconditions:
-
-- current branch must be `chore/*`
-- the parent `feature/*` branch must be determinable from branch ancestry
-- required verification for the chore scope must be complete
-
-Pre-action checkpoint behavior:
-
-- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any branch-topology change
-- finalize coherent uncommitted branch-local changes before continuing
+- current branch is `chore/<feature>/<subtask>`
+- parent `feature/*` determinable
+- required checks complete
+- apply `UNIFIED PRE-WORK BLOCKER`
 
 STOP if:
-
-- the parent feature relation is unclear
-- conflicts exist
-- critical checks are failing
+- parent relation unclear
+- blocker fails
+- conflicts/check failures after required sync/merge
 
 Deterministic outcome:
+- merge/ff chore into parent feature
+- push feature
+- delete source branch if safe
 
-- detect correct feature target
-- ensure clean branch state
-- merge or fast-forward per policy
-- delete source branch if allowed
+## .promoteMain
+
+Purpose:
+Merge stable subset of current `feature/*` into `main` via PR while keeping feature active.
+
+Input:
+`workflow.promoteMain`
+
+Preconditions:
+- current branch is `feature/*`
+- promoted scope is runnable/validated and improves `main`
+- apply `UNIFIED PRE-WORK BLOCKER`
+
+STOP if:
+- stable subset not safely isolatable
+- blocker fails
+- required checks fail
+- mergeability unclear
+
+Deterministic outcome:
+- prepare promotable full scope or safe subset
+- push branch/extraction branch if needed
+- open/update PR to `main`
+- merge only through PR when checks are green
+- keep feature branch active
+
+## .toMain
+
+Purpose:
+Merge complete `feature/*` into `main` via PR.
+
+Input:
+`workflow.toMain`
+
+Preconditions:
+- current branch is `feature/*`
+- feature complete, runnable, validated
+- related chores already merged
+- apply `UNIFIED PRE-WORK BLOCKER`
+
+STOP if:
+- feature incomplete/unclear
+- blocker fails
+- required checks fail
+- selective subset would be required
+
+Deterministic outcome:
 - push feature branch
-- run required verification
+- open/update PR to `main`
+- merge via PR when checks are green
 
-==================================================
-.promoteMain
-==================================================
-
-Purpose:
-Merge the current active `feature/*` branch, or a clearly isolatable stable subset of it, into `main` through a pull request while keeping the feature branch active for further work.
-
-Input grammar:
-
-use workflow.promoteMain
-
-Preconditions:
-
-- current branch must be `feature/*`
-- the current feature state or a clearly isolatable stable subset must be runnable and validated
-- the promoted scope must improve `main` compared to its current state
-- unfinished scope must be explicitly known and acceptable
-- documentation and status messaging must not imply feature completion
-
-Pre-action checkpoint behavior:
-
-- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any promotion work
-- finalize coherent uncommitted changes on the current feature branch before continuing
-- optionally split coherent commits if that improves clarity between promoted scope and remaining feature scope
-
-STOP if:
-
-- the branch or promotable subset is not runnable
-- the stable subset cannot be separated clearly from unfinished work
-- the promotion would introduce partial architecture drift or competing implementation paths
-- important tests are failing
-- critical checks are not green
-- the branch contains mixed commits that would make selective promotion unsafe
-- mergeability cannot be explained clearly
-- the merge would mix experimental and production-ready scope without clear boundary
-
-Deterministic outcome:
-
-- finalize coherent uncommitted changes
-- verify current feature state against `main`
-- if the full current feature state is safe and improves `main`, prepare the full current feature state for PR-based merge into `main`
-- if only a stable subset is promotable, isolate the safe subset, including a temporary clean extraction branch if needed, and prepare only that safe subset for PR-based merge into `main`
-- keep the current `feature/*` branch active for continued development
-- ensure unfinished work remains outside `main`
-- push the current branch
-- push any temporary promotion branch if one is used
-- open or update the correct PR targeting `main`
-- merge the safe scope only through that PR when required checks are green
-- do not push `main` directly as part of this shortcut
-
-Reporting requirements:
-
-- what was merged
-- what remains on the feature branch
-- whether follow-up consolidation is recommended
-- that the feature remains in progress
-- which PR or PR path was used for the `main` integration
-
-Disallowed:
-
-- silently merging unfinished feature scope
-- using this shortcut as a replacement for full feature completion
-- claiming feature completion
-- hiding known limitations
-- refactors unrelated to the promoted subset
-
-Fallback:
-
-If the stable subset cannot be isolated safely → recommend `.end` or `refactor.agent`
-
-==================================================
-.toMain
-==================================================
+## .cleanBranches
 
 Purpose:
-Merge `feature/*` into `main` only through a pull request when the feature is complete and fully merge-ready.
+Delete branches already fully integrated into canonical targets.
 
-Input grammar:
-
-use workflow.toMain
+Input:
+`workflow.cleanBranches`
 
 Preconditions:
+- repository state readable
+- remote state fetchable
+- apply `UNIFIED PRE-WORK BLOCKER` elements relevant to topology/deletion
 
-- current branch must be `feature/*`
-- all related chore branches must already be merged
-- the feature must be complete, runnable, and validated
-
-Pre-action checkpoint behavior:
-
-- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any merge work
-- finalize coherent uncommitted changes on the current feature branch before continuing
-- do not use selective subset promotion in this shortcut
+Mandatory pre-step:
+- `fetch --all --prune`
 
 STOP if:
-
-- functional uncertainty remains
-- important tests are failing
-- critical checks are not green
-- the feature is incomplete
-- the scope is unclear
-- selective subset promotion would be required
+- integration status cannot be verified clearly
+- relation/target ambiguous
+- unresolved conflicts/state ambiguity
 
 Deterministic outcome:
+- evaluate `chore/<feature>/<subtask>` against parent feature, `feature/*` against `origin/main`
+- delete local/remote branches only when verified integrated
+- report retained branches with reasons
 
-- finalize coherent uncommitted changes
-- verify full feature state and CI/tests
-- fix only trivial safe issues
-- push the current branch
-- open or update the PR targeting `main`
-- merge only through that PR if critical checks are green
-- do not push `main` directly as part of this shortcut
-
-Reporting requirements:
-
-- that the full feature scope was merged
-- that `.toMain` was used as the full-completion path
-- whether any post-merge cleanup is recommended
-- which PR or PR path was used for the `main` integration
-
-Disallowed:
-
-- selective subset promotion
-- feature work
-- refactors
-
-Fallback:
-If not mergeable → recommend .end
-
-==================================================
-.cleanBranches
-==================================================
+## .end
 
 Purpose:
-Delete local and remote branches that are already fully integrated into their canonical target branch, and report all remaining non-integrated branches.
+End session safely without merge claim.
 
-Input grammar:
-
-use workflow.cleanBranches
-
-Preconditions:
-
-- repository state must be readable
-- local and remote branch state must be fetchable
-- canonical branch model must be:
-  - `chore/*` -> `feature/*`
-  - `feature/*` -> `main`
-
-Pre-action checkpoint behavior:
-
-- apply the GLOBAL PRE-ACTION CHECKPOINT RULE before any branch deletion
-- finalize coherent uncommitted current-branch changes before continuing
-
-STOP if:
-
-- local or remote branch state cannot be verified safely
-- repository-wide branch verification is not possible
-- repository contains unresolved conflicts
-- branch deletion would rely on guessing instead of verified integration
-
-Deterministic outcome:
-
-1. refresh branch knowledge
-- fetch remote state
-- inspect local and remote branches
-
-2. evaluate `chore/*` branches
-- determine the canonical parent `feature/*` branch
-- if the target relation for a specific branch is unclear:
-  - retain the branch
-  - report it under `unresolved relation`
-  - continue evaluating other branches
-- check whether the chore branch is already fully integrated into its parent feature branch
-- if fully integrated and deletion is safe:
-  - delete local chore branch
-  - delete remote chore branch if it exists
-- if not fully integrated:
-  - keep it
-  - include it in the final report
-
-3. evaluate `feature/*` branches
-- if a `feature/*` branch has unclear integration status against `main`:
-  - retain the branch
-  - report it under `unresolved relation`
-  - continue evaluating other branches
-- check whether the feature branch is already fully integrated into `main`
-- if fully integrated and deletion is safe:
-  - delete local feature branch
-  - delete remote feature branch if it exists
-- if not fully integrated:
-  - keep it
-  - include it in the final report
-
-4. report remaining active branches
-- list all non-integrated `chore/*` branches
-- list all non-integrated `feature/*` branches
-- list all retained non-canonical `fix/*` branches under:
-  - branch-model drift
-- if target relation is unclear, list branch under:
-  - unresolved relation
-
-Verification rules:
-
-- deletion is allowed only when integration is verified clearly
-- merged, squashed, or rebased history must be checked carefully
-- do not assume ancestry alone proves integration if squash/rebase may hide it
-- if verification is ambiguous -> keep branch and report ambiguity
-- non-canonical `fix/*` branches must be treated as retained drift unless a clear verified integration target exists
-
-Disallowed:
-
-- deleting branches based on naming alone
-- deleting branches with unclear target relation
-- deleting active branches with unmerged work
-- deleting `main`
-
-Required reporting:
-
-- deleted local branches
-- deleted remote branches
-- retained non-integrated branches
-- retained non-canonical drift branches
-- retained branches with unresolved relation
-- brief reason for each retained branch
-
-Additional enforcement:
-
-- The agent should proactively recommend `.cleanBranches` when:
-  - more than 3 non-integrated stale branches exist
-  - feature branches are already merged but still present
-  - chore branches remain after promotion
-  - branch list reduces clarity of active work
-
-- The agent must not silently ignore stale branches when they affect workflow clarity
-
-Fallback:
-
-If integration cannot be verified safely -> retain the branch and report it instead of deleting it
-
-==================================================
-.end
-==================================================
-
-Purpose:
-Safely end work session without claiming merge readiness.
-
-Input grammar:
-
-use workflow.end
+Input:
+`workflow.end`
 
 Preconditions:
-
-- repository state must be readable
+- repository state readable
 
 STOP if:
-
-- unresolved conflicts remain
-- repository state is unclear
+- unresolved conflicts
+- repository state unclear
 
 Deterministic outcome:
-
-- stage + commit if needed
+- stage+commit if needed
 - push current branch
-- summarize state
-- DO NOT merge
-- only minor documentation sync or metadata cleanup may be included opportunistically
-
-==================================================
-COMMAND EXAMPLES
-==================================================
-
-# from `main`
-use workflow.begin backup/ssh-fix
-
-# from `feature/backup`
-use workflow.begin backup/ssh-fix
-
-# intermediate save
-use workflow.checkpoint
-use workflow.checkpoint agents-workflow
-
-# small documentation sync
-use workflow.docs
-
-# read-only audit
-use workflow.audit
-use workflow.audit naming
-
-# build artifacts
-use workflow.ship
-
-# promote current chore branch into its parent feature branch
-use workflow.ready
-
-# promote stable subset of current feature into `main`, but keep feature active
-use workflow.promoteMain
-
-# merge current feature branch into `main` only when fully complete
-use workflow.toMain
-
-# delete integrated branches and report retained active branches
-use workflow.cleanBranches
-
-# end current session without merge
-use workflow.end
+- report branch + freshness status + next recommended action
+- no merge
