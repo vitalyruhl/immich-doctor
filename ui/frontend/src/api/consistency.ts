@@ -4,89 +4,9 @@ import type {
   CatalogJobRequest,
   CatalogWorkflowJobRecord,
 } from "./types/catalog";
-import type {
-  CatalogRemediationApplyResponse,
-  CatalogRemediationPreviewRequest,
-  CatalogRemediationPreviewResponse,
-  CatalogRemediationScanResponse,
-  MissingAssetApplyRequest,
-  MissingAssetApplyResponse,
-  MissingAssetPreviewRequest,
-  MissingAssetPreviewResponse,
-  MissingAssetReferenceFinding,
-  MissingAssetRestorePointDeleteRequest,
-  MissingAssetRestorePointDeleteResponse,
-  MissingAssetRestorePointsResponse,
-  MissingAssetRestoreRequest,
-  MissingAssetRestoreResponse,
-  MissingAssetScanResponse,
-} from "./types/consistency";
+import type { CatalogRemediationScanResponse } from "./types/consistency";
 
-export async function fetchMissingAssetFindings(): Promise<
-  ApiResponse<MissingAssetScanResponse>
-> {
-  return request<MissingAssetScanResponse>(
-    "/consistency/missing-asset-references/findings",
-    undefined,
-    30000,
-  );
-}
-
-export async function previewMissingAssetRemovals(
-  payload: MissingAssetPreviewRequest,
-): Promise<ApiResponse<MissingAssetPreviewResponse>> {
-  return request<MissingAssetPreviewResponse>(
-    "/consistency/missing-asset-references/preview",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function applyMissingAssetRemovals(
-  payload: MissingAssetApplyRequest,
-): Promise<ApiResponse<MissingAssetApplyResponse>> {
-  return request<MissingAssetApplyResponse>(
-    "/consistency/missing-asset-references/apply",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function fetchMissingAssetRestorePoints(): Promise<
-  ApiResponse<MissingAssetRestorePointsResponse>
-> {
-  return request<MissingAssetRestorePointsResponse>(
-    "/consistency/missing-asset-references/restore-points",
-  );
-}
-
-export async function restoreMissingAssetRestorePoints(
-  payload: MissingAssetRestoreRequest,
-): Promise<ApiResponse<MissingAssetRestoreResponse>> {
-  return request<MissingAssetRestoreResponse>(
-    "/consistency/missing-asset-references/restore-points/restore",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function deleteMissingAssetRestorePoints(
-  payload: MissingAssetRestorePointDeleteRequest,
-): Promise<ApiResponse<MissingAssetRestorePointDeleteResponse>> {
-  return request<MissingAssetRestorePointDeleteResponse>(
-    "/consistency/missing-asset-references/restore-points/delete",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
+const REMEDIATION_TIMEOUT_MS = 30000;
 
 export async function fetchCatalogConsistencyJob(): Promise<
   ApiResponse<CatalogWorkflowJobRecord>
@@ -99,78 +19,8 @@ export async function fetchCatalogRemediationFindings(): Promise<
 > {
   return request<CatalogRemediationScanResponse>(
     "/consistency/catalog-remediation/findings",
-  );
-}
-
-export async function fetchCatalogRemediationFindingsByClassification(
-  classifications: string[],
-): Promise<ApiResponse<CatalogRemediationScanResponse>> {
-  const query = new URLSearchParams();
-  for (const classification of classifications) {
-    query.append("classification", classification);
-  }
-  return request<CatalogRemediationScanResponse>(
-    `/consistency/catalog-remediation/findings?${query.toString()}`,
-  );
-}
-
-export async function previewBrokenDbOriginalRemediation(
-  payload: CatalogRemediationPreviewRequest,
-): Promise<ApiResponse<CatalogRemediationPreviewResponse>> {
-  return request<CatalogRemediationPreviewResponse>(
-    "/consistency/catalog-remediation/broken-db-originals/preview",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function previewBrokenDbPathFixRemediation(
-  payload: CatalogRemediationPreviewRequest,
-): Promise<ApiResponse<CatalogRemediationPreviewResponse>> {
-  return request<CatalogRemediationPreviewResponse>(
-    "/consistency/catalog-remediation/broken-db-originals/path-fix/preview",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function previewZeroByteRemediation(
-  payload: CatalogRemediationPreviewRequest,
-): Promise<ApiResponse<CatalogRemediationPreviewResponse>> {
-  return request<CatalogRemediationPreviewResponse>(
-    "/consistency/catalog-remediation/zero-byte-files/preview",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function previewFuseHiddenRemediation(
-  payload: CatalogRemediationPreviewRequest,
-): Promise<ApiResponse<CatalogRemediationPreviewResponse>> {
-  return request<CatalogRemediationPreviewResponse>(
-    "/consistency/catalog-remediation/fuse-hidden-orphans/preview",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
-export async function applyCatalogRemediation(
-  repairRunId: string,
-): Promise<ApiResponse<CatalogRemediationApplyResponse>> {
-  return request<CatalogRemediationApplyResponse>(
-    "/consistency/catalog-remediation/apply",
-    {
-      method: "POST",
-      body: JSON.stringify({ repair_run_id: repairRunId }),
-    },
+    undefined,
+    REMEDIATION_TIMEOUT_MS,
   );
 }
 
@@ -182,9 +32,3 @@ export async function startCatalogConsistencyJob(
     body: JSON.stringify(payload),
   });
 }
-
-export type {
-  MissingAssetReferenceFinding,
-  MissingAssetRestorePointDeleteRequest,
-  MissingAssetRestorePointDeleteResponse,
-};

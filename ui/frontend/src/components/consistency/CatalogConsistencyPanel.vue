@@ -2,10 +2,10 @@
   <section class="panel catalog-consistency-panel">
     <div class="settings-section__header">
       <div>
-        <h3>Catalog-backed storage compare</h3>
+        <h3>Catalog-backed consistency snapshot</h3>
         <p>
-          Cached storage inventory, zero-byte detection, DB-vs-storage mismatches, and orphan
-          derivatives run as a locked background workflow.
+          This page reads the latest cached storage-vs-database compare and only
+          polls while a background consistency run is active.
         </p>
       </div>
       <StatusTag :status="panelStatus" />
@@ -18,7 +18,13 @@
         :disabled="consistencyStore.isCatalogStarting || flowActive"
         @click="void startValidation(true)"
       >
-        {{ flowActive ? "Consistency running..." : report ? "Rescan consistency" : "Start consistency" }}
+        {{
+          flowActive
+            ? "Consistency running..."
+            : report
+              ? "Run new compare"
+              : "Start consistency"
+        }}
       </button>
       <button
         type="button"
@@ -46,10 +52,12 @@
     </section>
 
     <dl class="runtime-detail__grid catalog-consistency-metadata">
-      <dt>Storage scan basis</dt>
+      <dt>Last snapshot</dt>
       <dd>{{ scanTimestampLabel }}</dd>
       <dt>Compare built at</dt>
       <dd>{{ compareTimestampLabel }}</dd>
+      <dt>Result source</dt>
+      <dd>{{ resultSourceLabel }}</dd>
     </dl>
 
     <p v-if="staleSummary" class="runtime-blocking-message">{{ staleSummary }}</p>
@@ -74,50 +82,6 @@
       :title="emptyStateTitle"
       :message="emptyStateMessage"
     />
-
-    <template v-else>
-      <article
-        v-for="section in reportSections"
-        :key="section.name"
-        class="catalog-consistency-section"
-      >
-        <div class="settings-section__header">
-          <div>
-            <h4>{{ section.title }}</h4>
-            <p>{{ section.description }}</p>
-          </div>
-          <StatusTag :status="section.status" />
-        </div>
-        <p v-if="section.truncated" class="health-card__details">
-          Sample output is truncated in the UI. Use the report metadata and logs for the full
-          count.
-        </p>
-        <EmptyState
-          v-if="!section.rows.length"
-          :title="`No findings for ${section.title}`"
-          message="No rows were returned for this category in the latest cached report."
-        />
-        <div v-else class="catalog-consistency-table-wrapper">
-          <table class="catalog-table">
-            <thead>
-              <tr>
-                <th v-for="column in section.columns" :key="column">{{ column }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(row, index) in section.rows"
-                :key="`${section.name}:${index}`"
-              >
-                <td v-for="column in section.columns" :key="`${section.name}:${index}:${column}`">
-                  {{ displayValue(row[column]) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </template>
   </section>
 </template>
 
@@ -126,27 +90,9 @@ import { computed, onMounted, onUnmounted, watch } from "vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import StatusTag from "@/components/common/StatusTag.vue";
 import { useConsistencyStore } from "@/stores/consistency";
-import type {
-  CatalogJobProgress,
-  CatalogValidationReport,
-  CatalogValidationSection,
-  CatalogWorkflowJobRecord,
-} from "@/api/types/catalog";
+import type { CatalogJobProgress, CatalogWorkflowJobRecord } from "@/api/types/catalog";
 
 type HealthTag = "ok" | "warning" | "error" | "unknown";
-
-interface ReportSectionDescriptor {
-  name: string;
-  title: string;
-  description: string;
-  columns: string[];
-}
-
-interface ReportSectionViewModel extends ReportSectionDescriptor {
-  rows: Array<Record<string, unknown>>;
-  status: HealthTag;
-  truncated: boolean;
-}
 
 interface SummaryCardViewModel {
   label: string;
@@ -167,53 +113,6 @@ interface CatalogConsistencyJobState {
 
 const consistencyStore = useConsistencyStore();
 let pollHandle: number | null = null;
-
-const sectionDescriptors: ReportSectionDescriptor[] = [
-  {
-    name: "DB_ORIGINALS_MISSING_ON_STORAGE",
-    title: "DB originals not found in current storage snapshot",
-    description:
-      "Rows that resolve safely into the uploads root but are absent from the current cached storage snapshot.",
-    columns: [
-      "asset_id",
-      "asset_name",
-      "asset_type",
-      "mapping_mode",
-      "database_path",
-    ],
-  },
-  {
-    name: "STORAGE_ORIGINALS_MISSING_IN_DB",
-    title: "Storage originals missing in DB",
-    description: "Files indexed on storage that do not have a matching original DB row.",
-    columns: ["root_slug", "relative_path", "file_name", "size_bytes", "generation"],
-  },
-  {
-    name: "ORPHAN_DERIVATIVES_WITHOUT_ORIGINAL",
-    title: "Orphan derivatives",
-    description: "Preview, thumbnail, video, or sidecar files that remain without the original.",
-    columns: [
-      "asset_id",
-      "derivative_type",
-      "root_slug",
-      "relative_path",
-      "original_relative_path",
-    ],
-  },
-  {
-    name: "ZERO_BYTE_FILES",
-    title: "Zero-byte files",
-    description: "Files found during the cached storage scan that have a size of zero bytes.",
-    columns: ["root_slug", "relative_path", "file_name", "size_bytes", "generation"],
-  },
-  {
-    name: "UNMAPPED_DATABASE_PATHS",
-    title: "Unmapped DB paths",
-    description:
-      "DB paths that could not be resolved safely into the configured runtime roots and therefore are not counted as confirmed missing files.",
-    columns: ["asset_id", "asset_name", "path_kind", "mapping_status", "database_path"],
-  },
-];
 
 function toTag(state: string | null | undefined): HealthTag {
   if (!state) {
@@ -239,14 +138,6 @@ function isFlowActive(job: CatalogWorkflowJobRecord | null): boolean {
     return true;
   }
   return Boolean(job.result?.blockedBy);
-}
-
-function getSectionRows(
-  report: CatalogValidationReport | null,
-  sectionName: string,
-): Array<Record<string, unknown>> {
-  const section = report?.sections.find((candidate) => candidate.name === sectionName);
-  return section ? (section.rows as Array<Record<string, unknown>>) : [];
 }
 
 function displayValue(value: unknown): string {
@@ -281,27 +172,29 @@ const staleState = computed(() => {
     ? (candidate as CatalogConsistencyJobState)
     : null;
 });
-const currentSummary = computed(() => job.value?.summary ?? "No catalog consistency workflow is active.");
+const currentSummary = computed(
+  () => job.value?.summary ?? "No cached catalog consistency snapshot is available yet.",
+);
 const progressMessage = computed(() => progress.value?.message ?? null);
 const progressStats = computed(() => {
   if (!progress.value) {
     return null;
   }
   if (
-    progress.value.phase === "prepare"
-    && typeof progress.value.directoriesDiscovered === "number"
+    progress.value.phase === "prepare" &&
+    typeof progress.value.directoriesDiscovered === "number"
   ) {
     return `Counting directories: ${progress.value.directoriesDiscovered}`;
   }
   if (
-    typeof progress.value.directoriesTotal === "number"
-    && typeof progress.value.directoriesCompleted === "number"
+    typeof progress.value.directoriesTotal === "number" &&
+    typeof progress.value.directoriesCompleted === "number"
   ) {
     return `Directories: ${progress.value.directoriesCompleted} / ${progress.value.directoriesTotal}`;
   }
   if (
-    typeof progress.value.directoriesCompleted === "number"
-    && typeof progress.value.pendingDirectories === "number"
+    typeof progress.value.directoriesCompleted === "number" &&
+    typeof progress.value.pendingDirectories === "number"
   ) {
     const total = progress.value.directoriesCompleted + progress.value.pendingDirectories;
     return `Directories: ${progress.value.directoriesCompleted} / ${total}`;
@@ -327,55 +220,60 @@ const totals = computed<Record<string, number>>(() => {
   const candidate = report.value?.metadata?.totals;
   return candidate && typeof candidate === "object" ? (candidate as Record<string, number>) : {};
 });
-const truncated = computed<Record<string, boolean>>(() => {
-  const candidate = report.value?.metadata?.truncated;
-  return candidate && typeof candidate === "object" ? (candidate as Record<string, boolean>) : {};
-});
 const summaryCards = computed<SummaryCardViewModel[]>(() => [
   {
-    label: "DB not found in snapshot",
+    label: "DB missing in storage",
     count: totals.value.dbOriginalsMissingOnStorage ?? 0,
     status: (totals.value.dbOriginalsMissingOnStorage ?? 0) > 0 ? "warning" : "ok",
-    message: "Safely mapped DB originals without a match in the current storage snapshot.",
+    message: "Assets whose DB original path does not match the current uploads snapshot.",
   },
   {
     label: "Storage missing in DB",
     count: totals.value.storageOriginalsMissingInDb ?? 0,
     status: (totals.value.storageOriginalsMissingInDb ?? 0) > 0 ? "warning" : "ok",
-    message: "Files on storage without a matching original reference in the DB.",
+    message: "Files on storage without a matching original DB reference.",
   },
   {
     label: "Orphan derivatives",
     count: totals.value.orphanDerivativesWithoutOriginal ?? 0,
     status: (totals.value.orphanDerivativesWithoutOriginal ?? 0) > 0 ? "warning" : "ok",
-    message: "Thumbnails, sidecars, or video derivatives without the original file.",
+    message: "Preview, thumbnail, sidecar, or video derivatives without the original.",
   },
   {
     label: "Zero-byte files",
     count: totals.value.zeroByteFiles ?? 0,
-    status: (totals.value.zeroByteFiles ?? 0) > 0 ? "error" : "ok",
-    message: "Obviously broken files from the latest storage scan.",
+    status: (totals.value.zeroByteFiles ?? 0) > 0 ? "warning" : "ok",
+    message: "Snapshot findings whose size is zero bytes.",
   },
   {
-    label: "Unmapped DB paths",
+    label: "Path warnings",
     count: totals.value.unmappedDatabasePaths ?? 0,
     status: (totals.value.unmappedDatabasePaths ?? 0) > 0 ? "warning" : "ok",
-    message: "Legacy DB paths could not be mapped into the current runtime roots.",
+    message: "Database paths that could not be mapped cleanly into runtime roots.",
   },
 ]);
 const scanTimestampLabel = computed(() => {
   const value =
-    (report.value?.metadata?.latestScanCommittedAt as string | undefined)
-    ?? (staleState.value?.latestScanCommittedAt as string | undefined)
-    ?? null;
+    (report.value?.metadata?.latestScanCommittedAt as string | undefined) ??
+    (staleState.value?.latestScanCommittedAt as string | undefined) ??
+    null;
   return displayValue(value);
 });
 const compareTimestampLabel = computed(() => {
   const value =
-    report.value?.generated_at
-    ?? (staleState.value?.previousCompareGeneratedAt as string | undefined)
-    ?? null;
+    report.value?.generated_at ??
+    (staleState.value?.previousCompareGeneratedAt as string | undefined) ??
+    null;
   return displayValue(value);
+});
+const resultSourceLabel = computed(() => {
+  if (flowActive.value) {
+    return "Cached snapshot with active refresh";
+  }
+  if (report.value) {
+    return "Latest completed snapshot";
+  }
+  return "No snapshot available yet";
 });
 const staleSummary = computed(() => {
   if (!staleState.value?.stale) {
@@ -393,7 +291,7 @@ const staleSummary = computed(() => {
       ? `The last compare is stale. A fresh storage scan is required for: ${scopeText}.`
       : "The last compare is stale. A fresh storage scan is required.";
   }
-  return "The last compare is stale because the storage index changed. A new compare is being prepared automatically.";
+  return "The last compare is stale because the storage index changed. A new compare must be started explicitly.";
 });
 const emptyStateTitle = computed(() => {
   if (flowActive.value) {
@@ -402,47 +300,22 @@ const emptyStateTitle = computed(() => {
   if (staleState.value?.stale) {
     return staleState.value.requiresScan
       ? "Catalog compare is waiting for a fresh storage scan"
-      : "Catalog compare is rebuilding";
+      : "Catalog compare is stale";
   }
-  return "No catalog consistency report yet";
+  return "No snapshot available yet";
 });
 const emptyStateMessage = computed(() => {
   if (flowActive.value) {
-    return "The workflow is currently rebuilding the catalog-backed compare.";
+    return "A background consistency run is active. The page will poll until it completes.";
   }
   if (staleSummary.value) {
     return staleSummary.value;
   }
-  return "The first validation run starts automatically when this page opens. If no catalog scan exists yet, the storage index is queued first.";
-});
-const reportSections = computed<ReportSectionViewModel[]>(() =>
-  sectionDescriptors.map((descriptor) => {
-    const section = report.value?.sections.find(
-      (candidate) => candidate.name === descriptor.name,
-    ) as CatalogValidationSection | undefined;
-    return {
-      ...descriptor,
-      rows: getSectionRows(report.value, descriptor.name),
-      status: toTag(section?.status ?? "unknown"),
-      truncated: Boolean(truncated.value[descriptor.name]),
-    };
-  }),
-);
-const shouldAutoStart = computed(() => {
-  if (consistencyStore.isCatalogStarting || flowActive.value) {
-    return false;
-  }
-  return Boolean(job.value && job.value.jobId == null && !report.value);
+  return "No completed catalog-backed consistency snapshot has been recorded yet. Start a run explicitly when you want to refresh the compare.";
 });
 
 async function refreshJob(): Promise<void> {
-  const latest = await consistencyStore.loadCatalogJob();
-  if (!latest || consistencyStore.isCatalogStarting) {
-    return;
-  }
-  if (latest.jobId == null && !isFlowActive(latest) && !consistencyStore.catalogReport) {
-    await startValidation(false);
-  }
+  await consistencyStore.loadCatalogJob();
 }
 
 async function startValidation(force: boolean): Promise<void> {
@@ -474,17 +347,8 @@ watch(flowActive, (active) => {
   stopPolling();
 });
 
-watch(shouldAutoStart, (active) => {
-  if (active) {
-    void startValidation(false);
-  }
-});
-
 onMounted(async () => {
   await refreshJob();
-  if (shouldAutoStart.value) {
-    await startValidation(false);
-  }
   if (flowActive.value) {
     startPolling();
   }
@@ -526,34 +390,5 @@ onUnmounted(() => {
   border: 1px solid #dbe2e8;
   border-radius: 1rem;
   background: #f8fbfd;
-}
-
-.catalog-consistency-section {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.catalog-consistency-table-wrapper {
-  overflow-x: auto;
-}
-
-.catalog-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.catalog-table th,
-.catalog-table td {
-  padding: 0.75rem;
-  border-bottom: 1px solid #dbe2e8;
-  text-align: left;
-  vertical-align: top;
-}
-
-.catalog-table th {
-  color: #5c6b77;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 </style>

@@ -514,13 +514,6 @@ a {
   gap: 1rem;
 }
 
-.consistency-preview,
-.consistency-restore {
-  display: grid;
-  gap: 1rem;
-  align-content: start;
-}
-
 .consistency-filter-bar {
   display: grid;
   grid-template-columns: minmax(0, 2fr) repeat(2, minmax(180px, 1fr)) auto;
@@ -634,22 +627,29 @@ a {
 }
 
 .consistency-chip--finding-present,
-.consistency-chip--readiness-ready,
-.consistency-chip--restore-available {
+.consistency-chip--restore-available,
+.consistency-chip--finding-found_with_hash_match,
+.consistency-chip--finding-deletable_orphan {
   background: #ddf3e4;
   color: #0b6b31;
 }
 
-.consistency-chip--finding-missing_on_disk,
-.consistency-chip--finding-permission_error,
-.consistency-chip--finding-unreadable_path,
-.consistency-chip--readiness-blocked {
+.consistency-chip--finding-found_elsewhere,
+.consistency-chip--finding-missing_confirmed,
+.consistency-chip--finding-zero_byte_upload_orphan,
+.consistency-chip--finding-zero_byte_video_derivative,
+.consistency-chip--finding-zero_byte_thumb_derivative {
   background: #fff0cf;
   color: #8b5b00;
 }
 
 .consistency-chip--finding-unsupported,
 .consistency-chip--finding-already_removed,
+.consistency-chip--finding-unresolved_search_error,
+.consistency-chip--finding-blocked_in_use,
+.consistency-chip--finding-zero_byte_upload_critical,
+.consistency-chip--finding-check_failed,
+.consistency-chip--finding-unexpected_root,
 .consistency-chip--restore-restored {
   background: #e7ebef;
   color: #4c5a65;
@@ -897,9 +897,7 @@ a {
   flex: 1 1 320px;
 }
 
-.consistency-section,
-.consistency-preview,
-.consistency-restore {
+.consistency-section {
   display: grid;
   gap: 1rem;
 }
@@ -995,16 +993,29 @@ a {
   color: #0b6b31;
 }
 
-.consistency-chip--finding-missing_on_disk,
-.consistency-chip--readiness-ready {
+.consistency-chip--finding-found_with_hash_match,
+.consistency-chip--finding-deletable_orphan {
   background: #fff0cf;
+  color: #8b5b00;
+}
+
+.consistency-chip--finding-found_elsewhere,
+.consistency-chip--finding-missing_confirmed,
+.consistency-chip--finding-zero_byte_upload_orphan,
+.consistency-chip--finding-zero_byte_video_derivative,
+.consistency-chip--finding-zero_byte_thumb_derivative {
+  background: #ffe8bf;
   color: #8b5b00;
 }
 
 .consistency-chip--finding-permission_error,
 .consistency-chip--finding-unreadable_path,
 .consistency-chip--finding-unsupported,
-.consistency-chip--readiness-blocked {
+.consistency-chip--finding-unresolved_search_error,
+.consistency-chip--finding-blocked_in_use,
+.consistency-chip--finding-zero_byte_upload_critical,
+.consistency-chip--finding-check_failed,
+.consistency-chip--finding-unexpected_root {
   background: #ffe0de;
   color: #ae1b1b;
 }
