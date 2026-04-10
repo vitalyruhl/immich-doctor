@@ -366,7 +366,12 @@ class PostgresAdapter:
         }
         optional_columns = [
             column
-            for column in ("checksum", "originalChecksum", "checksumAlgorithm")
+            for column in (
+                "checksum",
+                "originalChecksum",
+                "checksumAlgorithm",
+                "livePhotoVideoId",
+            )
             if column in asset_columns
         ]
         select_columns: list[sql.Composable] = [

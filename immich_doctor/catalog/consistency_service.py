@@ -93,14 +93,23 @@ class CatalogConsistencyValidationService:
         sampled_storage_missing = state.storage_missing_rows[: self.sample_limit]
         sampled_orphans = state.orphan_rows[: self.sample_limit]
         sampled_unmapped = state.unmapped_rows[: self.sample_limit]
+        real_issue_count = (
+            len(state.db_missing_rows)
+            + len(state.storage_missing_rows)
+            + len(state.orphan_rows)
+            + len(state.zero_byte_rows)
+            + len(state.unmapped_rows)
+        )
 
         summary = (
             "Catalog-backed consistency compared the cached storage inventory "
-            "against the live database: "
+            "against the live database and reports only actionable inconsistencies: "
             f"{len(state.db_missing_rows)} DB originals not found in the current storage snapshot, "
             f"{len(state.storage_missing_rows)} storage originals missing in DB, "
             f"{len(state.orphan_rows)} orphan derivatives, and "
-            f"{len(state.zero_byte_rows)} zero-byte findings."
+            f"{len(state.zero_byte_rows)} zero-byte findings. "
+            f"Suppressed {state.valid_motion_video_components} valid motion video components; "
+            f"{real_issue_count} real issues remain."
         )
 
         return ValidationReport(
@@ -158,11 +167,15 @@ class CatalogConsistencyValidationService:
                 "latestScanCommittedAt": state.latest_scan_committed_at,
                 "sampleLimit": self.sample_limit,
                 "totals": {
+                    "totalAssetsScanned": state.total_assets_scanned,
                     "dbOriginalsMissingOnStorage": len(state.db_missing_rows),
                     "storageOriginalsMissingInDb": len(state.storage_missing_rows),
                     "orphanDerivativesWithoutOriginal": len(state.orphan_rows),
                     "zeroByteFiles": len(state.zero_byte_rows),
                     "unmappedDatabasePaths": len(state.unmapped_rows),
+                    "filteredNoiseRemoved": state.valid_motion_video_components,
+                    "validMotionVideoComponents": state.valid_motion_video_components,
+                    "realIssuesRemaining": real_issue_count,
                 },
                 "truncated": {
                     DB_MISSING_SECTION: len(state.db_missing_rows) > self.sample_limit,

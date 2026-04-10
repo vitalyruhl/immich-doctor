@@ -59,6 +59,8 @@ class CatalogConsistencyState:
     snapshot_basis: list[dict[str, object]]
     latest_scan_committed_at: str | None
     configured_root_slugs: list[str]
+    total_assets_scanned: int = 0
+    valid_motion_video_components: int = 0
     progress_metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -191,6 +193,12 @@ class CatalogConsistencyStateCollector:
 
         asset_rows = self.postgres.list_all_assets_for_catalog_consistency(dsn, timeout)
         asset_file_rows = self.postgres.list_all_asset_files_for_catalog_consistency(dsn, timeout)
+        live_photo_video_ids = {
+            str(value)
+            for asset in asset_rows
+            for value in [asset.get("livePhotoVideoId")]
+            if truthy_path(value) is not None
+        }
 
         db_missing_rows: list[dict[str, object]] = []
         storage_missing_rows: list[dict[str, object]] = []
@@ -199,6 +207,8 @@ class CatalogConsistencyStateCollector:
         db_original_index: set[str] = set()
         original_by_asset: dict[str, str] = {}
         derivative_rows_by_asset: dict[str, list[dict[str, object]]] = defaultdict(list)
+        total_assets_scanned = 0
+        valid_motion_video_components = 0
 
         for row in asset_file_rows:
             derivative_rows_by_asset[str(row["assetId"])].append(row)
@@ -208,6 +218,7 @@ class CatalogConsistencyStateCollector:
             original_path = truthy_path(asset.get("originalPath"))
             if not original_path:
                 continue
+            total_assets_scanned += 1
             asset_name = truthy_path(asset.get("originalFileName"))
 
             resolved_original = resolver.resolve(original_path)
@@ -228,6 +239,31 @@ class CatalogConsistencyStateCollector:
                 continue
 
             if resolved_original.root_slug != SOURCE_ROOT_SLUG:
+                if self._is_valid_motion_video_component(
+                    asset,
+                    original_path=original_path,
+                    resolved_root=resolved_original.root_slug,
+                    live_photo_video_ids=live_photo_video_ids,
+                ):
+                    if resolved_original.relative_path in derivative_indexes.get(
+                        resolved_original.root_slug,
+                        set(),
+                    ):
+                        valid_motion_video_components += 1
+                        continue
+                    db_missing_rows.append(
+                        {
+                            "asset_id": asset_id,
+                            "asset_name": asset_name,
+                            "asset_type": asset.get("type"),
+                            "database_path": original_path,
+                            "resolved_root": resolved_original.root_slug,
+                            "relative_path": resolved_original.relative_path,
+                            "mapping_mode": resolved_original.mapping_mode,
+                            "classification": "valid_motion_video_component_missing_on_storage",
+                        }
+                    )
+                    continue
                 unmapped_rows.append(
                     {
                         "asset_id": asset_id,
@@ -416,6 +452,8 @@ class CatalogConsistencyStateCollector:
             snapshot_basis=snapshot_basis,
             latest_scan_committed_at=latest_scan_committed_at,
             configured_root_slugs=[row["slug"] for row in snapshot_state.synced_roots],
+            total_assets_scanned=total_assets_scanned,
+            valid_motion_video_components=valid_motion_video_components,
             progress_metadata=snapshot_state.metadata,
         )
 
@@ -456,4 +494,22 @@ class CatalogConsistencyStateCollector:
                 "database_path": path_text,
                 "original_relative_path": original_relative_path,
             }
+        )
+
+    def _is_valid_motion_video_component(
+        self,
+        asset: dict[str, object],
+        *,
+        original_path: str,
+        resolved_root: str,
+        live_photo_video_ids: set[str],
+    ) -> bool:
+        asset_id = str(asset.get("id") or "").strip()
+        asset_type = str(asset.get("type") or "").strip().upper()
+        normalized_path = original_path.replace("\\", "/")
+        return (
+            resolved_root == "video"
+            and asset_type == "VIDEO"
+            and "/encoded-video/" in normalized_path
+            and asset_id in live_photo_video_ids
         )
