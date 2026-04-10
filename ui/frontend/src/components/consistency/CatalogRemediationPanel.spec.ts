@@ -43,6 +43,18 @@ function createStore(): any {
             },
           ],
         },
+        {
+          name: "ZERO_BYTE_FILES",
+          rows: [
+            {
+              root_slug: "uploads",
+              relative_path: "user-a/raw-zero.jpg",
+              file_name: "raw-zero.jpg",
+              size_bytes: 0,
+              generation: 2,
+            },
+          ],
+        },
       ],
     },
     remediationScanResult: {
@@ -190,6 +202,11 @@ describe("CatalogRemediationPanel", () => {
     expect(wrapper.text()).toContain("`.fuse_hidden*` artifacts");
     expect(wrapper.text()).not.toContain("Preview");
     expect(wrapper.text()).not.toContain("Apply");
+
+    const groupCards = wrapper.findAll(".catalog-remediation-group");
+    expect(groupCards.length).toBeGreaterThanOrEqual(5);
+    expect(groupCards.some((card) => card.text().includes("DB originals missing in storage"))).toBe(true);
+    expect(groupCards.some((card) => card.text().includes("Storage originals missing in DB"))).toBe(true);
   });
 
   it("stages context-sensitive bulk actions only for selected eligible rows", async () => {
@@ -239,5 +256,23 @@ describe("CatalogRemediationPanel", () => {
     expect(wrapper.text()).toContain("Repair path");
     expect(wrapper.text()).toContain("Quarantine");
     expect(wrapper.text()).toContain("Ignore");
+  });
+
+  it("falls back to raw zero-byte snapshot rows when remediation enrichment is unavailable", async () => {
+    store.zeroByteFindings = [];
+
+    const wrapper = mount(CatalogRemediationPanel, {
+      global: {
+        stubs: {
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
+          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
+        },
+      },
+    });
+    await nextTick();
+
+    expect(wrapper.text()).toContain("raw-zero.jpg");
+    expect(wrapper.text()).toContain("Zero-byte snapshot");
+    expect(wrapper.text()).toContain("Detailed remediation classification is not loaded.");
   });
 });

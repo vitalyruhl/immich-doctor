@@ -1,5 +1,6 @@
 <template>
-  <section class="panel catalog-remediation-panel">
+  <section class="catalog-remediation-panel">
+    <section class="panel catalog-remediation-workspace">
     <div class="settings-section__header">
       <div>
         <h3>Catalog findings workspace</h3>
@@ -86,6 +87,7 @@
         </span>
       </div>
     </section>
+    </section>
 
     <EmptyState
       v-if="!findingGroups.length"
@@ -96,7 +98,7 @@
     <article
       v-for="group in findingGroups"
       :key="group.key"
-      class="catalog-remediation-group"
+      class="panel catalog-remediation-group"
     >
       <div class="settings-section__header">
         <div>
@@ -455,6 +457,28 @@ function zeroByteRow(finding: ZeroByteFinding): FindingRowModel {
   };
 }
 
+function fallbackZeroByteRow(row: Record<string, unknown>): FindingRowModel {
+  const relativePath = String(row.relative_path ?? "Unavailable");
+  const fileName = String(row.file_name ?? relativePath);
+  return {
+    id: `fallback-zero-byte:${relativePath}`,
+    groupKey: "zero-byte",
+    title: fileName,
+    subtitle: String(row.root_slug ?? "unknown"),
+    badgeLabel: "Zero-byte snapshot",
+    badgeClass: badgeClass("zero_byte_upload_orphan"),
+    message: "A zero-byte file exists in the snapshot, but detailed remediation classification is unavailable right now.",
+    pathDetails: [
+      pathLine("Relative path", relativePath),
+      pathLine("Size", `${String(row.size_bytes ?? "0")} B`),
+    ],
+    statusReason: "Inspect only until remediation enrichment loads.",
+    blockedReason: "Detailed remediation classification is not loaded.",
+    actions: [makeRowAction("inspect", "Inspect", "Review the raw zero-byte snapshot finding.", null)],
+    selectionEligible: false,
+  };
+}
+
 function fuseHiddenRow(finding: FuseHiddenOrphanFinding): FindingRowModel {
   const actions: RowActionModel[] = [];
   if (finding.classification === "deletable_orphan") {
@@ -520,9 +544,12 @@ const storageMissingRows = computed<FindingRowModel[]>(() =>
 const orphanDerivativeRows = computed<FindingRowModel[]>(() =>
   consistencyStore.orphanDerivatives.map(orphanDerivativeRow),
 );
-const zeroByteRows = computed<FindingRowModel[]>(() =>
-  consistencyStore.zeroByteFindings.map(zeroByteRow),
-);
+const zeroByteRows = computed<FindingRowModel[]>(() => {
+  if (consistencyStore.zeroByteFindings.length) {
+    return consistencyStore.zeroByteFindings.map(zeroByteRow);
+  }
+  return sectionRows(report.value, "ZERO_BYTE_FILES").map(fallbackZeroByteRow);
+});
 const fuseHiddenRows = computed<FindingRowModel[]>(() =>
   consistencyStore.fuseHiddenOrphans.map(fuseHiddenRow),
 );
@@ -687,6 +714,7 @@ async function refreshPanel(): Promise<void> {
 
 <style scoped>
 .catalog-remediation-panel,
+.catalog-remediation-workspace,
 .catalog-remediation-group,
 .catalog-remediation-stage {
   display: grid;
