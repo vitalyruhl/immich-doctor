@@ -160,6 +160,11 @@ function createStore(): any {
   return {
     findings,
     restorePoints,
+    brokenDbOriginals: [],
+    fuseHiddenOrphans: [],
+    remediationScanResult: null,
+    remediationPreviewResult: null,
+    remediationApplyResult: null,
     scanResult: {
       domain: "consistency",
       action: "scan",
@@ -202,6 +207,7 @@ function createStore(): any {
     isLoading: false,
     isScanning: false,
     isLoadingRestorePoints: false,
+    isLoadingRemediation: false,
     isPreviewing: false,
     isApplying: false,
     isRestoring: false,
@@ -209,6 +215,9 @@ function createStore(): any {
     isWaitingOnCatalog: false,
     scanError: null,
     catalogJobError: null,
+    remediationError: null,
+    remediationPreviewError: null,
+    remediationApplyError: null,
     restorePointsError: null,
     previewError: null,
     applyError: null,
@@ -218,6 +227,7 @@ function createStore(): any {
     catalogReadinessMessage: "Catalog-backed consistency data is current.",
     load: vi.fn().mockResolvedValue(undefined),
     loadCatalogJob: vi.fn().mockResolvedValue(undefined),
+    loadRemediation: vi.fn().mockResolvedValue(undefined),
     scan: vi.fn().mockResolvedValue(undefined),
     loadRestorePoints: vi.fn().mockResolvedValue(undefined),
     preview: vi.fn(async (payload: { asset_ids: string[]; select_all: boolean }) => {
@@ -230,7 +240,10 @@ function createStore(): any {
       }
       return buildPreviewResponse(selectedFindings, "repair-run-selected", "selected");
     }),
+    previewBrokenDbOriginals: vi.fn().mockResolvedValue(null),
+    previewFuseHidden: vi.fn().mockResolvedValue(null),
     apply: vi.fn(async () => buildApplyResponse("repair-run-all")),
+    applyRemediation: vi.fn().mockResolvedValue(null),
     restore: vi.fn(async () => buildRestoreResponse()),
     deleteRestorePoints: vi.fn(async () => buildDeleteResponse()),
   };
@@ -248,6 +261,7 @@ function mountView() {
       stubs: {
         PageHeader: { template: "<div class='page-header-stub' />" },
         CatalogConsistencyPanel: { template: "<div class='catalog-consistency-panel-stub' />" },
+        CatalogRemediationPanel: { template: "<div class='catalog-remediation-panel-stub' />" },
         DisclaimerBanner: { template: "<div class='disclaimer-stub' />" },
         RiskNotice: { template: "<div class='risk-notice-stub' />", props: ["title", "message"] },
         LoadingState: { template: "<div class='loading-stub' />" },

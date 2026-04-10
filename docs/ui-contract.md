@@ -122,6 +122,56 @@ Recovery limits shown in UI:
 - unsupported schema mappings remain blocked and must be reported clearly
 - already removed rows should be shown as such instead of being hidden
 
+## Catalog-backed remediation UI
+
+The catalog-backed consistency page now also exposes explicit remediation review
+for cached storage-vs-DB mismatch classes.
+
+Catalog-backed validation filtering rules:
+
+- report only actionable inconsistencies from the cached DB-vs-storage compare
+- suppress valid DB/storage matches entirely
+- suppress valid Motion/Live-Photo video components when:
+  - the asset row is a `VIDEO`
+  - the stored `originalPath` resolves into `encoded-video`
+  - a sibling image references that asset through `livePhotoVideoId`
+- if such a motion component is logically valid but the underlying storage file is missing, keep reporting it as a real missing-file inconsistency instead of suppressing it
+- keep unexpected `encoded-video` roots visible when the motion linkage is absent or cannot be verified
+
+Canonical behavior:
+
+- render broken DB originals, zero-byte files, and `.fuse_hidden*` storage orphans as separate sections
+- keep checkbox selection explicit per section
+- support single-item, selected-items, and all-eligible preview flows
+- keep preview separate from apply
+- only enable apply after preview plus explicit confirmation checkboxes
+- keep item typing explicit in the UI state and API payloads
+
+Broken DB original rules:
+
+- show `missing_confirmed`, `found_elsewhere`, `found_with_hash_match`, and `unresolved_search_error` as distinct badges
+- show expected DB path and found path for `found_elsewhere`
+- explain that `found_elsewhere` is not auto-deleted because the file may still exist elsewhere
+- show checksum-verification state for path-mismatch candidates when available
+- expose destructive cleanup only for `missing_confirmed`
+- expose explicit DB path-fix only for `found_with_hash_match`
+
+Zero-byte rules:
+
+- `.immich` must not be rendered as a remediation candidate
+- show `zero_byte_upload_orphan`, `zero_byte_upload_critical`, `zero_byte_video_derivative`, and `zero_byte_thumb_derivative` as distinct badges
+- explain that `zero_byte_upload_critical` is still referenced as an original and therefore not deletable by default
+- expose explicit delete apply only for orphan or derivative classes
+- make clear that derivative deletion is a cleanup step, not an implicit regenerate step
+
+`.fuse_hidden*` orphan rules:
+
+- `.immich` must not be rendered as a repair candidate
+- show `blocked_in_use`, `deletable_orphan`, and `check_failed` as distinct badges
+- explain that `blocked_in_use` cannot be removed safely yet
+- expose delete apply only for `deletable_orphan`
+- if the in-use check is unavailable, surface the backend reason instead of faking readiness
+
 ## Backup contract
 
 The backup UI must treat backend state as the source of truth for:

@@ -2,17 +2,30 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { ApiClientError } from "@/api/client";
 import {
+  applyCatalogRemediation,
   applyMissingAssetRemovals,
+  fetchCatalogRemediationFindings,
   deleteMissingAssetRestorePoints,
   fetchCatalogConsistencyJob,
   fetchMissingAssetFindings,
   fetchMissingAssetRestorePoints,
+  previewBrokenDbPathFixRemediation,
+  previewBrokenDbOriginalRemediation,
+  previewFuseHiddenRemediation,
   previewMissingAssetRemovals,
+  previewZeroByteRemediation,
   restoreMissingAssetRestorePoints,
   startCatalogConsistencyJob,
 } from "@/api/consistency";
-import type { CatalogValidationReport, CatalogWorkflowJobRecord } from "@/api/types/catalog";
 import type {
+  CatalogValidationReport,
+  CatalogWorkflowJobRecord,
+} from "@/api/types/catalog";
+import type {
+  CatalogRemediationApplyResponse,
+  CatalogRemediationPreviewRequest,
+  CatalogRemediationPreviewResponse,
+  CatalogRemediationScanResponse,
   MissingAssetApplyResponse,
   MissingAssetPreviewRequest,
   MissingAssetPreviewResponse,
@@ -26,7 +39,9 @@ import type {
 } from "@/api/types/consistency";
 
 function toErrorMessage(caughtError: unknown): string {
-  return caughtError instanceof ApiClientError ? caughtError.payload.message : "Unknown error.";
+  return caughtError instanceof ApiClientError
+    ? caughtError.payload.message
+    : "Unknown error.";
 }
 
 type CatalogReadinessState =
@@ -37,13 +52,17 @@ type CatalogReadinessState =
   | "compare_running"
   | "error";
 
-function catalogBlockedBy(job: CatalogWorkflowJobRecord | null): Record<string, unknown> | null {
+function catalogBlockedBy(
+  job: CatalogWorkflowJobRecord | null,
+): Record<string, unknown> | null {
   const result = job?.result;
   if (!result || typeof result !== "object") {
     return null;
   }
   const blockedBy = result.blockedBy;
-  return blockedBy && typeof blockedBy === "object" ? (blockedBy as Record<string, unknown>) : null;
+  return blockedBy && typeof blockedBy === "object"
+    ? (blockedBy as Record<string, unknown>)
+    : null;
 }
 
 function catalogRequiresScan(job: CatalogWorkflowJobRecord | null): boolean {
@@ -52,8 +71,18 @@ function catalogRequiresScan(job: CatalogWorkflowJobRecord | null): boolean {
 }
 
 export const useConsistencyStore = defineStore("consistency", () => {
+  const remediationScanResult = ref<CatalogRemediationScanResponse | null>(
+    null,
+  );
+  const remediationPreviewResult =
+    ref<CatalogRemediationPreviewResponse | null>(null);
+  const remediationApplyResult = ref<CatalogRemediationApplyResponse | null>(
+    null,
+  );
   const scanResult = ref<MissingAssetScanResponse | null>(null);
-  const restorePointsResult = ref<MissingAssetRestorePointsResponse | null>(null);
+  const restorePointsResult = ref<MissingAssetRestorePointsResponse | null>(
+    null,
+  );
   const catalogJob = ref<CatalogWorkflowJobRecord | null>(null);
   const applyResult = ref<MissingAssetApplyResponse | null>(null);
   const restoreResult = ref<MissingAssetRestoreResponse | null>(null);
@@ -64,6 +93,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const isCatalogLoading = ref(false);
   const isCatalogStarting = ref(false);
   const isLoadingRestorePoints = ref(false);
+  const isLoadingRemediation = ref(false);
   const isPreviewing = ref(false);
   const isApplying = ref(false);
   const isRestoring = ref(false);
@@ -71,6 +101,9 @@ export const useConsistencyStore = defineStore("consistency", () => {
 
   const scanError = ref<string | null>(null);
   const catalogJobError = ref<string | null>(null);
+  const remediationError = ref<string | null>(null);
+  const remediationPreviewError = ref<string | null>(null);
+  const remediationApplyError = ref<string | null>(null);
   const restorePointsError = ref<string | null>(null);
   const previewError = ref<string | null>(null);
   const applyError = ref<string | null>(null);
@@ -95,14 +128,11 @@ export const useConsistencyStore = defineStore("consistency", () => {
     if (catalogRequiresScan(job)) {
       return "waiting_for_index";
     }
-    const result = job.result && typeof job.result === "object"
-      ? (job.result as Record<string, unknown>)
-      : null;
-    if (
-      job.state === "pending" &&
-      result &&
-      Boolean(result.stale)
-    ) {
+    const result =
+      job.result && typeof job.result === "object"
+        ? (job.result as Record<string, unknown>)
+        : null;
+    if (job.state === "pending" && result && Boolean(result.stale)) {
       return "rebuilding";
     }
     return "ready";
@@ -159,6 +189,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
         scanError.value = null;
       }
       await Promise.allSettled([
+        loadRemediation(),
         loadRestorePoints(),
         shouldSkipMissingAssetScan.value ? Promise.resolve(null) : scan(),
       ]);
@@ -198,7 +229,9 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function startCatalog(force = true): Promise<CatalogWorkflowJobRecord | null> {
+  async function startCatalog(
+    force = true,
+  ): Promise<CatalogWorkflowJobRecord | null> {
     isCatalogStarting.value = true;
     catalogJobError.value = null;
     try {
@@ -228,6 +261,21 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
+  async function loadRemediation(): Promise<CatalogRemediationScanResponse | null> {
+    isLoadingRemediation.value = true;
+    remediationError.value = null;
+    try {
+      const response = await fetchCatalogRemediationFindings();
+      remediationScanResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLoadingRemediation.value = false;
+    }
+  }
+
   async function preview(
     payload: MissingAssetPreviewRequest,
   ): Promise<MissingAssetPreviewResponse | null> {
@@ -244,7 +292,9 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function apply(repairRunId: string): Promise<MissingAssetApplyResponse | null> {
+  async function apply(
+    repairRunId: string,
+  ): Promise<MissingAssetApplyResponse | null> {
     if (!repairRunId) {
       applyError.value = "A previewed repair run is required before apply.";
       return null;
@@ -252,12 +302,109 @@ export const useConsistencyStore = defineStore("consistency", () => {
     isApplying.value = true;
     applyError.value = null;
     try {
-      const response = await applyMissingAssetRemovals({ repair_run_id: repairRunId });
+      const response = await applyMissingAssetRemovals({
+        repair_run_id: repairRunId,
+      });
       applyResult.value = response.data;
       await Promise.allSettled([scan(), loadRestorePoints()]);
       return response.data;
     } catch (caughtError) {
       applyError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isApplying.value = false;
+    }
+  }
+
+  async function previewBrokenDbOriginals(
+    payload: CatalogRemediationPreviewRequest,
+  ): Promise<CatalogRemediationPreviewResponse | null> {
+    isPreviewing.value = true;
+    remediationPreviewError.value = null;
+    try {
+      const response = await previewBrokenDbOriginalRemediation(payload);
+      remediationPreviewResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationPreviewError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isPreviewing.value = false;
+    }
+  }
+
+  async function previewBrokenDbPathFix(
+    payload: CatalogRemediationPreviewRequest,
+  ): Promise<CatalogRemediationPreviewResponse | null> {
+    isPreviewing.value = true;
+    remediationPreviewError.value = null;
+    try {
+      const response = await previewBrokenDbPathFixRemediation(payload);
+      remediationPreviewResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationPreviewError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isPreviewing.value = false;
+    }
+  }
+
+  async function previewZeroByte(
+    payload: CatalogRemediationPreviewRequest,
+  ): Promise<CatalogRemediationPreviewResponse | null> {
+    isPreviewing.value = true;
+    remediationPreviewError.value = null;
+    try {
+      const response = await previewZeroByteRemediation(payload);
+      remediationPreviewResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationPreviewError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isPreviewing.value = false;
+    }
+  }
+
+  async function previewFuseHidden(
+    payload: CatalogRemediationPreviewRequest,
+  ): Promise<CatalogRemediationPreviewResponse | null> {
+    isPreviewing.value = true;
+    remediationPreviewError.value = null;
+    try {
+      const response = await previewFuseHiddenRemediation(payload);
+      remediationPreviewResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationPreviewError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isPreviewing.value = false;
+    }
+  }
+
+  async function applyRemediation(
+    repairRunId: string,
+  ): Promise<CatalogRemediationApplyResponse | null> {
+    if (!repairRunId) {
+      remediationApplyError.value =
+        "A previewed repair run is required before apply.";
+      return null;
+    }
+    isApplying.value = true;
+    remediationApplyError.value = null;
+    try {
+      const response = await applyCatalogRemediation(repairRunId);
+      remediationApplyResult.value = response.data;
+      await Promise.allSettled([
+        loadRemediation(),
+        scan(),
+        loadRestorePoints(),
+      ]);
+      return response.data;
+    } catch (caughtError) {
+      remediationApplyError.value = toErrorMessage(caughtError);
       return null;
     } finally {
       isApplying.value = false;
@@ -310,12 +457,23 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const findings = computed<MissingAssetReferenceFinding[]>(
     () => scanResult.value?.findings ?? [],
   );
+  const brokenDbOriginals = computed(
+    () => remediationScanResult.value?.broken_db_originals ?? [],
+  );
+  const zeroByteFindings = computed(
+    () => remediationScanResult.value?.zero_byte_findings ?? [],
+  );
+  const fuseHiddenOrphans = computed(
+    () => remediationScanResult.value?.fuse_hidden_orphans ?? [],
+  );
   const restorePoints = computed(() => restorePointsResult.value?.items ?? []);
 
   return {
     apply,
+    applyRemediation,
     applyError,
     applyResult,
+    brokenDbOriginals,
     catalogJob,
     catalogJobError,
     catalogReadinessMessage,
@@ -325,12 +483,14 @@ export const useConsistencyStore = defineStore("consistency", () => {
     deleteError,
     deleteResult,
     deleteRestorePoints,
+    fuseHiddenOrphans,
     findings,
     isApplying,
     isCatalogLoading,
     isCatalogStarting,
     isDeletingRestorePoints,
     isLoading,
+    isLoadingRemediation,
     isLoadingRestorePoints,
     isPreviewing,
     isRestoring,
@@ -338,9 +498,20 @@ export const useConsistencyStore = defineStore("consistency", () => {
     isWaitingOnCatalog,
     load,
     loadCatalogJob,
+    loadRemediation,
     loadRestorePoints,
     preview,
+    previewBrokenDbPathFix,
+    previewBrokenDbOriginals,
+    previewFuseHidden,
+    previewZeroByte,
     previewError,
+    remediationApplyError,
+    remediationApplyResult,
+    remediationError,
+    remediationPreviewError,
+    remediationPreviewResult,
+    remediationScanResult,
     restore,
     restoreError,
     restorePoints,
@@ -352,5 +523,6 @@ export const useConsistencyStore = defineStore("consistency", () => {
     scanResult,
     shouldSkipMissingAssetScan,
     startCatalog,
+    zeroByteFindings,
   };
 });

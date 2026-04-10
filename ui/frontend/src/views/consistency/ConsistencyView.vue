@@ -29,6 +29,7 @@
 
     <template v-else>
       <CatalogConsistencyPanel />
+      <CatalogRemediationPanel />
 
       <section class="health-grid">
         <article class="panel">
@@ -643,6 +644,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import CatalogConsistencyPanel from '@/components/consistency/CatalogConsistencyPanel.vue';
+import CatalogRemediationPanel from '@/components/consistency/CatalogRemediationPanel.vue';
 import ConfirmOperationDialog from '@/components/safety/ConfirmOperationDialog.vue';
 import DisclaimerBanner from '@/components/safety/DisclaimerBanner.vue';
 import ErrorState from '@/components/common/ErrorState.vue';

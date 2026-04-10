@@ -83,6 +83,62 @@ Recovery limits:
 - if a record is already absent from the current scan scope, it is reported as `already_removed`
 - if the schema contains unsupported asset references, the run stays blocked until the mapping is modeled safely
 
+## Catalog-backed remediation findings
+
+The catalog-backed consistency page now exposes two additional review-first
+flows based on the latest committed storage snapshot.
+
+Broken DB originals:
+
+- scope: DB asset rows whose mapped `originalPath` is absent from the cached uploads snapshot
+- classifications stay explicit:
+  - `missing_confirmed`
+  - `found_elsewhere`
+  - `found_with_hash_match`
+  - `unresolved_search_error`
+- relocation search is read-only and uses the cached storage inventory
+- path-mismatch rows such as `/upload/upload/...` versus the configured uploads root may surface through the same review flow
+- `found_elsewhere` stays inspect-only by default:
+  - no auto-delete
+  - no auto-rebind without checksum-backed verification
+  - expected path and found path must stay visible to the operator
+- only `missing_confirmed` is eligible for explicit DB cleanup preview/apply
+- only `found_with_hash_match` is eligible for explicit DB path-fix preview/apply
+- DB cleanup apply reuses the existing repair-run, journal, and restore-metadata foundation
+- DB path-fix apply updates `public.asset.originalPath` only and records old/new values in the repair journal with DB-value undo metadata
+
+Zero-byte files:
+
+- scope: cached zero-byte rows from `uploads`, `thumbs`, and `video`
+- classifications stay explicit:
+  - `zero_byte_upload_orphan`
+  - `zero_byte_upload_critical`
+  - `zero_byte_video_derivative`
+  - `zero_byte_thumb_derivative`
+- `.immich` stays ignored explicitly and must never appear as a repair candidate
+- `zero_byte_upload_critical` stays inspect-only because the DB still references the original upload
+- `zero_byte_upload_orphan`, `zero_byte_video_derivative`, and `zero_byte_thumb_derivative` are eligible for explicit delete preview/apply
+- deleting a zero-byte derivative is not an automatic regenerate step; it only removes the broken artifact so later operator-led regeneration stays possible
+
+`.fuse_hidden*` storage orphans:
+
+- scope: storage-only uploads files whose name starts with `.fuse_hidden`
+- `.immich` is ignored explicitly and must never appear as a repair candidate
+- classifications stay explicit:
+  - `blocked_in_use`
+  - `deletable_orphan`
+  - `check_failed`
+- in-use checks depend on runtime tooling and must report the real reason when unavailable
+- only `deletable_orphan` is eligible for explicit delete preview/apply
+- blocked or failed-check rows stay informational and do not expose destructive apply
+
+Shared remediation rules:
+
+- preview and apply remain separate
+- selection may target a single row, selected rows, or all eligible rows in one class
+- DB cleanup, DB path-fix, zero-byte deletion, and `.fuse_hidden*` deletion stay separate flows and must not be mixed in one ambiguous handler
+- scan time remains non-destructive
+
 CLI and UI:
 
 - CLI keeps explicit dry-run/apply semantics and does not use the UI checkbox gate

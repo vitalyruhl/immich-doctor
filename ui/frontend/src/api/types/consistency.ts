@@ -185,3 +185,152 @@ export interface MissingAssetRestorePointDeleteResponse {
   }>;
   metadata: Record<string, unknown>;
 }
+
+export type CatalogRemediationFindingKind =
+  | "broken_db_original"
+  | "zero_byte_file"
+  | "fuse_hidden_orphan";
+export type CatalogRemediationActionKind =
+  | "broken_db_cleanup"
+  | "broken_db_path_fix"
+  | "zero_byte_delete"
+  | "fuse_hidden_delete";
+export type BrokenDbOriginalClassification =
+  | "missing_confirmed"
+  | "found_elsewhere"
+  | "found_with_hash_match"
+  | "unresolved_search_error";
+export type ZeroByteClassification =
+  | "zero_byte_upload_orphan"
+  | "zero_byte_upload_critical"
+  | "zero_byte_video_derivative"
+  | "zero_byte_thumb_derivative"
+  | "ignore_internal";
+export type FuseHiddenOrphanClassification =
+  | "blocked_in_use"
+  | "deletable_orphan"
+  | "check_failed";
+export type CatalogRemediationOperationStatus =
+  | "planned"
+  | "applied"
+  | "skipped"
+  | "failed"
+  | "already_removed";
+
+export interface BrokenDbOriginalFinding {
+  finding_id: string;
+  kind: "broken_db_original";
+  asset_id: string;
+  asset_name: string | null;
+  asset_type: string | null;
+  expected_absolute_path: string | null;
+  expected_database_path: string;
+  expected_relative_path: string;
+  classification: BrokenDbOriginalClassification;
+  checksum_value: string | null;
+  checksum_algorithm: string | null;
+  checksum_match: boolean | null;
+  eligible_actions: CatalogRemediationActionKind[];
+  action_eligible: boolean;
+  action_reason: string;
+  found_root_slug: string | null;
+  found_relative_path: string | null;
+  found_absolute_path: string | null;
+  found_size_bytes: number | null;
+  expected_size_bytes: number | null;
+  search_error: string | null;
+  message: string;
+}
+
+export interface ZeroByteFinding {
+  finding_id: string;
+  kind: "zero_byte_file";
+  root_slug: string;
+  relative_path: string;
+  absolute_path: string;
+  file_name: string;
+  size_bytes: number;
+  classification: ZeroByteClassification;
+  asset_id: string | null;
+  asset_name: string | null;
+  original_relative_path: string | null;
+  eligible_actions: CatalogRemediationActionKind[];
+  action_eligible: boolean;
+  action_reason: string;
+  message: string;
+}
+
+export interface FuseHiddenOrphanFinding {
+  finding_id: string;
+  kind: "fuse_hidden_orphan";
+  root_slug: string;
+  relative_path: string;
+  absolute_path: string;
+  file_name: string;
+  size_bytes: number;
+  classification: FuseHiddenOrphanClassification;
+  eligible_actions: CatalogRemediationActionKind[];
+  action_eligible: boolean;
+  action_reason: string;
+  in_use_check_tool: string | null;
+  in_use_check_reason: string | null;
+  message: string;
+}
+
+export interface CatalogRemediationScanResponse {
+  domain: string;
+  action: string;
+  status: string;
+  summary: string;
+  generated_at: string;
+  checks: RuntimeCheckResult[];
+  broken_db_originals: BrokenDbOriginalFinding[];
+  zero_byte_findings: ZeroByteFinding[];
+  fuse_hidden_orphans: FuseHiddenOrphanFinding[];
+  metadata: Record<string, unknown>;
+  recommendations: string[];
+}
+
+export interface CatalogRemediationPreviewRequest {
+  asset_ids?: string[];
+  finding_ids?: string[];
+  select_all: boolean;
+}
+
+export interface CatalogRemediationPreviewResponse {
+  domain: string;
+  action: string;
+  status: string;
+  summary: string;
+  generated_at: string;
+  checks: RuntimeCheckResult[];
+  finding_kind: CatalogRemediationFindingKind;
+  action_kind: CatalogRemediationActionKind;
+  repair_run_id: string;
+  selected_items: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  recommendations: string[];
+}
+
+export interface CatalogRemediationApplyResponse {
+  domain: string;
+  action: string;
+  status: string;
+  summary: string;
+  generated_at: string;
+  checks: RuntimeCheckResult[];
+  finding_kind: CatalogRemediationFindingKind;
+  action_kind: CatalogRemediationActionKind;
+  repair_run_id: string;
+  items: Array<{
+    finding_id: string;
+    kind: CatalogRemediationFindingKind;
+    action_kind: CatalogRemediationActionKind;
+    target_id: string;
+    status: CatalogRemediationOperationStatus;
+    message: string;
+    details: Record<string, unknown>;
+  }>;
+  metadata: Record<string, unknown>;
+  recommendations: string[];
+}
