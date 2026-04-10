@@ -5,6 +5,7 @@ Keep documentation aligned with implemented system reality.
 Global rules (mandatory, canonical in `.github/AGENTS.md`):
 
 - For repository-changing docs work, apply `BRANCH FRESHNESS REQUIREMENT`
+- For repository-changing docs work, apply `PUBLICATION STATE REQUIREMENT`
 - Apply `BRANCH CONTINUATION GATE` before file-changing docs work
 - Apply `UNIFIED PRE-WORK BLOCKER` when docs workflow affects branch topology or overlap routing
 - Apply `CONSISTENCY AND COLLISION GUARD` before introducing/rewriting subsystem narratives
