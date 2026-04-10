@@ -199,7 +199,7 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     monkeypatch.setattr(
         consistency_routes.CatalogRemediationService,
         "scan",
-        lambda self, settings: _Result(
+        lambda self, settings, **kwargs: _Result(
             {
                 "domain": "consistency.catalog_remediation",
                 "action": "scan",
@@ -207,6 +207,9 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
                 "summary": "Catalog remediation findings loaded.",
                 "broken_db_originals": [
                     {"asset_id": "asset-1", "classification": "missing_confirmed"}
+                ],
+                "zero_byte_findings": [
+                    {"finding_id": "zero-1", "classification": "zero_byte_upload_orphan"}
                 ],
                 "fuse_hidden_orphans": [
                     {"finding_id": "fuse-1", "classification": "deletable_orphan"}
@@ -216,16 +219,49 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         consistency_routes.CatalogRemediationService,
-        "preview_broken_db_originals",
+        "preview_broken_db_cleanup",
         lambda self, settings, **kwargs: _Result(
             {
                 "domain": "consistency.catalog_remediation",
                 "action": "preview",
                 "status": "WARN",
                 "finding_kind": "broken_db_original",
+                "action_kind": "broken_db_cleanup",
                 "summary": "Preview selected 1 broken DB original.",
                 "repair_run_id": "repair-run-broken",
                 "selected_items": [{"asset_id": "asset-1"}],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "preview_broken_db_path_fix",
+        lambda self, settings, **kwargs: _Result(
+            {
+                "domain": "consistency.catalog_remediation",
+                "action": "preview",
+                "status": "WARN",
+                "finding_kind": "broken_db_original",
+                "action_kind": "broken_db_path_fix",
+                "summary": "Preview selected 1 path-fix item.",
+                "repair_run_id": "repair-run-fix",
+                "selected_items": [{"asset_id": "asset-2"}],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "preview_zero_byte_files",
+        lambda self, settings, **kwargs: _Result(
+            {
+                "domain": "consistency.catalog_remediation",
+                "action": "preview",
+                "status": "WARN",
+                "finding_kind": "zero_byte_file",
+                "action_kind": "zero_byte_delete",
+                "summary": "Preview selected 1 zero-byte item.",
+                "repair_run_id": "repair-run-zero",
+                "selected_items": [{"finding_id": "zero-1"}],
             }
         ),
     )
@@ -238,6 +274,7 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
                 "action": "preview",
                 "status": "WARN",
                 "finding_kind": "fuse_hidden_orphan",
+                "action_kind": "fuse_hidden_delete",
                 "summary": "Preview selected 1 fuse-hidden orphan.",
                 "repair_run_id": "repair-run-fuse",
                 "selected_items": [{"finding_id": "fuse-1"}],
@@ -253,6 +290,7 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
                 "action": "apply",
                 "status": "PASS",
                 "finding_kind": "fuse_hidden_orphan",
+                "action_kind": "fuse_hidden_delete",
                 "summary": "Applied 1 remediation item.",
                 "repair_run_id": "repair-run-fuse",
                 "items": [{"finding_id": "fuse-1", "status": "applied"}],
@@ -265,6 +303,14 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     broken_preview_response = client.post(
         "/api/consistency/catalog-remediation/broken-db-originals/preview",
         json={"asset_ids": ["asset-1"], "select_all": False},
+    )
+    path_fix_preview_response = client.post(
+        "/api/consistency/catalog-remediation/broken-db-originals/path-fix/preview",
+        json={"asset_ids": ["asset-2"], "select_all": False},
+    )
+    zero_byte_preview_response = client.post(
+        "/api/consistency/catalog-remediation/zero-byte-files/preview",
+        json={"finding_ids": ["zero-1"], "select_all": False},
     )
     fuse_preview_response = client.post(
         "/api/consistency/catalog-remediation/fuse-hidden-orphans/preview",
@@ -280,8 +326,16 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
         scan_response.json()["data"]["broken_db_originals"][0]["classification"]
         == "missing_confirmed"
     )
+    assert (
+        scan_response.json()["data"]["zero_byte_findings"][0]["classification"]
+        == "zero_byte_upload_orphan"
+    )
     assert broken_preview_response.status_code == 200
     assert broken_preview_response.json()["data"]["repair_run_id"] == "repair-run-broken"
+    assert path_fix_preview_response.status_code == 200
+    assert path_fix_preview_response.json()["data"]["action_kind"] == "broken_db_path_fix"
+    assert zero_byte_preview_response.status_code == 200
+    assert zero_byte_preview_response.json()["data"]["repair_run_id"] == "repair-run-zero"
     assert fuse_preview_response.status_code == 200
     assert fuse_preview_response.json()["data"]["repair_run_id"] == "repair-run-fuse"
     assert apply_response.status_code == 200

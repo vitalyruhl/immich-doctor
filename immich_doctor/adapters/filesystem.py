@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import os
 import shutil
 import stat
@@ -44,6 +45,22 @@ class FilesystemAdapter:
 
     def delete_file(self, path: Path) -> None:
         path.unlink()
+
+    def compute_file_checksum(
+        self,
+        path: Path,
+        *,
+        algorithm: str = "sha256",
+        chunk_size: int = 1024 * 1024,
+    ) -> str:
+        digest = hashlib.new(algorithm)
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(chunk_size)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def add_read_permissions(self, path: Path) -> None:
         current_mode = path.stat().st_mode

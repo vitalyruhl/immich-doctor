@@ -94,14 +94,31 @@ Broken DB originals:
 - classifications stay explicit:
   - `missing_confirmed`
   - `found_elsewhere`
+  - `found_with_hash_match`
   - `unresolved_search_error`
 - relocation search is read-only and uses the cached storage inventory
+- path-mismatch rows such as `/upload/upload/...` versus the configured uploads root may surface through the same review flow
 - `found_elsewhere` stays inspect-only by default:
   - no auto-delete
-  - no auto-rebind
+  - no auto-rebind without checksum-backed verification
   - expected path and found path must stay visible to the operator
 - only `missing_confirmed` is eligible for explicit DB cleanup preview/apply
+- only `found_with_hash_match` is eligible for explicit DB path-fix preview/apply
 - DB cleanup apply reuses the existing repair-run, journal, and restore-metadata foundation
+- DB path-fix apply updates `public.asset.originalPath` only and records old/new values in the repair journal with DB-value undo metadata
+
+Zero-byte files:
+
+- scope: cached zero-byte rows from `uploads`, `thumbs`, and `video`
+- classifications stay explicit:
+  - `zero_byte_upload_orphan`
+  - `zero_byte_upload_critical`
+  - `zero_byte_video_derivative`
+  - `zero_byte_thumb_derivative`
+- `.immich` stays ignored explicitly and must never appear as a repair candidate
+- `zero_byte_upload_critical` stays inspect-only because the DB still references the original upload
+- `zero_byte_upload_orphan`, `zero_byte_video_derivative`, and `zero_byte_thumb_derivative` are eligible for explicit delete preview/apply
+- deleting a zero-byte derivative is not an automatic regenerate step; it only removes the broken artifact so later operator-led regeneration stays possible
 
 `.fuse_hidden*` storage orphans:
 
@@ -119,7 +136,7 @@ Shared remediation rules:
 
 - preview and apply remain separate
 - selection may target a single row, selected rows, or all eligible rows in one class
-- DB cleanup and `.fuse_hidden*` deletion stay separate flows and must not be mixed in one ambiguous handler
+- DB cleanup, DB path-fix, zero-byte deletion, and `.fuse_hidden*` deletion stay separate flows and must not be mixed in one ambiguous handler
 - scan time remains non-destructive
 
 CLI and UI:

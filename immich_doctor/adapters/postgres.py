@@ -355,21 +355,48 @@ class PostgresAdapter:
         dsn: str,
         timeout_seconds: int,
     ) -> list[dict[str, object]]:
+        asset_columns = {
+            str(row["column_name"])
+            for row in self.list_columns(
+                dsn,
+                timeout_seconds,
+                table_schema="public",
+                table_name="asset",
+            )
+        }
+        optional_columns = [
+            column
+            for column in ("checksum", "originalChecksum", "checksumAlgorithm")
+            if column in asset_columns
+        ]
+        select_columns: list[sql.Composable] = [
+            sql.SQL("id"),
+            sql.SQL("type"),
+            sql.SQL('"ownerId" AS "ownerId"'),
+            sql.SQL('"createdAt" AS "createdAt"'),
+            sql.SQL('"updatedAt" AS "updatedAt"'),
+            sql.SQL('"originalFileName" AS "originalFileName"'),
+            sql.SQL('"originalPath" AS "originalPath"'),
+            sql.SQL('"encodedVideoPath" AS "encodedVideoPath"'),
+        ]
+        for column in optional_columns:
+            select_columns.append(
+                sql.SQL("{column} AS {alias}").format(
+                    column=sql.Identifier(column),
+                    alias=sql.Identifier(column),
+                )
+            )
         query = sql.SQL(
             """
             SELECT
-                id,
-                type,
-                "ownerId" AS "ownerId",
-                "createdAt" AS "createdAt",
-                "updatedAt" AS "updatedAt",
-                "originalFileName" AS "originalFileName",
-                "originalPath" AS "originalPath",
-                "encodedVideoPath" AS "encodedVideoPath"
+                {select_columns}
             FROM {asset_table}
             ORDER BY id ASC;
             """
-        ).format(asset_table=sql.Identifier("public", "asset"))
+        ).format(
+            select_columns=sql.SQL(", ").join(select_columns),
+            asset_table=sql.Identifier("public", "asset"),
+        )
         return fetch_all_composed(dsn, timeout_seconds, query)
 
     def list_all_asset_files_for_catalog_consistency(
@@ -752,3 +779,43 @@ class PostgresAdapter:
         if not rows:
             return 0
         return int(rows[0]["deleted_count"])
+
+    def update_asset_original_path(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        *,
+        asset_id: str,
+        new_original_path: str,
+    ) -> dict[str, object]:
+        query = sql.SQL(
+            """
+            WITH previous AS (
+                SELECT id, "originalPath" AS "oldOriginalPath"
+                FROM {asset_table}
+                WHERE id = %s
+            ),
+            updated AS (
+                UPDATE {asset_table}
+                SET "originalPath" = %s
+                WHERE id = %s
+                RETURNING id, "originalPath" AS "newOriginalPath"
+            )
+            SELECT
+                updated.id,
+                previous."oldOriginalPath",
+                updated."newOriginalPath"
+            FROM updated
+            JOIN previous
+              ON previous.id = updated.id;
+            """
+        ).format(asset_table=sql.Identifier("public", "asset"))
+        rows = execute_returning_all_composed(
+            dsn,
+            timeout_seconds,
+            query,
+            (asset_id, new_original_path, asset_id),
+        )
+        if not rows:
+            raise ValueError("Asset originalPath update returned no rows.")
+        return dict(rows[0])

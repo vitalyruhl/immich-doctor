@@ -129,7 +129,7 @@ for cached storage-vs-DB mismatch classes.
 
 Canonical behavior:
 
-- render broken DB originals and `.fuse_hidden*` storage orphans as separate sections
+- render broken DB originals, zero-byte files, and `.fuse_hidden*` storage orphans as separate sections
 - keep checkbox selection explicit per section
 - support single-item, selected-items, and all-eligible preview flows
 - keep preview separate from apply
@@ -138,10 +138,20 @@ Canonical behavior:
 
 Broken DB original rules:
 
-- show `missing_confirmed`, `found_elsewhere`, and `unresolved_search_error` as distinct badges
+- show `missing_confirmed`, `found_elsewhere`, `found_with_hash_match`, and `unresolved_search_error` as distinct badges
 - show expected DB path and found path for `found_elsewhere`
 - explain that `found_elsewhere` is not auto-deleted because the file may still exist elsewhere
+- show checksum-verification state for path-mismatch candidates when available
 - expose destructive cleanup only for `missing_confirmed`
+- expose explicit DB path-fix only for `found_with_hash_match`
+
+Zero-byte rules:
+
+- `.immich` must not be rendered as a remediation candidate
+- show `zero_byte_upload_orphan`, `zero_byte_upload_critical`, `zero_byte_video_derivative`, and `zero_byte_thumb_derivative` as distinct badges
+- explain that `zero_byte_upload_critical` is still referenced as an original and therefore not deletable by default
+- expose explicit delete apply only for orphan or derivative classes
+- make clear that derivative deletion is a cleanup step, not an implicit regenerate step
 
 `.fuse_hidden*` orphan rules:
 
