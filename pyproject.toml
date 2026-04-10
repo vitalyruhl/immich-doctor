@@ -51,8 +51,8 @@ indent-style = "space"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.0,<10.0.0",
-    "ruff>=0.15.0,<0.16.0",
+    "pytest>=9.0.3,<10.0.0",
+    "ruff>=0.15.10,<0.16.0",
     "httpx>=0.28.1",
     "pre-commit>=4.5.0,<5.0.0",
 ]
