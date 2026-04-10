@@ -1,8 +1,20 @@
 # immich-doctor
 
-`immich-doctor` is a modular maintenance and repair toolkit for Immich installations.
-The project starts as a safe, CLI-first validation tool and is intentionally designed
-so that a later API or Web UI can orchestrate the same underlying services.
+`immich-doctor` is a maintenance, validation, and repair toolkit for Immich installations.
+The project started as a safe CLI-first tool and now also exposes a FastAPI backend plus
+a Vue-based operator UI on top of the same service layer.
+
+Current release target: `v0.2.0`
+
+## UI snapshot
+
+The UI is already usable for dashboard, storage, database, backup, reports, settings,
+and snapshot-based consistency review.
+
+<p>
+  <img src="docs/screenshots/dashboard.jpg" alt="Dashboard screenshot" width="48%" />
+  <img src="docs/screenshots/consistancy-gui.jpg" alt="Consistency screenshot" width="48%" />
+</p>
 
 ## Why this project exists
 
@@ -20,11 +32,12 @@ logic into one-off CLI scripts.
 
 ## Current status
 
-Project phase: validation + backup snapshot foundation + repair safety foundation + GUI safety visibility + minimal restore/undo orchestration
+Project phase: validation + catalog-backed consistency review + backup execution foundation + repair safety foundation + GUI operator workflow
 
 Current MVP scope:
 
 - safe hierarchical CLI commands only
+- FastAPI + Vue operator UI served from the same runtime image
 - configuration loading from environment or `.env`
 - runtime environment validation
 - physical source and derivative file integrity inspection
@@ -51,6 +64,9 @@ Current MVP scope:
 - database index inspection
 - persistent file catalog foundation with SQLite-backed inventory snapshots
 - category-based consistency validation and repair for the supported current PostgreSQL schema
+- cached catalog-backed consistency snapshots in the UI with explicit remediation grouping
+- explicit UI visibility for broken DB originals, storage orphans, zero-byte files, and `.fuse_hidden*` artifacts
+- operator-staged consistency actions in the UI with type-aware row actions and safe bulk selection
 - remote-sync diagnostics with server-side PostgreSQL album/asset link checks
 - validation of required external tools when configured
 - structured text or JSON reports
@@ -67,6 +83,8 @@ Not in scope yet:
 - no automated retention deletion
 - no broad full restore execution yet
 - no backup-all orchestration
+- no automatic destructive remediation
+- no automatic DB path relink
 
 ## Safety warning
 
@@ -150,16 +168,20 @@ The repository is split into clear layers:
 - `immich_doctor.reports`: structured report output
 - `immich_doctor.api`: reserved boundary for future API endpoints
 
-This keeps the CLI as the first interface while ensuring later API or Web UI
-implementations can call the same services without duplicating logic.
+This keeps the CLI as a stable interface while ensuring the API and Web UI call
+the same services without duplicating logic.
 
-The first backend-to-UI integration is now available through:
+Current backend-to-UI entry points include:
 
 ```text
 GET /api/health/overview
+GET /api/catalog/status
+GET /api/catalog/scan-job
+GET /api/consistency/catalog-remediation/findings
 ```
 
-It powers the dashboard health cards with conservative backend-derived states.
+They power the dashboard, storage/database visibility, and the consistency workflow
+with conservative backend-derived states.
 
 ## Quick start
 
@@ -228,6 +250,19 @@ API example:
 http://<host>:8000/api/health/overview
 ```
 
+Useful UI routes:
+
+```text
+/dashboard
+/runtime
+/consistency
+/database
+/storage
+/backup
+/reports
+/settings
+```
+
 Default text output is concise for interactive terminal use.
 Use `--verbose` to show full diagnostic details.
 
@@ -244,6 +279,14 @@ Implemented now:
 - runtime file integrity checks for missing, empty, unreadable, truncated,
   corrupted, container-broken, type-mismatched, and unknown-problem files in
   the supported schema
+- catalog-backed consistency review in the UI with cached snapshot loading
+  instead of implicit recomputation on every page reload
+- consistency remediation grouping for:
+  - DB originals missing in storage
+  - storage originals missing in DB
+  - zero-byte files
+  - `.fuse_hidden*` orphan artifacts
+- non-destructive, type-aware UI actions with blocked states shown explicitly
 - metadata extraction diagnostics that classify per-asset root cause after file
   integrity inspection
 - DB index inspection with compact default output and verbose details
@@ -321,6 +364,8 @@ The GUI now exposes real safety context before broader repair rollout:
   - `Start Files-Only Backup`
   - `Create Files-Only Pre-Repair Snapshot`
 - quarantine foundation visibility without pretending move/restore is already implemented
+- database overview, storage overview, and catalog state cards with cached-data-first
+  rendering so transient request timeouts do not replace already loaded state
 
 Undo visibility now exists in the GUI through persisted journal data. Automated
 undo and restore orchestration are still not implemented.
