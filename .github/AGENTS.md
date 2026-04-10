@@ -83,6 +83,7 @@ Global rules:
   - ask only when branch naming or scope is genuinely ambiguous
 - Never push directly to `main`
 - Never leave write tasks with unstaged or uncommitted changes unless the user explicitly asked for a dirty working tree
+- unless the user explicitly requests `stay uncommitted` or equivalent wording, end file-changing work with a checkpoint or other honest commit on the current non-main branch
 - Always report which branch was used for the work
 
 Delegation rules:
