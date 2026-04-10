@@ -122,6 +122,35 @@ Recovery limits shown in UI:
 - unsupported schema mappings remain blocked and must be reported clearly
 - already removed rows should be shown as such instead of being hidden
 
+## Catalog-backed remediation UI
+
+The catalog-backed consistency page now also exposes explicit remediation review
+for cached storage-vs-DB mismatch classes.
+
+Canonical behavior:
+
+- render broken DB originals and `.fuse_hidden*` storage orphans as separate sections
+- keep checkbox selection explicit per section
+- support single-item, selected-items, and all-eligible preview flows
+- keep preview separate from apply
+- only enable apply after preview plus explicit confirmation checkboxes
+- keep item typing explicit in the UI state and API payloads
+
+Broken DB original rules:
+
+- show `missing_confirmed`, `found_elsewhere`, and `unresolved_search_error` as distinct badges
+- show expected DB path and found path for `found_elsewhere`
+- explain that `found_elsewhere` is not auto-deleted because the file may still exist elsewhere
+- expose destructive cleanup only for `missing_confirmed`
+
+`.fuse_hidden*` orphan rules:
+
+- `.immich` must not be rendered as a repair candidate
+- show `blocked_in_use`, `deletable_orphan`, and `check_failed` as distinct badges
+- explain that `blocked_in_use` cannot be removed safely yet
+- expose delete apply only for `deletable_orphan`
+- if the in-use check is unavailable, surface the backend reason instead of faking readiness
+
 ## Backup contract
 
 The backup UI must treat backend state as the source of truth for:

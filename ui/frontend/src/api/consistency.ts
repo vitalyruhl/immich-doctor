@@ -2,6 +2,10 @@ import { request } from "./client";
 import type { ApiResponse } from "./types/common";
 import type { CatalogJobRequest, CatalogWorkflowJobRecord } from "./types/catalog";
 import type {
+  CatalogRemediationApplyResponse,
+  CatalogRemediationPreviewRequest,
+  CatalogRemediationPreviewResponse,
+  CatalogRemediationScanResponse,
   MissingAssetApplyRequest,
   MissingAssetApplyResponse,
   MissingAssetPreviewRequest,
@@ -80,6 +84,45 @@ export async function fetchCatalogConsistencyJob(): Promise<
   ApiResponse<CatalogWorkflowJobRecord>
 > {
   return request<CatalogWorkflowJobRecord>("/consistency/catalog");
+}
+
+export async function fetchCatalogRemediationFindings(): Promise<
+  ApiResponse<CatalogRemediationScanResponse>
+> {
+  return request<CatalogRemediationScanResponse>("/consistency/catalog-remediation/findings");
+}
+
+export async function previewBrokenDbOriginalRemediation(
+  payload: CatalogRemediationPreviewRequest,
+): Promise<ApiResponse<CatalogRemediationPreviewResponse>> {
+  return request<CatalogRemediationPreviewResponse>(
+    "/consistency/catalog-remediation/broken-db-originals/preview",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function previewFuseHiddenRemediation(
+  payload: CatalogRemediationPreviewRequest,
+): Promise<ApiResponse<CatalogRemediationPreviewResponse>> {
+  return request<CatalogRemediationPreviewResponse>(
+    "/consistency/catalog-remediation/fuse-hidden-orphans/preview",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function applyCatalogRemediation(
+  repairRunId: string,
+): Promise<ApiResponse<CatalogRemediationApplyResponse>> {
+  return request<CatalogRemediationApplyResponse>("/consistency/catalog-remediation/apply", {
+    method: "POST",
+    body: JSON.stringify({ repair_run_id: repairRunId }),
+  });
 }
 
 export async function startCatalogConsistencyJob(

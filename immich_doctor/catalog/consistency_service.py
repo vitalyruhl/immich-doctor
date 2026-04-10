@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from immich_doctor.adapters.postgres import PostgresAdapter
-from immich_doctor.catalog.service import CatalogRootRegistry
-from immich_doctor.catalog.store import CatalogStore
+from immich_doctor.catalog.consistency_state import (
+    DB_MISSING_SECTION,
+    ORPHAN_SECTION,
+    STORAGE_MISSING_SECTION,
+    UNMAPPED_SECTION,
+    ZERO_BYTE_SECTION,
+    CatalogConsistencyStateCollector,
+)
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import (
     CheckResult,
@@ -14,22 +19,8 @@ from immich_doctor.core.models import (
     ValidationReport,
     ValidationSection,
 )
-from immich_doctor.storage.path_mapping import ImmichStoragePathResolver
 
-_ZERO_BYTE_SECTION = "ZERO_BYTE_FILES"
-_DB_MISSING_SECTION = "DB_ORIGINALS_MISSING_ON_STORAGE"
-_STORAGE_MISSING_SECTION = "STORAGE_ORIGINALS_MISSING_IN_DB"
-_ORPHAN_SECTION = "ORPHAN_DERIVATIVES_WITHOUT_ORIGINAL"
-_UNMAPPED_SECTION = "UNMAPPED_DATABASE_PATHS"
-_SOURCE_ROOT_SLUG = "uploads"
-_DERIVATIVE_ROOT_SLUGS = {"thumbs", "profile", "video"}
-_SIDECAR_EXTENSION = ".xmp"
 _DEFAULT_SAMPLE_LIMIT = 200
-
-
-def _truthy_path(value: object) -> str | None:
-    text = str(value or "").strip()
-    return text or None
 
 
 def _section_status(rows: list[dict[str, object]]) -> CheckStatus:
@@ -38,8 +29,6 @@ def _section_status(rows: list[dict[str, object]]) -> CheckStatus:
 
 @dataclass(slots=True)
 class CatalogConsistencyValidationService:
-    store: CatalogStore = field(default_factory=CatalogStore)
-    registry: CatalogRootRegistry = field(default_factory=CatalogRootRegistry)
     postgres: PostgresAdapter = field(default_factory=PostgresAdapter)
     sample_limit: int = _DEFAULT_SAMPLE_LIMIT
 
@@ -49,55 +38,10 @@ class CatalogConsistencyValidationService:
         *,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> ValidationReport:
-        synced_roots = self.registry.sync(settings)
-        effective_root_slugs = [root.slug for root in self.registry.scan_roots(settings)]
-        latest_snapshots = self.store.list_latest_snapshots(settings)
-        snapshot_by_slug = {
-            str(row["root_slug"]): row
-            for row in latest_snapshots
-            if row.get("snapshot_id") is not None and bool(row.get("snapshot_current"))
-        }
-        stale_root_slugs = sorted(
-            [
-                str(row["root_slug"])
-                for row in latest_snapshots
-                if row.get("snapshot_id") is not None
-                and not bool(row.get("snapshot_current"))
-                and str(row["root_slug"]) in effective_root_slugs
-            ]
-        )
-        missing_root_slugs = [
-            slug
-            for slug in effective_root_slugs
-            if slug not in snapshot_by_slug and slug not in stale_root_slugs
-        ]
-        checks = [
-            CheckResult(
-                name="catalog_configured_roots",
-                status=CheckStatus.PASS if synced_roots else CheckStatus.FAIL,
-                message=(
-                    f"Found {len(synced_roots)} configured catalog roots."
-                    if synced_roots
-                    else "No catalog roots are configured."
-                ),
-            )
-        ]
-        if missing_root_slugs or stale_root_slugs:
-            checks.append(
-                CheckResult(
-                    name="catalog_current_snapshots",
-                    status=CheckStatus.FAIL,
-                    message=(
-                        "Current committed catalog snapshots are not available for every "
-                        "effective storage root. Run a catalog scan first."
-                    ),
-                    details={
-                        "effective_root_slugs": effective_root_slugs,
-                        "missing_root_slugs": missing_root_slugs,
-                        "stale_root_slugs": stale_root_slugs,
-                    },
-                )
-            )
+        collector = CatalogConsistencyStateCollector(postgres=self.postgres)
+        snapshot_state = collector.prepare_snapshot_state(settings)
+        checks = list(snapshot_state.checks)
+        if not snapshot_state.ready:
             return ValidationReport(
                 domain="consistency.catalog",
                 action="validate",
@@ -105,13 +49,7 @@ class CatalogConsistencyValidationService:
                     "Catalog-backed consistency is waiting for a current committed storage index."
                 ),
                 checks=checks,
-                metadata={
-                    "configuredRoots": effective_root_slugs,
-                    "latestSnapshots": latest_snapshots,
-                    "staleRootSlugs": stale_root_slugs,
-                    "missingRootSlugs": missing_root_slugs,
-                    "requiresCurrentScan": True,
-                },
+                metadata=snapshot_state.metadata,
                 recommendations=[
                     "Run a catalog scan from the Storage page before starting the "
                     "consistency validation.",
@@ -120,26 +58,25 @@ class CatalogConsistencyValidationService:
 
         dsn = settings.postgres_dsn_value()
         if not dsn:
-            checks.append(
-                CheckResult(
-                    name="postgres_connection",
-                    status=CheckStatus.FAIL,
-                    message="Database DSN is not configured.",
-                )
-            )
             return ValidationReport(
                 domain="consistency.catalog",
                 action="validate",
                 summary=(
                     "Catalog-backed consistency failed because database access is not configured."
                 ),
-                checks=checks,
-                metadata={"latestSnapshots": latest_snapshots},
+                checks=[
+                    *checks,
+                    CheckResult(
+                        name="postgres_connection",
+                        status=CheckStatus.FAIL,
+                        message="Database DSN is not configured.",
+                    ),
+                ],
+                metadata={"latestSnapshots": snapshot_state.latest_snapshots},
             )
 
         timeout = settings.postgres_connect_timeout_seconds
         connection_check = self.postgres.validate_connection(dsn, timeout)
-        checks.append(connection_check)
         if connection_check.status == CheckStatus.FAIL:
             return ValidationReport(
                 domain="consistency.catalog",
@@ -147,327 +84,91 @@ class CatalogConsistencyValidationService:
                 summary=(
                     "Catalog-backed consistency failed because PostgreSQL could not be reached."
                 ),
-                checks=checks,
-                metadata={"latestSnapshots": latest_snapshots},
+                checks=[*checks, connection_check],
+                metadata={"latestSnapshots": snapshot_state.latest_snapshots},
             )
 
-        resolver = ImmichStoragePathResolver(settings)
-        zero_byte_rows = self.store.list_zero_byte_files(settings, limit=self.sample_limit)
-        latest_files = self.store.list_latest_snapshot_files(settings)
-        files_by_root: dict[str, list[dict[str, object]]] = defaultdict(list)
-        for row in latest_files:
-            files_by_root[str(row["root_slug"])].append(row)
-
-        uploads_rows = files_by_root.get(_SOURCE_ROOT_SLUG, [])
-        uploads_index = {str(row["relative_path"]) for row in uploads_rows}
-        source_only_rows = [row for row in uploads_rows if self._is_original_candidate(row)]
-        derivative_indexes = {
-            slug: {str(row["relative_path"]) for row in rows}
-            for slug, rows in files_by_root.items()
-            if slug in _DERIVATIVE_ROOT_SLUGS or slug == _SOURCE_ROOT_SLUG
-        }
-
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "phase": "catalog",
-                    "current": 1,
-                    "total": 4,
-                    "percent": 25.0,
-                    "message": "Loaded persisted catalog snapshots.",
-                    "filesIndexed": len(latest_files),
-                }
-            )
-
-        asset_rows = self.postgres.list_all_assets_for_catalog_consistency(dsn, timeout)
-        asset_file_rows = self.postgres.list_all_asset_files_for_catalog_consistency(
-            dsn,
-            timeout,
-        )
-
-        db_missing_rows: list[dict[str, object]] = []
-        storage_missing_rows: list[dict[str, object]] = []
-        orphan_rows: list[dict[str, object]] = []
-        unmapped_rows: list[dict[str, object]] = []
-        db_original_index: set[str] = set()
-        original_by_asset: dict[str, str] = {}
-        derivative_rows_by_asset: dict[str, list[dict[str, object]]] = defaultdict(list)
-
-        for row in asset_file_rows:
-            derivative_rows_by_asset[str(row["assetId"])].append(row)
-
-        for index, asset in enumerate(asset_rows, start=1):
-            asset_id = str(asset["id"])
-            original_path = _truthy_path(asset.get("originalPath"))
-            if not original_path:
-                continue
-            asset_name = _truthy_path(asset.get("originalFileName"))
-
-            resolved_original = resolver.resolve(original_path)
-            if resolved_original is None:
-                unmapped_rows.append(
-                    {
-                        "asset_id": asset_id,
-                        "asset_name": asset_name,
-                        "path_kind": "original",
-                        "database_path": original_path,
-                        "mapping_status": (
-                            "legacy_path_unmapped"
-                            if resolver.looks_like_legacy_immich_path(original_path)
-                            else "unrecognized_path"
-                        ),
-                    }
-                )
-                continue
-
-            if resolved_original.root_slug != _SOURCE_ROOT_SLUG:
-                unmapped_rows.append(
-                    {
-                        "asset_id": asset_id,
-                        "asset_name": asset_name,
-                        "path_kind": "original",
-                        "database_path": original_path,
-                        "mapping_status": "unexpected_root",
-                        "resolved_root": resolved_original.root_slug,
-                        "mapping_mode": resolved_original.mapping_mode,
-                    }
-                )
-                continue
-
-            db_original_index.add(resolved_original.relative_path)
-            original_by_asset[asset_id] = resolved_original.relative_path
-            if resolved_original.relative_path not in uploads_index:
-                db_missing_rows.append(
-                    {
-                        "asset_id": asset_id,
-                        "asset_name": asset_name,
-                        "asset_type": asset.get("type"),
-                        "database_path": original_path,
-                        "resolved_root": resolved_original.root_slug,
-                        "relative_path": resolved_original.relative_path,
-                        "mapping_mode": resolved_original.mapping_mode,
-                    }
-                )
-
-            if progress_callback is not None and index % 2500 == 0:
-                progress_callback(
-                    {
-                        "phase": "database-originals",
-                        "current": index,
-                        "total": len(asset_rows),
-                        "percent": round(25 + (index / max(len(asset_rows), 1)) * 25, 2),
-                        "message": ("Compared DB original paths against the cached uploads index."),
-                        "dbMissingCount": len(db_missing_rows),
-                        "unmappedCount": len(unmapped_rows),
-                    }
-                )
-
-        for row in source_only_rows:
-            relative_path = str(row["relative_path"])
-            if relative_path in db_original_index:
-                continue
-            storage_missing_rows.append(
-                {
-                    "root_slug": row["root_slug"],
-                    "relative_path": relative_path,
-                    "file_name": row["file_name"],
-                    "size_bytes": row["size_bytes"],
-                    "snapshot_id": row["snapshot_id"],
-                    "generation": row["generation"],
-                }
-            )
-
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "phase": "storage-originals",
-                    "current": len(source_only_rows),
-                    "total": len(source_only_rows),
-                    "percent": 75.0,
-                    "message": ("Compared cached storage originals against DB original paths."),
-                    "storageMissingCount": len(storage_missing_rows),
-                }
-            )
-
-        orphan_keys: set[tuple[str, str, str]] = set()
-        for asset in asset_rows:
-            asset_id = str(asset["id"])
-            original_relative_path = original_by_asset.get(asset_id)
-            if original_relative_path is None or original_relative_path in uploads_index:
-                continue
-
-            encoded_video_path = _truthy_path(asset.get("encodedVideoPath"))
-            if encoded_video_path:
-                self._append_orphan_row(
-                    orphan_rows,
-                    orphan_keys,
-                    asset_id=asset_id,
-                    derivative_type="encoded_video",
-                    resolver=resolver,
-                    path_text=encoded_video_path,
-                    derivative_indexes=derivative_indexes,
-                    original_relative_path=original_relative_path,
-                )
-
-            for derivative in derivative_rows_by_asset.get(asset_id, []):
-                self._append_orphan_row(
-                    orphan_rows,
-                    orphan_keys,
-                    asset_id=asset_id,
-                    derivative_type=str(derivative["type"]),
-                    resolver=resolver,
-                    path_text=str(derivative["path"]),
-                    derivative_indexes=derivative_indexes,
-                    original_relative_path=original_relative_path,
-                )
-
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "phase": "orphans",
-                    "current": len(orphan_rows),
-                    "total": len(orphan_rows),
-                    "percent": 100.0,
-                    "message": (
-                        "Derived orphan derivative findings from the cached catalog and DB graph."
-                    ),
-                    "orphanCount": len(orphan_rows),
-                }
-            )
-
-        derivative_snapshot_coverage = sorted(
-            slug
-            for slug in snapshot_by_slug
-            if slug in _DERIVATIVE_ROOT_SLUGS or slug == _SOURCE_ROOT_SLUG
-        )
-        checks.append(
-            CheckResult(
-                name="catalog_snapshot_coverage",
-                status=CheckStatus.PASS if derivative_snapshot_coverage else CheckStatus.WARN,
-                message=(
-                    "Committed catalog snapshots are available for the required storage roots."
-                    if derivative_snapshot_coverage
-                    else "Only a partial set of catalog snapshots is available."
-                ),
-                details={"roots": derivative_snapshot_coverage},
-            )
-        )
-        checks.append(
-            CheckResult(
-                name="catalog_path_mapping",
-                status=CheckStatus.WARN if unmapped_rows else CheckStatus.PASS,
-                message=(
-                    (
-                        f"{len(unmapped_rows)} database paths could not be "
-                        "mapped into configured runtime roots."
-                    )
-                    if unmapped_rows
-                    else "Database paths mapped cleanly into configured runtime roots."
-                ),
-            )
-        )
-
-        sampled_db_missing = db_missing_rows[: self.sample_limit]
-        sampled_storage_missing = storage_missing_rows[: self.sample_limit]
-        sampled_orphans = orphan_rows[: self.sample_limit]
-        sampled_unmapped = unmapped_rows[: self.sample_limit]
+        state = collector.collect(settings, progress_callback=progress_callback)
+        sampled_db_missing = state.db_missing_rows[: self.sample_limit]
+        sampled_storage_missing = state.storage_missing_rows[: self.sample_limit]
+        sampled_orphans = state.orphan_rows[: self.sample_limit]
+        sampled_unmapped = state.unmapped_rows[: self.sample_limit]
 
         summary = (
             "Catalog-backed consistency compared the cached storage inventory "
             "against the live database: "
-            f"{len(db_missing_rows)} DB originals not found in the current storage snapshot, "
-            f"{len(storage_missing_rows)} storage originals missing in DB, "
-            f"{len(orphan_rows)} orphan derivatives, and "
-            f"{len(zero_byte_rows)} zero-byte findings."
-        )
-
-        snapshot_basis = [
-            {
-                "rootSlug": str(row["root_slug"]),
-                "snapshotId": row["snapshot_id"],
-                "generation": row["generation"],
-                "committedAt": row["committed_at"],
-                "absolutePath": row["absolute_path"],
-            }
-            for row in latest_snapshots
-            if row.get("snapshot_id") is not None
-            and bool(row.get("snapshot_current"))
-            and str(row["root_slug"]) in effective_root_slugs
-        ]
-        latest_scan_committed_at = max(
-            (
-                str(row["committed_at"])
-                for row in latest_snapshots
-                if row.get("committed_at")
-                and bool(row.get("snapshot_current"))
-                and str(row["root_slug"]) in effective_root_slugs
-            ),
-            default=None,
+            f"{len(state.db_missing_rows)} DB originals not found in the current storage snapshot, "
+            f"{len(state.storage_missing_rows)} storage originals missing in DB, "
+            f"{len(state.orphan_rows)} orphan derivatives, and "
+            f"{len(state.zero_byte_rows)} zero-byte findings."
         )
 
         return ValidationReport(
             domain="consistency.catalog",
             action="validate",
             summary=summary,
-            checks=checks,
+            checks=state.checks,
             sections=[
                 ValidationSection(
-                    name=_DB_MISSING_SECTION,
-                    status=_section_status(db_missing_rows),
+                    name=DB_MISSING_SECTION,
+                    status=_section_status(state.db_missing_rows),
                     rows=sampled_db_missing,
                 ),
                 ValidationSection(
-                    name=_STORAGE_MISSING_SECTION,
-                    status=_section_status(storage_missing_rows),
+                    name=STORAGE_MISSING_SECTION,
+                    status=_section_status(state.storage_missing_rows),
                     rows=sampled_storage_missing,
                 ),
                 ValidationSection(
-                    name=_ORPHAN_SECTION,
-                    status=_section_status(orphan_rows),
+                    name=ORPHAN_SECTION,
+                    status=_section_status(state.orphan_rows),
                     rows=sampled_orphans,
                 ),
                 ValidationSection(
-                    name=_ZERO_BYTE_SECTION,
-                    status=_section_status(zero_byte_rows[: self.sample_limit]),
-                    rows=zero_byte_rows[: self.sample_limit],
+                    name=ZERO_BYTE_SECTION,
+                    status=_section_status(state.zero_byte_rows[: self.sample_limit]),
+                    rows=state.zero_byte_rows[: self.sample_limit],
                 ),
                 ValidationSection(
-                    name=_UNMAPPED_SECTION,
-                    status=CheckStatus.WARN if unmapped_rows else CheckStatus.PASS,
+                    name=UNMAPPED_SECTION,
+                    status=CheckStatus.WARN if state.unmapped_rows else CheckStatus.PASS,
                     rows=sampled_unmapped,
                 ),
             ],
             metrics=[
-                {"name": "db_originals_missing_on_storage", "value": len(db_missing_rows)},
+                {
+                    "name": "db_originals_missing_on_storage",
+                    "value": len(state.db_missing_rows),
+                },
                 {
                     "name": "storage_originals_missing_in_db",
-                    "value": len(storage_missing_rows),
+                    "value": len(state.storage_missing_rows),
                 },
                 {
                     "name": "orphan_derivatives_without_original",
-                    "value": len(orphan_rows),
+                    "value": len(state.orphan_rows),
                 },
-                {"name": "zero_byte_files", "value": len(zero_byte_rows)},
-                {"name": "unmapped_database_paths", "value": len(unmapped_rows)},
+                {"name": "zero_byte_files", "value": len(state.zero_byte_rows)},
+                {"name": "unmapped_database_paths", "value": len(state.unmapped_rows)},
             ],
             metadata={
-                "configuredRoots": [row["slug"] for row in synced_roots],
-                "latestSnapshots": latest_snapshots,
-                "snapshotBasis": snapshot_basis,
-                "latestScanCommittedAt": latest_scan_committed_at,
+                "configuredRoots": state.configured_root_slugs,
+                "latestSnapshots": state.latest_snapshots,
+                "snapshotBasis": state.snapshot_basis,
+                "latestScanCommittedAt": state.latest_scan_committed_at,
                 "sampleLimit": self.sample_limit,
                 "totals": {
-                    "dbOriginalsMissingOnStorage": len(db_missing_rows),
-                    "storageOriginalsMissingInDb": len(storage_missing_rows),
-                    "orphanDerivativesWithoutOriginal": len(orphan_rows),
-                    "zeroByteFiles": len(zero_byte_rows),
-                    "unmappedDatabasePaths": len(unmapped_rows),
+                    "dbOriginalsMissingOnStorage": len(state.db_missing_rows),
+                    "storageOriginalsMissingInDb": len(state.storage_missing_rows),
+                    "orphanDerivativesWithoutOriginal": len(state.orphan_rows),
+                    "zeroByteFiles": len(state.zero_byte_rows),
+                    "unmappedDatabasePaths": len(state.unmapped_rows),
                 },
                 "truncated": {
-                    _DB_MISSING_SECTION: len(db_missing_rows) > self.sample_limit,
-                    _STORAGE_MISSING_SECTION: len(storage_missing_rows) > self.sample_limit,
-                    _ORPHAN_SECTION: len(orphan_rows) > self.sample_limit,
-                    _UNMAPPED_SECTION: len(unmapped_rows) > self.sample_limit,
+                    DB_MISSING_SECTION: len(state.db_missing_rows) > self.sample_limit,
+                    STORAGE_MISSING_SECTION: len(state.storage_missing_rows) > self.sample_limit,
+                    ORPHAN_SECTION: len(state.orphan_rows) > self.sample_limit,
+                    UNMAPPED_SECTION: len(state.unmapped_rows) > self.sample_limit,
                 },
             },
             recommendations=[
@@ -475,43 +176,4 @@ class CatalogConsistencyValidationService:
                 "Use the catalog-backed counts as cached storage truth before "
                 "starting any destructive workflow.",
             ],
-        )
-
-    def _is_original_candidate(self, row: dict[str, object]) -> bool:
-        extension = str(row.get("extension") or "").lower()
-        relative_path = str(row.get("relative_path") or "")
-        if extension == _SIDECAR_EXTENSION:
-            return False
-        return not relative_path.endswith(_SIDECAR_EXTENSION)
-
-    def _append_orphan_row(
-        self,
-        orphan_rows: list[dict[str, object]],
-        orphan_keys: set[tuple[str, str, str]],
-        *,
-        asset_id: str,
-        derivative_type: str,
-        resolver: ImmichStoragePathResolver,
-        path_text: str,
-        derivative_indexes: dict[str, set[str]],
-        original_relative_path: str,
-    ) -> None:
-        resolved = resolver.resolve(path_text)
-        if resolved is None:
-            return
-        if resolved.relative_path not in derivative_indexes.get(resolved.root_slug, set()):
-            return
-        key = (asset_id, derivative_type, resolved.relative_path)
-        if key in orphan_keys:
-            return
-        orphan_keys.add(key)
-        orphan_rows.append(
-            {
-                "asset_id": asset_id,
-                "derivative_type": derivative_type,
-                "root_slug": resolved.root_slug,
-                "relative_path": resolved.relative_path,
-                "database_path": path_text,
-                "original_relative_path": original_relative_path,
-            }
         )

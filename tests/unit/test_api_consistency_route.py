@@ -193,3 +193,96 @@ def test_catalog_consistency_job_routes_return_expected_shape(monkeypatch) -> No
     assert current_response.json()["data"]["result"]["progress"]["percent"] == 66.7
     assert start_response.status_code == 200
     assert start_response.json()["data"]["result"]["force"] is True
+
+
+def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "scan",
+        lambda self, settings: _Result(
+            {
+                "domain": "consistency.catalog_remediation",
+                "action": "scan",
+                "status": "WARN",
+                "summary": "Catalog remediation findings loaded.",
+                "broken_db_originals": [
+                    {"asset_id": "asset-1", "classification": "missing_confirmed"}
+                ],
+                "fuse_hidden_orphans": [
+                    {"finding_id": "fuse-1", "classification": "deletable_orphan"}
+                ],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "preview_broken_db_originals",
+        lambda self, settings, **kwargs: _Result(
+            {
+                "domain": "consistency.catalog_remediation",
+                "action": "preview",
+                "status": "WARN",
+                "finding_kind": "broken_db_original",
+                "summary": "Preview selected 1 broken DB original.",
+                "repair_run_id": "repair-run-broken",
+                "selected_items": [{"asset_id": "asset-1"}],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "preview_fuse_hidden_orphans",
+        lambda self, settings, **kwargs: _Result(
+            {
+                "domain": "consistency.catalog_remediation",
+                "action": "preview",
+                "status": "WARN",
+                "finding_kind": "fuse_hidden_orphan",
+                "summary": "Preview selected 1 fuse-hidden orphan.",
+                "repair_run_id": "repair-run-fuse",
+                "selected_items": [{"finding_id": "fuse-1"}],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "apply",
+        lambda self, settings, **kwargs: _Result(
+            {
+                "domain": "consistency.catalog_remediation",
+                "action": "apply",
+                "status": "PASS",
+                "finding_kind": "fuse_hidden_orphan",
+                "summary": "Applied 1 remediation item.",
+                "repair_run_id": "repair-run-fuse",
+                "items": [{"finding_id": "fuse-1", "status": "applied"}],
+            }
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    scan_response = client.get("/api/consistency/catalog-remediation/findings")
+    broken_preview_response = client.post(
+        "/api/consistency/catalog-remediation/broken-db-originals/preview",
+        json={"asset_ids": ["asset-1"], "select_all": False},
+    )
+    fuse_preview_response = client.post(
+        "/api/consistency/catalog-remediation/fuse-hidden-orphans/preview",
+        json={"finding_ids": ["fuse-1"], "select_all": False},
+    )
+    apply_response = client.post(
+        "/api/consistency/catalog-remediation/apply",
+        json={"repair_run_id": "repair-run-fuse"},
+    )
+
+    assert scan_response.status_code == 200
+    assert (
+        scan_response.json()["data"]["broken_db_originals"][0]["classification"]
+        == "missing_confirmed"
+    )
+    assert broken_preview_response.status_code == 200
+    assert broken_preview_response.json()["data"]["repair_run_id"] == "repair-run-broken"
+    assert fuse_preview_response.status_code == 200
+    assert fuse_preview_response.json()["data"]["repair_run_id"] == "repair-run-fuse"
+    assert apply_response.status_code == 200
+    assert apply_response.json()["data"]["items"][0]["status"] == "applied"

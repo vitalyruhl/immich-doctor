@@ -2,17 +2,25 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { ApiClientError } from "@/api/client";
 import {
+  applyCatalogRemediation,
   applyMissingAssetRemovals,
+  fetchCatalogRemediationFindings,
   deleteMissingAssetRestorePoints,
   fetchCatalogConsistencyJob,
   fetchMissingAssetFindings,
   fetchMissingAssetRestorePoints,
+  previewBrokenDbOriginalRemediation,
+  previewFuseHiddenRemediation,
   previewMissingAssetRemovals,
   restoreMissingAssetRestorePoints,
   startCatalogConsistencyJob,
 } from "@/api/consistency";
 import type { CatalogValidationReport, CatalogWorkflowJobRecord } from "@/api/types/catalog";
 import type {
+  CatalogRemediationApplyResponse,
+  CatalogRemediationPreviewRequest,
+  CatalogRemediationPreviewResponse,
+  CatalogRemediationScanResponse,
   MissingAssetApplyResponse,
   MissingAssetPreviewRequest,
   MissingAssetPreviewResponse,
@@ -52,6 +60,9 @@ function catalogRequiresScan(job: CatalogWorkflowJobRecord | null): boolean {
 }
 
 export const useConsistencyStore = defineStore("consistency", () => {
+  const remediationScanResult = ref<CatalogRemediationScanResponse | null>(null);
+  const remediationPreviewResult = ref<CatalogRemediationPreviewResponse | null>(null);
+  const remediationApplyResult = ref<CatalogRemediationApplyResponse | null>(null);
   const scanResult = ref<MissingAssetScanResponse | null>(null);
   const restorePointsResult = ref<MissingAssetRestorePointsResponse | null>(null);
   const catalogJob = ref<CatalogWorkflowJobRecord | null>(null);
@@ -64,6 +75,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const isCatalogLoading = ref(false);
   const isCatalogStarting = ref(false);
   const isLoadingRestorePoints = ref(false);
+  const isLoadingRemediation = ref(false);
   const isPreviewing = ref(false);
   const isApplying = ref(false);
   const isRestoring = ref(false);
@@ -71,6 +83,9 @@ export const useConsistencyStore = defineStore("consistency", () => {
 
   const scanError = ref<string | null>(null);
   const catalogJobError = ref<string | null>(null);
+  const remediationError = ref<string | null>(null);
+  const remediationPreviewError = ref<string | null>(null);
+  const remediationApplyError = ref<string | null>(null);
   const restorePointsError = ref<string | null>(null);
   const previewError = ref<string | null>(null);
   const applyError = ref<string | null>(null);
@@ -159,6 +174,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
         scanError.value = null;
       }
       await Promise.allSettled([
+        loadRemediation(),
         loadRestorePoints(),
         shouldSkipMissingAssetScan.value ? Promise.resolve(null) : scan(),
       ]);
@@ -228,6 +244,21 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
+  async function loadRemediation(): Promise<CatalogRemediationScanResponse | null> {
+    isLoadingRemediation.value = true;
+    remediationError.value = null;
+    try {
+      const response = await fetchCatalogRemediationFindings();
+      remediationScanResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLoadingRemediation.value = false;
+    }
+  }
+
   async function preview(
     payload: MissingAssetPreviewRequest,
   ): Promise<MissingAssetPreviewResponse | null> {
@@ -258,6 +289,62 @@ export const useConsistencyStore = defineStore("consistency", () => {
       return response.data;
     } catch (caughtError) {
       applyError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isApplying.value = false;
+    }
+  }
+
+  async function previewBrokenDbOriginals(
+    payload: CatalogRemediationPreviewRequest,
+  ): Promise<CatalogRemediationPreviewResponse | null> {
+    isPreviewing.value = true;
+    remediationPreviewError.value = null;
+    try {
+      const response = await previewBrokenDbOriginalRemediation(payload);
+      remediationPreviewResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationPreviewError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isPreviewing.value = false;
+    }
+  }
+
+  async function previewFuseHidden(
+    payload: CatalogRemediationPreviewRequest,
+  ): Promise<CatalogRemediationPreviewResponse | null> {
+    isPreviewing.value = true;
+    remediationPreviewError.value = null;
+    try {
+      const response = await previewFuseHiddenRemediation(payload);
+      remediationPreviewResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationPreviewError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isPreviewing.value = false;
+    }
+  }
+
+  async function applyRemediation(
+    repairRunId: string,
+  ): Promise<CatalogRemediationApplyResponse | null> {
+    if (!repairRunId) {
+      remediationApplyError.value = "A previewed repair run is required before apply.";
+      return null;
+    }
+    isApplying.value = true;
+    remediationApplyError.value = null;
+    try {
+      const response = await applyCatalogRemediation(repairRunId);
+      remediationApplyResult.value = response.data;
+      await Promise.allSettled([loadRemediation(), scan(), loadRestorePoints()]);
+      return response.data;
+    } catch (caughtError) {
+      remediationApplyError.value = toErrorMessage(caughtError);
       return null;
     } finally {
       isApplying.value = false;
@@ -310,12 +397,20 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const findings = computed<MissingAssetReferenceFinding[]>(
     () => scanResult.value?.findings ?? [],
   );
+  const brokenDbOriginals = computed(
+    () => remediationScanResult.value?.broken_db_originals ?? [],
+  );
+  const fuseHiddenOrphans = computed(
+    () => remediationScanResult.value?.fuse_hidden_orphans ?? [],
+  );
   const restorePoints = computed(() => restorePointsResult.value?.items ?? []);
 
   return {
     apply,
+    applyRemediation,
     applyError,
     applyResult,
+    brokenDbOriginals,
     catalogJob,
     catalogJobError,
     catalogReadinessMessage,
@@ -325,12 +420,14 @@ export const useConsistencyStore = defineStore("consistency", () => {
     deleteError,
     deleteResult,
     deleteRestorePoints,
+    fuseHiddenOrphans,
     findings,
     isApplying,
     isCatalogLoading,
     isCatalogStarting,
     isDeletingRestorePoints,
     isLoading,
+    isLoadingRemediation,
     isLoadingRestorePoints,
     isPreviewing,
     isRestoring,
@@ -338,9 +435,18 @@ export const useConsistencyStore = defineStore("consistency", () => {
     isWaitingOnCatalog,
     load,
     loadCatalogJob,
+    loadRemediation,
     loadRestorePoints,
     preview,
+    previewBrokenDbOriginals,
+    previewFuseHidden,
     previewError,
+    remediationApplyError,
+    remediationApplyResult,
+    remediationError,
+    remediationPreviewError,
+    remediationPreviewResult,
+    remediationScanResult,
     restore,
     restoreError,
     restorePoints,

@@ -83,6 +83,45 @@ Recovery limits:
 - if a record is already absent from the current scan scope, it is reported as `already_removed`
 - if the schema contains unsupported asset references, the run stays blocked until the mapping is modeled safely
 
+## Catalog-backed remediation findings
+
+The catalog-backed consistency page now exposes two additional review-first
+flows based on the latest committed storage snapshot.
+
+Broken DB originals:
+
+- scope: DB asset rows whose mapped `originalPath` is absent from the cached uploads snapshot
+- classifications stay explicit:
+  - `missing_confirmed`
+  - `found_elsewhere`
+  - `unresolved_search_error`
+- relocation search is read-only and uses the cached storage inventory
+- `found_elsewhere` stays inspect-only by default:
+  - no auto-delete
+  - no auto-rebind
+  - expected path and found path must stay visible to the operator
+- only `missing_confirmed` is eligible for explicit DB cleanup preview/apply
+- DB cleanup apply reuses the existing repair-run, journal, and restore-metadata foundation
+
+`.fuse_hidden*` storage orphans:
+
+- scope: storage-only uploads files whose name starts with `.fuse_hidden`
+- `.immich` is ignored explicitly and must never appear as a repair candidate
+- classifications stay explicit:
+  - `blocked_in_use`
+  - `deletable_orphan`
+  - `check_failed`
+- in-use checks depend on runtime tooling and must report the real reason when unavailable
+- only `deletable_orphan` is eligible for explicit delete preview/apply
+- blocked or failed-check rows stay informational and do not expose destructive apply
+
+Shared remediation rules:
+
+- preview and apply remain separate
+- selection may target a single row, selected rows, or all eligible rows in one class
+- DB cleanup and `.fuse_hidden*` deletion stay separate flows and must not be mixed in one ambiguous handler
+- scan time remains non-destructive
+
 CLI and UI:
 
 - CLI keeps explicit dry-run/apply semantics and does not use the UI checkbox gate

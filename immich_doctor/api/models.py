@@ -149,6 +149,24 @@ class MissingAssetRestorePointDeleteApiResponse(BaseModel):
     mocked: bool = False
 
 
+class CatalogRemediationScanApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class CatalogRemediationPreviewApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class CatalogRemediationApplyApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class RepairRunsApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

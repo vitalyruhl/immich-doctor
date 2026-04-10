@@ -5,6 +5,9 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from immich_doctor.api.models import (
     CatalogConsistencyJobApiResponse,
+    CatalogRemediationApplyApiResponse,
+    CatalogRemediationPreviewApiResponse,
+    CatalogRemediationScanApiResponse,
     MissingAssetApplyApiResponse,
     MissingAssetPreviewApiResponse,
     MissingAssetRestoreApiResponse,
@@ -12,6 +15,7 @@ from immich_doctor.api.models import (
     MissingAssetRestorePointsApiResponse,
     MissingAssetScanApiResponse,
 )
+from immich_doctor.catalog.remediation_service import CatalogRemediationService
 from immich_doctor.catalog.workflow_service import CatalogWorkflowService
 from immich_doctor.consistency.missing_asset_service import MissingAssetReferenceService
 from immich_doctor.core.config import load_settings
@@ -48,6 +52,20 @@ class MissingAssetDeleteRestorePointsRequest(BaseModel):
 
 class CatalogConsistencyJobRequest(BaseModel):
     force: bool = False
+
+
+class CatalogRemediationBrokenPreviewRequest(BaseModel):
+    asset_ids: list[str] = Field(default_factory=list)
+    select_all: bool = False
+
+
+class CatalogRemediationFusePreviewRequest(BaseModel):
+    finding_ids: list[str] = Field(default_factory=list)
+    select_all: bool = False
+
+
+class CatalogRemediationApplyRequest(BaseModel):
+    repair_run_id: str
 
 
 @consistency_router.get(
@@ -154,6 +172,71 @@ def delete_missing_asset_restore_points(
         .to_dict()
     )
     return MissingAssetRestorePointDeleteApiResponse(data=data)
+
+
+@consistency_router.get(
+    "/catalog-remediation/findings",
+    response_model=CatalogRemediationScanApiResponse,
+)
+def scan_catalog_remediation_findings() -> CatalogRemediationScanApiResponse:
+    data = CatalogRemediationService().scan(load_settings()).to_dict()
+    return CatalogRemediationScanApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/broken-db-originals/preview",
+    response_model=CatalogRemediationPreviewApiResponse,
+)
+def preview_broken_db_original_remediation(
+    payload: CatalogRemediationBrokenPreviewRequest,
+) -> CatalogRemediationPreviewApiResponse:
+    data = (
+        CatalogRemediationService()
+        .preview_broken_db_originals(
+            load_settings(),
+            asset_ids=tuple(payload.asset_ids),
+            select_all=payload.select_all,
+        )
+        .to_dict()
+    )
+    return CatalogRemediationPreviewApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/fuse-hidden-orphans/preview",
+    response_model=CatalogRemediationPreviewApiResponse,
+)
+def preview_fuse_hidden_remediation(
+    payload: CatalogRemediationFusePreviewRequest,
+) -> CatalogRemediationPreviewApiResponse:
+    data = (
+        CatalogRemediationService()
+        .preview_fuse_hidden_orphans(
+            load_settings(),
+            finding_ids=tuple(payload.finding_ids),
+            select_all=payload.select_all,
+        )
+        .to_dict()
+    )
+    return CatalogRemediationPreviewApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/apply",
+    response_model=CatalogRemediationApplyApiResponse,
+)
+def apply_catalog_remediation(
+    payload: CatalogRemediationApplyRequest,
+) -> CatalogRemediationApplyApiResponse:
+    data = (
+        CatalogRemediationService()
+        .apply(
+            load_settings(),
+            repair_run_id=payload.repair_run_id,
+        )
+        .to_dict()
+    )
+    return CatalogRemediationApplyApiResponse(data=data)
 
 
 @consistency_router.get("/catalog", response_model=CatalogConsistencyJobApiResponse)

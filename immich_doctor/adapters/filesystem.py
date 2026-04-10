@@ -42,6 +42,9 @@ class FilesystemAdapter:
         with path.open("rb") as handle:
             return handle.read(size)
 
+    def delete_file(self, path: Path) -> None:
+        path.unlink()
+
     def add_read_permissions(self, path: Path) -> None:
         current_mode = path.stat().st_mode
         path.chmod(current_mode | stat.S_IRUSR | stat.S_IRGRP)
