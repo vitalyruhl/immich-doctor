@@ -3,8 +3,8 @@ from __future__ import annotations
 import errno
 import logging
 import os
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -99,6 +99,7 @@ class CatalogInventoryScanService:
         resume_session_id: str | None,
         max_files: int | None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
+        control_state_provider: Callable[[], dict[str, bool]] | None = None,
     ) -> ValidationReport:
         catalog_path_check = self.filesystem.validate_creatable_directory(
             "catalog_path",
@@ -178,6 +179,7 @@ class CatalogInventoryScanService:
             session_row=session,
             max_files=max_files,
             progress_callback=progress_callback,
+            control_state_provider=control_state_provider,
         )
         checks.extend(scan_result["checks"])
         return self._build_scan_report(
@@ -245,6 +247,7 @@ class CatalogInventoryScanService:
         session_row: dict[str, object],
         max_files: int | None,
         progress_callback: Callable[[dict[str, object]], None] | None,
+        control_state_provider: Callable[[], dict[str, bool]] | None,
     ) -> dict[str, object]:
         checks: list[CheckResult] = []
         session_id = str(session_row["id"])
@@ -264,9 +267,18 @@ class CatalogInventoryScanService:
         next_claim_order = 0
         next_apply_order = 0
         pause_requested = False
+        stop_requested = False
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             while True:
+                control_state = (
+                    control_state_provider()
+                    if control_state_provider is not None
+                    else {"pauseRequested": False, "stopRequested": False}
+                )
+                pause_requested = pause_requested or bool(control_state.get("pauseRequested"))
+                stop_requested = stop_requested or bool(control_state.get("stopRequested"))
+
                 while not pause_requested and len(inflight) < worker_count:
                     relative_path = self.store.claim_next_directory(settings, session_id)
                     if relative_path is None:
@@ -330,16 +342,27 @@ class CatalogInventoryScanService:
                             if total_directories > 0
                             else 0.0
                         )
+                        scan_state = (
+                            "stopping"
+                            if stop_requested
+                            else "pausing"
+                            if pause_requested
+                            else "running"
+                        )
                         progress_callback(
                             {
                                 "phase": "scan",
                                 "rootSlug": str(root_row["slug"]),
                                 "sessionId": session_id,
-                                "workerCount": worker_count,
+                                "configuredWorkerCount": worker_count,
+                                "activeWorkerCount": len(inflight),
+                                "scanState": scan_state,
                                 "filesSeen": int(updated_session["files_seen"]),
                                 "bytesSeen": int(updated_session["bytes_seen"]),
                                 "directoriesTotal": total_directories,
-                                "directoriesCompleted": int(updated_session["directories_completed"]),
+                                "directoriesCompleted": int(
+                                    updated_session["directories_completed"]
+                                ),
                                 "pendingDirectories": pending_directories,
                                 "lastRelativePath": updated_session["last_relative_path"],
                                 "percent": percent,
@@ -353,17 +376,29 @@ class CatalogInventoryScanService:
                     for future in inflight:
                         future.cancel()
                     self.store.requeue_processing_directories(settings, session_id)
-                    paused_session = self.store.mark_session_paused(settings, session_id)
+                    paused_session = (
+                        self.store.mark_session_stopped(settings, session_id)
+                        if stop_requested
+                        else self.store.mark_session_paused(settings, session_id)
+                    )
                     snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))
                     if paused_session is None or snapshot is None:
-                        raise ValueError(f"Catalog session `{session_id}` could not be paused.")
+                        action = "stopped" if stop_requested else "paused"
+                        raise ValueError(f"Catalog session `{session_id}` could not be {action}.")
                     checks.append(
                         CheckResult(
                             name="catalog_scan_session",
                             status=CheckStatus.WARN,
                             message=(
-                                f"Catalog session `{session_id}` paused after reaching the "
-                                f"configured file limit."
+                                (
+                                    f"Catalog session `{session_id}` stopped cooperatively at a "
+                                    "safe boundary."
+                                )
+                                if stop_requested
+                                else (
+                                    f"Catalog session `{session_id}` paused after reaching the "
+                                    "configured file limit."
+                                )
                             ),
                             details={
                                 "snapshot_id": paused_session["snapshot_id"],
@@ -373,6 +408,7 @@ class CatalogInventoryScanService:
                                     session_id,
                                 ),
                                 "scan_workers": worker_count,
+                                "scan_state": "stopped" if stop_requested else "paused",
                             },
                         )
                     )
@@ -381,11 +417,22 @@ class CatalogInventoryScanService:
                         "session": paused_session,
                         "snapshot": snapshot,
                         "summary": (
-                            f"Catalog scan paused for root `{root_row['slug']}` after "
-                            f"{paused_session['files_seen']} files. Resume with "
-                            f"`--resume-session-id {session_id}`."
+                            (
+                                f"Catalog scan stopped for root `{root_row['slug']}` after "
+                                f"{paused_session['files_seen']} files. Resume with "
+                                f"`--resume-session-id {session_id}`."
+                            )
+                            if stop_requested
+                            else (
+                                f"Catalog scan paused for root `{root_row['slug']}` after "
+                                f"{paused_session['files_seen']} files. Resume with "
+                                f"`--resume-session-id {session_id}`."
+                            )
                         ),
-                        "run_context": {"scan_workers": worker_count},
+                        "run_context": {
+                            "scan_workers": worker_count,
+                            "scan_state": "stopped" if stop_requested else "paused",
+                        },
                     }
 
         completed_session = self.store.commit_scan_session(settings, session_id)
@@ -395,9 +442,9 @@ class CatalogInventoryScanService:
         checks.append(
             CheckResult(
                 name="catalog_scan_session",
-                status=(
-                    CheckStatus.PASS if int(completed_session["error_count"]) == 0 else CheckStatus.WARN
-                ),
+                status=CheckStatus.PASS
+                if int(completed_session["error_count"]) == 0
+                else CheckStatus.WARN,
                 message=f"Catalog session `{session_id}` completed for root `{root_row['slug']}`.",
                 details={
                     "snapshot_id": completed_session["snapshot_id"],
@@ -683,7 +730,7 @@ class CatalogInventoryScanService:
     def _session_status_to_check_status(self, status: str) -> CheckStatus:
         if status == "completed":
             return CheckStatus.PASS
-        if status == "paused":
+        if status in {"paused", "stopped"}:
             return CheckStatus.WARN
         if status == "failed":
             return CheckStatus.FAIL

@@ -240,7 +240,7 @@ class CatalogStore:
                 UPDATE scan_session
                 SET status = 'running',
                     heartbeat_at = ?
-                WHERE id = ? AND status IN ('paused', 'failed', 'running');
+                WHERE id = ? AND status IN ('paused', 'stopped', 'failed', 'running');
                 """,
                 (now, session_id),
             )
@@ -274,7 +274,7 @@ class CatalogStore:
                 FROM scan_session AS session
                 JOIN storage_root AS root
                   ON root.id = session.storage_root_id
-                WHERE session.status IN ('running', 'paused')
+                                WHERE session.status IN ('running', 'paused', 'stopped')
                 ORDER BY session.started_at DESC
                 LIMIT 1;
                 """
@@ -487,6 +487,27 @@ class CatalogStore:
                 WHERE id = ?;
                 """,
                 (now, session_id),
+            )
+            connection.commit()
+        return self.get_scan_session(settings, session_id)
+
+    def mark_session_stopped(
+        self,
+        settings: AppSettings,
+        session_id: str,
+    ) -> dict[str, object] | None:
+        self.initialize(settings)
+        now = _utcnow()
+        with self.connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE scan_session
+                SET status = 'stopped',
+                    heartbeat_at = ?,
+                    completed_at = ?
+                WHERE id = ?;
+                """,
+                (now, now, session_id),
             )
             connection.commit()
         return self.get_scan_session(settings, session_id)

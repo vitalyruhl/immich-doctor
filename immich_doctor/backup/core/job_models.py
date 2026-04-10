@@ -10,6 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class BackgroundJobState(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    RESUMING = "resuming"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
     PARTIAL = "partial"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -25,6 +30,8 @@ TERMINAL_BACKGROUND_JOB_STATES = frozenset(
         BackgroundJobState.FAILED,
         BackgroundJobState.UNSUPPORTED,
         BackgroundJobState.CANCELED,
+        BackgroundJobState.PAUSED,
+        BackgroundJobState.STOPPED,
     }
 )
 

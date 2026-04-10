@@ -13,13 +13,20 @@ from immich_doctor.catalog.consistency_service import CatalogConsistencyValidati
 from immich_doctor.catalog.service import CatalogInventoryScanService, CatalogRootRegistry
 from immich_doctor.catalog.store import CatalogStore
 from immich_doctor.core.config import AppSettings
-from immich_doctor.core.models import CheckStatus
+from immich_doctor.core.models import CheckStatus, ValidationReport
 from immich_doctor.services.backup_job_service import BackgroundJobRuntime, ManagedJobHandle
 
 logger = logging.getLogger(__name__)
 
 CATALOG_SCAN_JOB_TYPE = "catalog_inventory_scan"
 CATALOG_CONSISTENCY_JOB_TYPE = "catalog_consistency_validation"
+_ACTIVE_SCAN_STATES = {
+    BackgroundJobState.PENDING.value,
+    BackgroundJobState.RUNNING.value,
+    BackgroundJobState.PAUSING.value,
+    BackgroundJobState.RESUMING.value,
+    BackgroundJobState.STOPPING.value,
+}
 
 
 def _iso_now() -> str:
@@ -43,38 +50,46 @@ class CatalogWorkflowService:
     def get_scan_job(self, settings: AppSettings) -> dict[str, object]:
         active = self.runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE)
         if active is not None:
-            return _record_to_payload(active)
+            return self._with_scan_runtime_details(settings, _record_to_payload(active))
         recovered = self._recover_scan_job_if_needed(settings)
         if recovered is not None:
-            return _record_to_payload(recovered)
+            return self._with_scan_runtime_details(settings, _record_to_payload(recovered))
         latest = self.runtime.store.find_latest_job(
             settings,
             job_type=CATALOG_SCAN_JOB_TYPE,
             states=set(TERMINAL_BACKGROUND_JOB_STATES),
         )
         if latest is not None:
-            return _record_to_payload(latest)
-        return self._pending_snapshot(
-            job_type=CATALOG_SCAN_JOB_TYPE,
-            summary="No catalog scan has been started yet.",
+            return self._with_scan_runtime_details(settings, _record_to_payload(latest))
+        return self._with_scan_runtime_details(
+            settings,
+            self._pending_snapshot(
+                job_type=CATALOG_SCAN_JOB_TYPE,
+                summary="No catalog scan has been started yet.",
+            ),
         )
 
     def start_scan(self, settings: AppSettings, *, force: bool) -> dict[str, object]:
         active_consistency = self.runtime.active_job(job_type=CATALOG_CONSISTENCY_JOB_TYPE)
         if active_consistency is not None:
-            return self._blocked_snapshot(
-                job_type=CATALOG_SCAN_JOB_TYPE,
-                summary="Catalog scan is blocked while catalog consistency validation is running.",
-                blocked_by=active_consistency,
+            return self._with_scan_runtime_details(
+                settings,
+                self._blocked_snapshot(
+                    job_type=CATALOG_SCAN_JOB_TYPE,
+                    summary=(
+                        "Catalog scan is blocked while catalog consistency validation is running."
+                    ),
+                    blocked_by=active_consistency,
+                ),
             )
 
         active_scan = self.runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE)
         if active_scan is not None:
-            return _record_to_payload(active_scan)
+            return self._with_scan_runtime_details(settings, _record_to_payload(active_scan))
 
         recovered = self._recover_scan_job_if_needed(settings)
         if recovered is not None:
-            return _record_to_payload(recovered)
+            return self._with_scan_runtime_details(settings, _record_to_payload(recovered))
 
         latest_scan = self.runtime.store.find_latest_job(
             settings,
@@ -82,7 +97,7 @@ class CatalogWorkflowService:
             states=set(TERMINAL_BACKGROUND_JOB_STATES),
         )
         if latest_scan is not None and not force and self._has_complete_scan_coverage(settings):
-            return _record_to_payload(latest_scan)
+            return self._with_scan_runtime_details(settings, _record_to_payload(latest_scan))
 
         initial_result = {
             "state": BackgroundJobState.PENDING.value,
@@ -103,7 +118,108 @@ class CatalogWorkflowService:
             runner=self._run_scan_job,
         )
         logger.info("Catalog scan job queued: job_id=%s", record.job_id)
-        return _record_to_payload(record)
+        return self._with_scan_runtime_details(settings, _record_to_payload(record))
+
+    def pause_scan(self, settings: AppSettings) -> dict[str, object]:
+        active_scan = self.runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE)
+        if active_scan is None:
+            return self._with_scan_runtime_details(
+                settings,
+                self._pending_snapshot(
+                    job_type=CATALOG_SCAN_JOB_TYPE,
+                    summary="No active catalog scan is running to pause.",
+                ),
+            )
+        paused = self.runtime.request_pause(job_type=CATALOG_SCAN_JOB_TYPE)
+        if paused is None:
+            return self._with_scan_runtime_details(settings, _record_to_payload(active_scan))
+        return self._with_scan_runtime_details(settings, _record_to_payload(paused))
+
+    def resume_scan(self, settings: AppSettings) -> dict[str, object]:
+        active_scan = self.runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE)
+        if active_scan is not None:
+            resumed = self.runtime.request_resume(job_type=CATALOG_SCAN_JOB_TYPE)
+            payload = _record_to_payload(resumed if resumed is not None else active_scan)
+            return self._with_scan_runtime_details(settings, payload)
+
+        session = self.store.find_latest_incomplete_scan_session(settings)
+        if session is None or str(session.get("status")) not in {"paused", "stopped"}:
+            return self._with_scan_runtime_details(
+                settings,
+                self._pending_snapshot(
+                    job_type=CATALOG_SCAN_JOB_TYPE,
+                    summary="No paused catalog scan is available to resume.",
+                ),
+            )
+
+        root_slug = str(session["root_slug"])
+        session_id = str(session["id"])
+        self.store.reopen_scan_session(settings, session_id)
+        initial_result = {
+            "state": BackgroundJobState.RESUMING.value,
+            "summary": f"Catalog scan resume queued for root `{root_slug}`.",
+            "progress": {
+                "phase": "resuming",
+                "current": 0,
+                "total": 0,
+                "percent": None,
+                "message": f"Resuming paused catalog scan session `{session_id}`.",
+                "rootSlug": root_slug,
+                "resumeSessionId": session_id,
+            },
+        }
+        record = self.runtime.start_job(
+            settings,
+            job_type=CATALOG_SCAN_JOB_TYPE,
+            initial_result=initial_result,
+            summary=f"Catalog scan resume queued for root `{root_slug}`.",
+            runner=lambda handle: self._run_resumed_scan_job(
+                handle,
+                root_slug=root_slug,
+                resume_session_id=session_id,
+            ),
+        )
+        return self._with_scan_runtime_details(settings, _record_to_payload(record))
+
+    def stop_scan(self, settings: AppSettings) -> dict[str, object]:
+        active_scan = self.runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE)
+        if active_scan is None:
+            return self._with_scan_runtime_details(
+                settings,
+                self._pending_snapshot(
+                    job_type=CATALOG_SCAN_JOB_TYPE,
+                    summary="No active catalog scan is running to stop.",
+                ),
+            )
+        stopped = self.runtime.request_stop(job_type=CATALOG_SCAN_JOB_TYPE)
+        if stopped is None:
+            return self._with_scan_runtime_details(settings, _record_to_payload(active_scan))
+        return self._with_scan_runtime_details(settings, _record_to_payload(stopped))
+
+    def request_scan_worker_resize(
+        self,
+        settings: AppSettings,
+        *,
+        workers: int,
+    ) -> dict[str, object]:
+        payload = self.get_scan_job(settings)
+        result = payload.setdefault("result", {})
+        if not isinstance(result, dict):
+            payload["result"] = {}
+            result = payload["result"]
+        result["workerResize"] = {
+            "supported": False,
+            "requestedWorkerCount": workers,
+            "configuredWorkerCount": settings.catalog_scan_workers,
+            "appliedImmediately": False,
+            "semantics": "next_run_only",
+            "message": (
+                "Runtime worker resizing is not supported safely in the current architecture. "
+                "Update configuration and start a new run to change worker count."
+            ),
+        }
+        payload["summary"] = str(result["workerResize"]["message"])
+        return self._with_scan_runtime_details(settings, payload)
 
     def _recover_scan_job_if_needed(self, settings: AppSettings) -> BackgroundJobRecord | None:
         session = self.store.find_latest_incomplete_scan_session(settings)
@@ -279,6 +395,19 @@ class CatalogWorkflowService:
         root_count = len(roots)
         worst_state = BackgroundJobState.COMPLETED
         for index, root in enumerate(roots, start=1):
+            if handle.stop_requested():
+                return {
+                    "state": BackgroundJobState.STOPPED.value,
+                    "summary": "Catalog scan stopped cooperatively before processing a new root.",
+                    "progress": {
+                        "phase": "stopped",
+                        "current": index - 1,
+                        "total": root_count,
+                        "percent": round(((index - 1) / max(root_count, 1)) * 100, 2),
+                        "message": "Stop requested by operator.",
+                    },
+                    "reports": reports,
+                }
             logger.info(
                 "Catalog scan job %s starting root %s (%s/%s) with %s workers",
                 handle.record.job_id,
@@ -304,9 +433,32 @@ class CatalogWorkflowService:
                         )
                     )
                 ),
+                control_state_provider=lambda: {
+                    "pauseRequested": handle.pause_requested(),
+                    "stopRequested": handle.stop_requested(),
+                },
             )
             report_dict = report.to_dict()
             reports.append({"rootSlug": root.slug, "report": report_dict})
+            session_status = self._scan_session_status(report)
+            if session_status in {"paused", "stopped"}:
+                return {
+                    "state": (
+                        BackgroundJobState.STOPPED.value
+                        if session_status == "stopped"
+                        else BackgroundJobState.PAUSED.value
+                    ),
+                    "summary": report.summary,
+                    "progress": {
+                        "phase": session_status,
+                        "current": index,
+                        "total": root_count,
+                        "percent": round((index / max(root_count, 1)) * 100, 2),
+                        "message": report.summary,
+                        "rootSlug": root.slug,
+                    },
+                    "reports": reports,
+                }
             logger.info(
                 "Catalog scan job %s finished root %s with status %s",
                 handle.record.job_id,
@@ -365,17 +517,33 @@ class CatalogWorkflowService:
                 total_roots=1,
                 completed_roots=[],
             ),
+            control_state_provider=lambda: {
+                "pauseRequested": handle.pause_requested(),
+                "stopRequested": handle.stop_requested(),
+            },
         )
-        state = self._scan_report_state(report.overall_status)
+        session_status = self._scan_session_status(report)
+        if session_status == "stopped":
+            state = BackgroundJobState.STOPPED
+            summary = f"Catalog scan stopped for root `{root_slug}`."
+            phase = "stopped"
+        elif session_status == "paused":
+            state = BackgroundJobState.PAUSED
+            summary = f"Catalog scan paused for root `{root_slug}`."
+            phase = "paused"
+        else:
+            state = self._scan_report_state(report.overall_status)
+            summary = f"Catalog scan resumed and completed for root `{root_slug}`."
+            phase = "completed"
         return {
             "state": state.value,
-            "summary": f"Catalog scan resumed and completed for root `{root_slug}`.",
+            "summary": summary,
             "progress": {
-                "phase": "completed",
+                "phase": phase,
                 "current": 1,
                 "total": 1,
-                "percent": 100.0,
-                "message": f"Catalog scan completed for root `{root_slug}`.",
+                "percent": 100.0 if phase == "completed" else None,
+                "message": summary,
                 "rootSlug": root_slug,
             },
             "reports": [{"rootSlug": root_slug, "report": report.to_dict()}],
@@ -399,34 +567,77 @@ class CatalogWorkflowService:
                 (((root_index - 1) + (float(local_percent) / 100.0)) / total_roots) * 100,
                 2,
             )
+        job_state = self._scan_job_state_from_handle(handle)
+        phase_label = "scan" if phase == "scan" else "prepare"
+        if job_state == BackgroundJobState.PAUSING:
+            phase_label = "pausing"
+        elif job_state == BackgroundJobState.STOPPING:
+            phase_label = "stopping"
+        elif job_state == BackgroundJobState.RESUMING:
+            phase_label = "resuming"
         result = {
-            "state": BackgroundJobState.RUNNING.value,
+            "state": job_state.value,
             "summary": (
                 f"Catalog scan running for root `{root_slug}` ({root_index}/{total_roots})."
-                if phase == "scan"
+                if phase_label == "scan"
+                else f"Catalog scan pausing for root `{root_slug}` ({root_index}/{total_roots})."
+                if phase_label == "pausing"
+                else f"Catalog scan stopping for root `{root_slug}` ({root_index}/{total_roots})."
+                if phase_label == "stopping"
                 else f"Catalog scan preparing root `{root_slug}` ({root_index}/{total_roots})."
             ),
             "progress": {
-                "phase": phase,
+                "phase": phase_label,
                 "current": root_index,
                 "total": total_roots,
                 "percent": overall_percent,
                 "message": (
                     f"Scanning root `{root_slug}`."
-                    if phase == "scan"
+                    if phase_label == "scan"
+                    else f"Pausing scan work for root `{root_slug}` at a safe boundary."
+                    if phase_label == "pausing"
+                    else f"Stopping scan work for root `{root_slug}` at a safe boundary."
+                    if phase_label == "stopping"
                     else f"Preparing directory inventory for root `{root_slug}`."
                 ),
                 "rootSlug": root_slug,
-                "scanWorkers": handle.settings.catalog_scan_workers,
+                "configuredWorkerCount": handle.settings.catalog_scan_workers,
+                "activeWorkerCount": int(payload.get("activeWorkerCount") or 0),
+                "scanState": self._scan_state_from_background_state(
+                    job_state,
+                    has_job_id=True,
+                ),
                 "rootsCompleted": completed_roots,
                 **payload,
             },
         }
         handle.update(
-            state=BackgroundJobState.RUNNING,
+            state=job_state,
             summary=str(result["summary"]),
             result=result,
         )
+
+    def _scan_job_state_from_handle(self, handle: ManagedJobHandle) -> BackgroundJobState:
+        if handle.stop_requested():
+            return BackgroundJobState.STOPPING
+        if handle.pause_requested():
+            return BackgroundJobState.PAUSING
+        if handle.record.state == BackgroundJobState.RESUMING:
+            return BackgroundJobState.RESUMING
+        return BackgroundJobState.RUNNING
+
+    def _scan_session_status(self, report: ValidationReport) -> str | None:
+        session_section = next(
+            (section for section in report.sections if section.name == "SCAN_SESSION"),
+            None,
+        )
+        if session_section is None or not session_section.rows:
+            return None
+        first_row = session_section.rows[0]
+        if not isinstance(first_row, dict):
+            return None
+        status = first_row.get("status")
+        return str(status) if status is not None else None
 
     def _has_complete_scan_coverage(self, settings: AppSettings) -> bool:
         coverage = self._scan_coverage(settings)
@@ -614,6 +825,75 @@ class CatalogWorkflowService:
                 "missingRootSlugs": coverage["missingRootSlugs"],
             },
         )
+
+    def _with_scan_runtime_details(
+        self,
+        settings: AppSettings,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            result = {}
+            payload["result"] = result
+
+        progress = result.get("progress")
+        active_worker_count = 0
+        if isinstance(progress, dict):
+            candidate = progress.get("activeWorkerCount")
+            if isinstance(candidate, int):
+                active_worker_count = max(candidate, 0)
+
+        state_value = str(payload.get("state") or BackgroundJobState.PENDING.value)
+        has_job_id = payload.get("jobId") is not None
+        scan_state = self._scan_state_from_background_state(
+            state_value,
+            has_job_id=has_job_id,
+        )
+        runtime_details = {
+            "scanState": scan_state,
+            "configuredWorkerCount": settings.catalog_scan_workers,
+            "activeWorkerCount": active_worker_count,
+            "workerResize": {
+                "supported": False,
+                "semantics": "next_run_only",
+                "message": (
+                    "Runtime worker resizing is not supported safely in the current architecture. "
+                    "Use configured workers for the next run."
+                ),
+            },
+        }
+        result["runtime"] = runtime_details
+        return payload
+
+    def _scan_state_from_background_state(
+        self,
+        state: BackgroundJobState | str,
+        *,
+        has_job_id: bool,
+    ) -> str:
+        normalized = state.value if isinstance(state, BackgroundJobState) else str(state)
+        if not has_job_id:
+            return "idle"
+        if normalized in {BackgroundJobState.RUNNING.value, BackgroundJobState.PENDING.value}:
+            return "running"
+        if normalized == BackgroundJobState.PAUSING.value:
+            return "pausing"
+        if normalized == BackgroundJobState.PAUSED.value:
+            return "paused"
+        if normalized == BackgroundJobState.RESUMING.value:
+            return "resuming"
+        if normalized in {
+            BackgroundJobState.STOPPING.value,
+            BackgroundJobState.CANCEL_REQUESTED.value,
+        }:
+            return "stopping"
+        if normalized in {BackgroundJobState.STOPPED.value, BackgroundJobState.CANCELED.value}:
+            return "stopped"
+        if normalized in {BackgroundJobState.COMPLETED.value, BackgroundJobState.PARTIAL.value}:
+            return "completed"
+        if normalized == BackgroundJobState.FAILED.value:
+            return "failed"
+        return "idle"
 
     def _pending_snapshot(
         self,

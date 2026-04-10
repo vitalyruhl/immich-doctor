@@ -57,6 +57,30 @@
             <button
               type="button"
               class="runtime-action runtime-action--secondary"
+              :disabled="pauseDisabled"
+              @click="void pauseScan()"
+            >
+              Pause
+            </button>
+            <button
+              type="button"
+              class="runtime-action runtime-action--secondary"
+              :disabled="resumeDisabled"
+              @click="void resumeScan()"
+            >
+              Resume
+            </button>
+            <button
+              type="button"
+              class="runtime-action runtime-action--secondary"
+              :disabled="stopDisabled"
+              @click="void stopScan()"
+            >
+              Stop
+            </button>
+            <button
+              type="button"
+              class="runtime-action runtime-action--secondary"
               :disabled="catalogStore.isLoading"
               @click="void refresh()"
             >
@@ -67,6 +91,12 @@
           <p class="health-card__summary">{{ scanSummary }}</p>
           <p v-if="scanMessage" class="health-card__details">{{ scanMessage }}</p>
           <p v-if="scanStats" class="health-card__details">{{ scanStats }}</p>
+          <p class="health-card__details">
+            Scan state: <strong>{{ scanRuntimeState }}</strong>
+            · Configured workers: <strong>{{ configuredWorkerCount }}</strong>
+            · Active workers: <strong>{{ activeWorkerCount }}</strong>
+          </p>
+          <p class="health-card__details">{{ workerResizeMessage }}</p>
           <p v-if="catalogStore.scanError" class="runtime-blocking-message">{{ catalogStore.scanError }}</p>
 
           <section v-if="scanProgressPercent !== null" class="catalog-progress">
@@ -218,10 +248,12 @@ function toUiStatus(value: string | null | undefined): "ok" | "warning" | "error
   if (["completed", "committed", "PASS", "pass"].includes(value)) {
     return "ok";
   }
-  if (["pending", "running", "paused", "WARN", "warn", "partial"].includes(value)) {
+  if (
+    ["pending", "running", "pausing", "paused", "resuming", "stopping", "WARN", "warn", "partial"].includes(value)
+  ) {
     return "warning";
   }
-  if (["failed", "FAIL", "fail", "canceled"].includes(value)) {
+  if (["failed", "FAIL", "fail", "canceled", "stopped"].includes(value)) {
     return "error";
   }
   return "unknown";
@@ -263,6 +295,16 @@ const selectedRootValue = computed(() => catalogStore.selectedRoot ?? "");
 const scanProgress = computed<CatalogJobProgress | null>(() => {
   const candidate = catalogStore.scanJob?.result?.progress;
   return candidate && typeof candidate === "object" ? (candidate as CatalogJobProgress) : null;
+});
+const scanRuntimeState = computed(() => catalogStore.scanRuntime?.scanState ?? "idle");
+const configuredWorkerCount = computed(() => catalogStore.scanRuntime?.configuredWorkerCount ?? 0);
+const activeWorkerCount = computed(() => catalogStore.scanRuntime?.activeWorkerCount ?? 0);
+const workerResizeMessage = computed(() => {
+  const resize = catalogStore.scanRuntime?.workerResize;
+  if (!resize || resize.supported) {
+    return "Runtime worker resize support: available.";
+  }
+  return resize.message ?? "Runtime worker resize support: next-run-only.";
 });
 const scanProgressPercent = computed<number | null>(() => {
   const value = scanProgress.value?.percent;
@@ -323,7 +365,18 @@ const scanButtonLabel = computed(() => {
   }
   return "Start storage index";
 });
-const scanDisabled = computed(() => !catalogStore.roots.length || catalogStore.isScanning || catalogStore.scanJobActive);
+const scanDisabled = computed(
+  () => !catalogStore.roots.length || catalogStore.isScanning || catalogStore.scanJobActive,
+);
+const pauseDisabled = computed(
+  () => !["running", "resuming"].includes(scanRuntimeState.value) || catalogStore.isLifecycleTransitioning,
+);
+const resumeDisabled = computed(
+  () => !["paused", "stopped", "pausing"].includes(scanRuntimeState.value) || catalogStore.isLifecycleTransitioning,
+);
+const stopDisabled = computed(
+  () => !["running", "pausing", "resuming"].includes(scanRuntimeState.value) || catalogStore.isLifecycleTransitioning,
+);
 const scanPanelStatus = computed(() => {
   if (catalogStore.scanError) {
     return "error";
@@ -338,6 +391,18 @@ const zeroByteStatus = computed(() => (zeroByteRows.value.length ? "error" : "ok
 
 async function runScan(): Promise<void> {
   await catalogStore.startScan(true);
+}
+
+async function pauseScan(): Promise<void> {
+  await catalogStore.pauseScan();
+}
+
+async function resumeScan(): Promise<void> {
+  await catalogStore.resumeScan();
+}
+
+async function stopScan(): Promise<void> {
+  await catalogStore.stopScan();
 }
 
 async function refresh(): Promise<void> {

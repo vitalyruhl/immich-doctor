@@ -11,15 +11,21 @@ const catalogStore: {
   statusReport: Record<string, unknown>;
   zeroByteReport: Record<string, unknown>;
   scanJob: Record<string, unknown> | null;
+  scanRuntime: Record<string, unknown> | null;
   scanJobActive: boolean;
   isLoading: boolean;
   isScanning: boolean;
+  isLifecycleTransitioning: boolean;
   error: string | null;
   scanError: string | null;
   load: ReturnType<typeof vi.fn>;
   refresh: ReturnType<typeof vi.fn>;
   refreshScanJob: ReturnType<typeof vi.fn>;
   startScan: ReturnType<typeof vi.fn>;
+  pauseScan: ReturnType<typeof vi.fn>;
+  resumeScan: ReturnType<typeof vi.fn>;
+  stopScan: ReturnType<typeof vi.fn>;
+  requestScanWorkers: ReturnType<typeof vi.fn>;
   setSelectedRoot: ReturnType<typeof vi.fn>;
 } = {
   roots: [
@@ -147,6 +153,16 @@ const catalogStore: {
     state: "completed",
     summary: "Catalog scan completed across 1 configured root.",
     result: {
+      runtime: {
+        scanState: "completed",
+        configuredWorkerCount: 4,
+        activeWorkerCount: 0,
+        workerResize: {
+          supported: false,
+          semantics: "next_run_only",
+          message: "Runtime worker resizing is not supported safely in the current architecture.",
+        },
+      },
       progress: {
         percent: 100,
         directoriesCompleted: 4,
@@ -154,15 +170,30 @@ const catalogStore: {
       },
     },
   },
+  scanRuntime: {
+    scanState: "completed",
+    configuredWorkerCount: 4,
+    activeWorkerCount: 0,
+    workerResize: {
+      supported: false,
+      semantics: "next_run_only",
+      message: "Runtime worker resizing is not supported safely in the current architecture.",
+    },
+  },
   scanJobActive: false,
   isLoading: false,
   isScanning: false,
+  isLifecycleTransitioning: false,
   error: null,
   scanError: null,
   load: vi.fn().mockResolvedValue(undefined),
   refresh: vi.fn().mockResolvedValue(undefined),
   refreshScanJob: vi.fn().mockResolvedValue(undefined),
   startScan: vi.fn().mockResolvedValue(undefined),
+  pauseScan: vi.fn().mockResolvedValue(undefined),
+  resumeScan: vi.fn().mockResolvedValue(undefined),
+  stopScan: vi.fn().mockResolvedValue(undefined),
+  requestScanWorkers: vi.fn().mockResolvedValue(undefined),
   setSelectedRoot: vi.fn((root: string | null) => {
     catalogStore.selectedRoot = root;
   }),
@@ -194,6 +225,8 @@ describe("StorageView", () => {
     expect(wrapper.text()).toContain("generation 2");
     expect(wrapper.text()).toContain("nested/empty.jpg");
     expect(wrapper.text()).toContain("Directories: 4 / 4");
+    expect(wrapper.text()).toContain("Configured workers: 4");
+    expect(wrapper.text()).toContain("Active workers: 0");
 
     const runButton = wrapper
       .findAll("button")
@@ -210,5 +243,14 @@ describe("StorageView", () => {
 
     await refreshButton!.trigger("click");
     expect(catalogStore.refresh).toHaveBeenCalled();
+
+    const pauseButton = wrapper.findAll("button").find((button) => button.text() === "Pause");
+    expect(pauseButton).toBeTruthy();
+
+    const resumeButton = wrapper.findAll("button").find((button) => button.text() === "Resume");
+    expect(resumeButton).toBeTruthy();
+
+    const stopButton = wrapper.findAll("button").find((button) => button.text() === "Stop");
+    expect(stopButton).toBeTruthy();
   });
 });
