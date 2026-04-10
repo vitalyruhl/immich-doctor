@@ -10,6 +10,7 @@ Rules:
 - Inspect `.github/AGENTS.md` first.
 - Inspect available agent files under `.github/agents/`.
 - Choose exactly one correct repository agent for the task.
+- If the selected task requires file changes and the current branch is `main`, route through canonical `workflow.begin` semantics before file-changing work starts.
 - If agent selection is ambiguous, STOP.
 - On ambiguity, report: candidate agents, ambiguity reason, and why selection is blocked.
 - Do not fall back to generic behavior when ambiguity exists.
