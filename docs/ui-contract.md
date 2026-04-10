@@ -127,6 +127,17 @@ Recovery limits shown in UI:
 The catalog-backed consistency page now also exposes explicit remediation review
 for cached storage-vs-DB mismatch classes.
 
+Catalog-backed validation filtering rules:
+
+- report only actionable inconsistencies from the cached DB-vs-storage compare
+- suppress valid DB/storage matches entirely
+- suppress valid Motion/Live-Photo video components when:
+  - the asset row is a `VIDEO`
+  - the stored `originalPath` resolves into `encoded-video`
+  - a sibling image references that asset through `livePhotoVideoId`
+- if such a motion component is logically valid but the underlying storage file is missing, keep reporting it as a real missing-file inconsistency instead of suppressing it
+- keep unexpected `encoded-video` roots visible when the motion linkage is absent or cannot be verified
+
 Canonical behavior:
 
 - render broken DB originals, zero-byte files, and `.fuse_hidden*` storage orphans as separate sections
