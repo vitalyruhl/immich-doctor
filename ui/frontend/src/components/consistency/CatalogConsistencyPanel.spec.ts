@@ -10,7 +10,7 @@ function createStore() {
       jobId: null,
       jobType: "catalog_consistency_validation",
       state: "pending",
-      summary: "Catalog consistency is waiting for a committed catalog scan.",
+      summary: "No catalog consistency validation has been started yet.",
       createdAt: "2026-04-09T12:00:00+00:00",
       updatedAt: "2026-04-09T12:00:00+00:00",
       startedAt: null,
@@ -47,11 +47,11 @@ describe("CatalogConsistencyPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("auto-starts the workflow when no cached report exists yet", async () => {
+  it("loads cached job state without auto-starting a new compare", async () => {
     mount(CatalogConsistencyPanel, {
       global: {
         stubs: {
-          EmptyState: { template: "<div><slot /></div>", props: ["title", "message"] },
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
           StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
         },
       },
@@ -60,10 +60,10 @@ describe("CatalogConsistencyPanel", () => {
     await settle();
 
     expect(store.loadCatalogJob).toHaveBeenCalled();
-    expect(store.startCatalog).toHaveBeenCalledWith(false);
+    expect(store.startCatalog).not.toHaveBeenCalled();
   });
 
-  it("renders report counts and allows manual rescans", async () => {
+  it("renders summary cards from the cached report and offers explicit rerun only", async () => {
     store.catalogJob = {
       jobId: "catalog-consistency-1",
       jobType: "catalog_consistency_validation",
@@ -84,60 +84,25 @@ describe("CatalogConsistencyPanel", () => {
       summary: "Catalog consistency found mismatches.",
       generated_at: "2026-04-09T12:01:00+00:00",
       checks: [],
-      sections: [
-        {
-          name: "DB_ORIGINALS_MISSING_ON_STORAGE",
-          status: "fail",
-          rows: [{ asset_id: "asset-1", asset_name: "missing.jpg", database_path: "/usr/src/app/upload/upload/user-a/missing.jpg" }],
-        },
-        {
-          name: "STORAGE_ORIGINALS_MISSING_IN_DB",
-          status: "warn",
-          rows: [{ root_slug: "uploads", relative_path: "user-a/lonely.jpg" }],
-        },
-        {
-          name: "ORPHAN_DERIVATIVES_WITHOUT_ORIGINAL",
-          status: "warn",
-          rows: [{ asset_id: "asset-1", derivative_type: "preview" }],
-        },
-        {
-          name: "ZERO_BYTE_FILES",
-          status: "fail",
-          rows: [{ root_slug: "uploads", relative_path: "user-a/zero.jpg" }],
-        },
-        {
-          name: "UNMAPPED_DATABASE_PATHS",
-          status: "warn",
-          rows: [{ asset_id: "asset-2", database_path: "/usr/src/app/upload/thumbs/x.webp" }],
-        },
-      ],
+      sections: [],
       metrics: [],
       recommendations: [],
       metadata: {
         latestScanCommittedAt: "2026-04-09T12:00:00+00:00",
-        snapshotBasis: [
-          {
-            rootSlug: "uploads",
-            snapshotId: 7,
-            generation: 2,
-            committedAt: "2026-04-09T12:00:00+00:00",
-          },
-        ],
         totals: {
           dbOriginalsMissingOnStorage: 1,
-          storageOriginalsMissingInDb: 1,
-          orphanDerivativesWithoutOriginal: 1,
-          zeroByteFiles: 1,
-          unmappedDatabasePaths: 1,
+          storageOriginalsMissingInDb: 2,
+          orphanDerivativesWithoutOriginal: 3,
+          zeroByteFiles: 4,
+          unmappedDatabasePaths: 5,
         },
-        truncated: {},
       },
     };
 
     const wrapper = mount(CatalogConsistencyPanel, {
       global: {
         stubs: {
-          EmptyState: { template: "<div><slot /></div>", props: ["title", "message"] },
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
           StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
         },
       },
@@ -145,21 +110,21 @@ describe("CatalogConsistencyPanel", () => {
 
     await settle();
 
-    expect(wrapper.text()).toContain("Catalog-backed storage compare");
-    expect(wrapper.text()).toContain("DB not found in snapshot");
-    expect(wrapper.text()).toContain("missing.jpg");
-    expect(wrapper.text()).toContain("/usr/src/app/upload/upload/user-a/missing.jpg");
+    expect(wrapper.text()).toContain("Catalog-backed consistency snapshot");
+    expect(wrapper.text()).toContain("DB missing in storage");
+    expect(wrapper.text()).toContain("Storage missing in DB");
+    expect(wrapper.text()).not.toContain("No findings for");
 
     const button = wrapper
       .findAll("button")
-      .find((candidate) => candidate.text() === "Rescan consistency");
+      .find((candidate) => candidate.text() === "Run new compare");
     expect(button).toBeTruthy();
 
     await button!.trigger("click");
     expect(store.startCatalog).toHaveBeenCalledWith(true);
   });
 
-  it("shows stale rebuild messaging without rendering stale report tables", async () => {
+  it("shows stale snapshot messaging without hiding the explicit start control", async () => {
     store.catalogJob = {
       jobId: null,
       jobType: "catalog_consistency_validation",
@@ -178,7 +143,6 @@ describe("CatalogConsistencyPanel", () => {
         latestScanCommittedAt: "2026-04-09T12:02:00+00:00",
       },
     };
-    store.catalogReport = null;
 
     const wrapper = mount(CatalogConsistencyPanel, {
       global: {
@@ -191,8 +155,8 @@ describe("CatalogConsistencyPanel", () => {
 
     await settle();
 
-    expect(wrapper.text()).toContain("Catalog compare is rebuilding");
-    expect(wrapper.text()).toContain("The last compare is stale");
-    expect(wrapper.text()).not.toContain("DB not found in snapshot");
+    expect(wrapper.text()).toContain("Catalog compare is stale");
+    expect(wrapper.text()).toContain("A new compare must be started explicitly.");
+    expect(wrapper.text()).toContain("Start consistency");
   });
 });
