@@ -78,10 +78,12 @@ Global rules:
 - Never modify `main` directly
 - All file-changing work must happen on a non-main branch
 - If the current branch is `main` and the task requires file changes:
-  - STOP before making changes
-  - create or switch to the appropriate working branch first
+  - do NOT perform file changes on `main`
+  - automatically create or switch to the appropriate working branch first when task scope is clear
+  - ask only when branch naming or scope is genuinely ambiguous
 - Never push directly to `main`
 - Never leave write tasks with unstaged or uncommitted changes unless the user explicitly asked for a dirty working tree
+- unless the user explicitly requests `stay uncommitted` or equivalent wording, end file-changing work with a checkpoint or other honest commit on the current non-main branch
 - Always report which branch was used for the work
 
 Delegation rules:
@@ -99,11 +101,51 @@ Delegation rules:
 BRANCH FRESHNESS REQUIREMENT
 ========================================
 
-Canonical base:
+Working hierarchy:
+
+- `main` is the public, runnable baseline
+- there must be exactly one active `feature/<feature>` workstream at a time
+- the active feature may have at most one active `chore/<feature>/<subtask>` at a time
+- branch topology must follow the work:
+  - `main` -> `feature/<feature>` for the current active workstream
+  - `feature/<feature>` -> optional `chore/<feature>/<subtask>` for a larger isolated work slice
+- small changes may happen directly on the active `feature/<feature>`
+- larger structural changes should typically use `chore/<feature>/<subtask>`
+
+Exceptional detour branch:
+
+- a short-lived cross-topic detour branch MAY be created when urgent work must land on `main` before the active feature is finished
+- branch form:
+  - `chore/<active-feature>/to-<target-feature>-<subtask>`
+- the `to-<target-feature>` segment is mandatory so the non-parent merge path is obvious
+- this branch does NOT merge back into `feature/<active-feature>`
+- it is a temporary detour from `main` intended to land on `main`, then be deleted
+- after the detour is merged, the previously active feature must be synchronized to the new `main` before continuation
+
+Freshness base mapping:
 
 - `feature/*` -> `origin/main`
 - `chore/<feature>/<subtask>` -> `feature/<feature>`
+- `chore/<active-feature>/to-<target-feature>-<subtask>` -> `origin/main`
 - `main` -> `origin/main`
+
+Worktree ownership rules:
+
+- never create or keep a second active `feature/*` while another feature remains unpublished or not fully integrated into `main`
+- never keep two active `chore/*` branches under the active feature
+- if a new larger task arrives while a `chore/<feature>/<subtask>` already exists:
+  - if the work is the same in-scope continuation, continue on that chore
+  - if the work is a small additive change, it may happen on the active feature after integrating the chore first
+  - otherwise integrate the existing chore into its feature first, then create the new chore
+- the active `feature/*` must remain the latest effective base for all unpublished work
+- a `chore/*` must not become a long-lived competing implementation line
+- a cross-topic detour branch is allowed only when ALL are true:
+  - the current active feature is clean, checkpointed, and intentionally suspended
+  - the detour starts from current `main`
+  - the task is clearly disjoint or safely extractable
+  - the branch name includes the intended target feature via `to-<target-feature>`
+  - the detour is merged to `main` and deleted before resuming the suspended feature
+- if overlap with the suspended feature is unclear or likely, the detour branch is forbidden
 
 Before ANY repository-changing work begins, freshness verification is REQUIRED.
 
@@ -124,6 +166,59 @@ Checkpoint safety exception:
 - After such checkpoint, no forward-progress work may continue until synchronization completes
 
 ========================================
+PUBLICATION STATE REQUIREMENT
+========================================
+
+Before ANY repository-changing work or topology-changing work begins, publication state verification is REQUIRED.
+
+The agent MUST inspect both local and remote unpublished state, including:
+
+- open PRs that are not merged yet
+- remote `feature/*` or `chore/*` branches not yet integrated into their canonical target
+- local branches with commits not pushed to their upstream
+- local branches whose upstream no longer exists
+
+Treat an open PR as unpublished state until it is merged.
+
+The agent MUST NOT start forward-progress work from an older effective base when relevant unpublished state exists for the same feature, subsystem, or merge target.
+
+Cross-topic detour branches are not exempt from this rule.
+
+If relevant unpublished state exists, the agent must first do one of:
+
+1. integrate it
+2. synchronize onto it
+3. explicitly supersede it with a clear warning and isolation plan
+
+Silent ignore of unpublished state is forbidden.
+
+========================================
+GOVERNANCE AUTHORITY RULE
+========================================
+
+Branch, merge, promotion, cleanup, and workflow-routing decisions must follow the governance rules that are already integrated into `main`.
+
+Non-integrated changes to:
+
+- `.github/AGENTS.md`
+- `.github/agents/*.md`
+
+are not yet authoritative for real repository workflow decisions.
+
+They may be used only when the user explicitly requests:
+
+- a simulation
+- a dry workflow rehearsal
+- or an explicit pre-merge governance test
+
+If the active unpublished workstream changes governance or workflow rules and a later branch/topology decision would rely on those new rules, the agent must first:
+
+1. integrate the governance change into `main`
+2. or explicitly ask the user to treat the next step as simulation only
+
+Starting a new branch from `main` while relying on not-yet-merged governance rules is forbidden.
+
+========================================
 BRANCH CONTINUATION GATE
 ========================================
 
@@ -134,6 +229,11 @@ Mandatory pre-write checks:
 - git status --short
 - whether staged changes exist
 - whether unstaged changes exist
+- whether local unpublished commits exist
+- whether relevant remote unpublished branches or open PRs exist
+- whether unpublished governance changes exist outside `main`
+- whether a suspended active feature exists
+- whether the new task overlaps files, contracts, or subsystem strategy with the suspended feature
 - whether current branch scope matches the requested task
 - whether the branch still represents the active intended work slice
 - freshness status vs canonical base
@@ -142,8 +242,12 @@ The agent may continue on the current branch only if ALL are true:
 - working tree is clean, or the existing changes are clearly in-scope carry-over for the same current task
 - branch scope matches the requested task
 - no unrelated leftovers are present
+- no sibling feature or sibling chore branch exists that should be the real current work carrier
+- no other active unpublished feature branch exists that should be integrated first
 - no branch-topology action is required first
 - current branch is not behind canonical base
+- any cross-topic detour branch has passed the overlap gate
+- any governance rules being relied on are already integrated into `main` or explicitly marked as simulation-only
 
 ========================================
 UNIFIED PRE-WORK BLOCKER
@@ -153,16 +257,22 @@ Before forward-progress or topology-changing work, ALL must pass:
 
 1. Freshness check passes (branch not behind canonical base)
 2. Canonical base is determinable and reachable
-3. No overlapping/competing active branch work with unclear boundaries
-4. Branch topology and merge target are unambiguous
+3. Publication state is inspected locally and remotely
+4. No overlapping/competing active branch work with unclear boundaries
+5. Branch topology and merge target are unambiguous
 
 The agent must STOP before continuing if ANY are true:
 - the working tree contains unrelated or unclear changes
 - the requested task changes scope significantly
 - the current branch has already completed its intended slice
 - the requested work should be isolated as a new `chore/<feature>/<subtask>` or `feature/<feature>` branch
+- a second active feature branch would remain while another unpublished feature still exists
+- a second chore branch would remain active under the active feature
+- a cross-topic detour branch would touch overlapping files, contracts, or subsystem strategy
+- a branch or merge decision would rely on unpublished governance rules not yet integrated into `main`
 - branch cleanup is needed before safe continuation
 - stale non-integrated or already-integrated branches are cluttering workflow visibility
+- relevant unpublished state exists and has not been integrated, synchronized, or explicitly superseded
 - freshness check failed
 - canonical base is ambiguous/unreachable
 - overlap/competing work is unresolved
@@ -177,9 +287,10 @@ For every blocked/proceed decision, agent MUST report:
 - current branch
 - canonical base (found/ambiguous/missing)
 - freshness status (ahead/equal/behind)
+- publication state status (clear / local unpublished / remote unpublished / open PR active)
 - overlap/collision status
 - topology clarity status
-- chosen action (proceed / sync first / consolidate first / stop)
+- chosen action (proceed / create-switch branch / sync first / integrate unpublished state first / consolidate first / stop)
 
 Dirty-tree classification is mandatory:
 - in-scope carry-over
@@ -194,6 +305,7 @@ The agent must explicitly report one of:
 - create/switch to new branch
 - cleanup required first
 - synchronize branch with canonical base first
+- integrate unpublished state first
 
 ========================================
 CONSISTENCY AND COLLISION GUARD
@@ -211,6 +323,7 @@ Treat as collision when:
 - multiple strategies exist for the same subsystem
 - workflow direction diverges without consolidation
 - new work would partially undo recent work without explicit acknowledgment
+- a detour branch from `main` would edit the same files, interfaces, or subsystem decisions as a suspended feature
 
 Required behavior on collision:
 
