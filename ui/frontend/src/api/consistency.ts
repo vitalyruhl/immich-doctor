@@ -12,7 +12,7 @@ import type {
   CatalogRemediationStateItemPayload,
 } from "./types/consistency";
 
-const REMEDIATION_TIMEOUT_MS = 30000;
+const REMEDIATION_TIMEOUT_MS = 90000;
 
 export async function fetchCatalogConsistencyJob(): Promise<
   ApiResponse<CatalogWorkflowJobRecord>

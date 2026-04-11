@@ -269,6 +269,8 @@ class CatalogWorkflowService:
         session = self.store.find_latest_incomplete_scan_session(settings)
         if session is None:
             return None
+        if str(session.get("status")) != "running":
+            return None
 
         effective_root_slugs = {root.slug for root in self.registry.scan_roots(settings)}
         root_slug = str(session["root_slug"])
@@ -789,6 +791,14 @@ class CatalogWorkflowService:
             ),
             default=None,
         )
+        comparison_window_started_at = min(
+            (
+                str(row["started_at"])
+                for row in current_rows
+                if row.get("started_at") is not None
+            ),
+            default=None,
+        )
         return {
             "effectiveRootSlugs": effective_root_slugs,
             "currentRows": current_rows,
@@ -796,6 +806,7 @@ class CatalogWorkflowService:
             "staleRootSlugs": stale_root_slugs,
             "missingRootSlugs": missing_root_slugs,
             "latestScanCommittedAt": latest_scan_committed_at,
+            "comparisonWindowStartedAt": comparison_window_started_at,
             "hasCompleteCoverage": bool(effective_root_slugs)
             and not stale_root_slugs
             and not missing_root_slugs,
@@ -816,6 +827,7 @@ class CatalogWorkflowService:
                     str(item.get("rootSlug") or ""),
                     str(item.get("snapshotId") or ""),
                     str(item.get("generation") or ""),
+                    str(item.get("startedAt") or ""),
                     str(item.get("committedAt") or ""),
                 )
             )
@@ -834,6 +846,7 @@ class CatalogWorkflowService:
                 str(row.get("root_slug") or ""),
                 str(row.get("snapshot_id") or ""),
                 str(row.get("generation") or ""),
+                str(row.get("started_at") or ""),
                 str(row.get("committed_at") or ""),
             )
             for row in rows
@@ -885,6 +898,7 @@ class CatalogWorkflowService:
                 "staleReason": "catalog_scan_updated",
                 "previousCompareGeneratedAt": previous_compare_generated_at,
                 "latestScanCommittedAt": coverage["latestScanCommittedAt"],
+                "comparisonWindowStartedAt": coverage.get("comparisonWindowStartedAt"),
                 "staleRootSlugs": coverage["staleRootSlugs"],
                 "missingRootSlugs": coverage["missingRootSlugs"],
             },

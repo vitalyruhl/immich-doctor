@@ -27,11 +27,11 @@
           v-if="activeTab === 'findings'"
           type="button"
           class="runtime-action"
-          :disabled="consistencyStore.isRefreshingRemediation"
+          :disabled="consistencyStore.isLoadingRemediation || consistencyStore.isRefreshingRemediation"
           @click="void refreshPanel()"
         >
           {{
-            consistencyStore.isRefreshingRemediation
+            consistencyStore.isLoadingRemediation || consistencyStore.isRefreshingRemediation
               ? "Refreshing..."
               : "Refresh detailed findings"
           }}
@@ -58,8 +58,50 @@
     </section>
 
     <template v-if="activeTab === 'findings'">
+      <section v-if="!consistencyStore.remediationLoaded" class="panel catalog-remediation-group">
+        <div class="settings-section__header">
+          <div>
+            <h4>Cached findings</h4>
+            <p>Detailed findings load on demand to keep the consistency page responsive on large datasets.</p>
+          </div>
+          <StatusTag status="unknown" />
+        </div>
+
+        <p class="health-card__summary">The cached findings view is not loaded yet.</p>
+        <p class="health-card__details">
+          Load the cached findings when needed, or rebuild them explicitly after a finished storage scan.
+        </p>
+
+        <section class="runtime-actions">
+          <button
+            type="button"
+            class="runtime-action runtime-action--secondary"
+            :disabled="consistencyStore.isLoadingRemediation || consistencyStore.isRefreshingRemediation"
+            @click="void loadCachedFindings()"
+          >
+            {{
+              consistencyStore.isLoadingRemediation
+                ? "Loading cached findings..."
+                : "Load cached findings"
+            }}
+          </button>
+          <button
+            type="button"
+            class="runtime-action"
+            :disabled="consistencyStore.isRefreshingRemediation"
+            @click="void refreshPanel()"
+          >
+            {{
+              consistencyStore.isRefreshingRemediation
+                ? "Refreshing..."
+                : "Refresh detailed findings"
+            }}
+          </button>
+        </section>
+      </section>
+
       <EmptyState
-        v-if="!findingGroups.length"
+        v-else-if="!findingGroups.length"
         title="No grouped findings available"
         message="Load the cached findings or run an explicit refresh to review operator actions here."
       />
@@ -890,6 +932,10 @@ async function performGroupActions(group: FindingGroupModel): Promise<void> {
 
 async function refreshPanel(): Promise<void> {
   await consistencyStore.refreshRemediation();
+}
+
+async function loadCachedFindings(): Promise<void> {
+  await consistencyStore.loadRemediation();
 }
 </script>
 

@@ -193,7 +193,7 @@ def test_catalog_consistency_job_returns_stale_snapshot_after_scan_basis_changes
         runtime.shutdown()
 
 
-def test_catalog_scan_job_recovers_incomplete_session_for_effective_root(
+def test_catalog_scan_job_recovers_running_session_for_effective_root(
     tmp_path: Path,
 ) -> None:
     uploads = tmp_path / "uploads"
@@ -212,9 +212,6 @@ def test_catalog_scan_job_recovers_incomplete_session_for_effective_root(
             storage_root_id=int(uploads_root["id"]),
             max_files=None,
         )
-        paused = store.mark_session_paused(settings, str(session["id"]))
-        assert paused is not None
-
         service = CatalogWorkflowService(runtime=runtime, store=store)
 
         class _FakeScanService:
@@ -389,6 +386,34 @@ def test_catalog_scan_pause_and_resume_transitions(tmp_path: Path) -> None:
         assert resumed["state"] in {"pending", "resuming", "running"}
     finally:
         _wait_for_runtime(runtime, job_type=CATALOG_SCAN_JOB_TYPE)
+        runtime.shutdown()
+
+
+def test_catalog_scan_get_job_does_not_auto_recover_paused_session(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    settings = _settings(tmp_path, uploads_path=uploads)
+    store = CatalogStore()
+    runtime = BackgroundJobRuntime()
+
+    try:
+        synced_roots = CatalogRootRegistry(store=store).sync(settings)
+        uploads_root = next(root for root in synced_roots if root["slug"] == "uploads")
+        session = store.create_scan_session(
+            settings,
+            storage_root_id=int(uploads_root["id"]),
+            max_files=None,
+        )
+        paused = store.mark_session_paused(settings, str(session["id"]))
+        assert paused is not None
+
+        service = CatalogWorkflowService(runtime=runtime, store=store)
+        result = service.get_scan_job(settings)
+
+        assert result["jobId"] is None
+        assert result["summary"] != f"Catalog scan recovery queued for root `uploads`."
+        assert runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE) is None
+    finally:
         runtime.shutdown()
 
 

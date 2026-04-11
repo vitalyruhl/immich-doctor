@@ -77,6 +77,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const catalogJob = ref<CatalogWorkflowJobRecord | null>(null);
   const ignoredState = ref<CatalogIgnoredFindingsResponse | null>(null);
   const quarantineState = ref<CatalogQuarantineResponse | null>(null);
+  const remediationLoaded = ref(false);
 
   const isLoading = ref(false);
   const isCatalogLoading = ref(false);
@@ -169,7 +170,6 @@ export const useConsistencyStore = defineStore("consistency", () => {
     try {
       await Promise.all([
         loadCatalogJob(),
-        loadRemediation(),
         loadIgnored(),
         loadQuarantine(),
       ]);
@@ -216,6 +216,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     try {
       const response = await fetchCatalogRemediationFindings();
       remediationScanResult.value = response.data;
+      remediationLoaded.value = true;
       return response.data;
     } catch (caughtError) {
       remediationError.value = toErrorMessage(caughtError);
@@ -231,6 +232,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     try {
       const response = await refreshCatalogRemediationFindings();
       remediationScanResult.value = response.data;
+      remediationLoaded.value = true;
       return response.data;
     } catch (caughtError) {
       remediationError.value = toErrorMessage(caughtError);
@@ -430,6 +432,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     quarantineState,
     quarantinedItems,
     remediationError,
+    remediationLoaded,
     remediationScanResult,
     refreshRemediation,
     releaseIgnoredItems,

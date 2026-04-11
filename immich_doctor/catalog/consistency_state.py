@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from immich_doctor.adapters.postgres import PostgresAdapter
 from immich_doctor.catalog.service import CatalogRootRegistry
@@ -26,6 +27,16 @@ def truthy_path(value: object) -> str | None:
     return text or None
 
 
+def parse_timestamp(value: object) -> datetime | None:
+    text = truthy_path(value)
+    if text is None:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
 @dataclass(slots=True, frozen=True)
 class CatalogSnapshotState:
     synced_roots: list[dict[str, object]]
@@ -37,6 +48,8 @@ class CatalogSnapshotState:
     checks: list[CheckResult]
     ready: bool
     metadata: dict[str, object]
+    comparison_window_started_at: str | None = None
+    comparison_window_committed_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -58,6 +71,8 @@ class CatalogConsistencyState:
     derivative_indexes: dict[str, set[str]]
     snapshot_basis: list[dict[str, object]]
     latest_scan_committed_at: str | None
+    comparison_window_started_at: str | None
+    comparison_window_committed_at: str | None
     configured_root_slugs: list[str]
     total_assets_scanned: int = 0
     valid_motion_video_components: int = 0
@@ -104,6 +119,41 @@ class CatalogConsistencyStateCollector:
                 ),
             )
         ]
+        current_snapshots = [
+            snapshot_by_slug[slug]
+            for slug in effective_root_slugs
+            if slug in snapshot_by_slug
+        ]
+        comparison_window_started_at_dt = min(
+            (
+                value
+                for value in (
+                    parse_timestamp(row.get("started_at")) for row in current_snapshots
+                )
+                if value is not None
+            ),
+            default=None,
+        )
+        comparison_window_committed_at_dt = max(
+            (
+                value
+                for value in (
+                    parse_timestamp(row.get("committed_at")) for row in current_snapshots
+                )
+                if value is not None
+            ),
+            default=None,
+        )
+        comparison_window_started_at = (
+            comparison_window_started_at_dt.isoformat()
+            if comparison_window_started_at_dt is not None
+            else None
+        )
+        comparison_window_committed_at = (
+            comparison_window_committed_at_dt.isoformat()
+            if comparison_window_committed_at_dt is not None
+            else None
+        )
         ready = not (missing_root_slugs or stale_root_slugs)
         metadata = {
             "configuredRoots": effective_root_slugs,
@@ -111,6 +161,8 @@ class CatalogConsistencyStateCollector:
             "staleRootSlugs": stale_root_slugs,
             "missingRootSlugs": missing_root_slugs,
             "requiresCurrentScan": not ready,
+            "comparisonWindowStartedAt": comparison_window_started_at,
+            "comparisonWindowCommittedAt": comparison_window_committed_at,
         }
         if not ready:
             checks.append(
@@ -138,6 +190,8 @@ class CatalogConsistencyStateCollector:
             checks=checks,
             ready=ready,
             metadata=metadata,
+            comparison_window_started_at=comparison_window_started_at,
+            comparison_window_committed_at=comparison_window_committed_at,
         )
 
     def collect(
@@ -164,8 +218,25 @@ class CatalogConsistencyStateCollector:
             )
 
         resolver = ImmichStoragePathResolver(settings)
-        zero_byte_rows = self.store.list_zero_byte_files(settings, limit=10_000)
-        latest_files = self.store.list_latest_snapshot_files(settings)
+        comparison_window_started_at = snapshot_state.comparison_window_started_at
+        zero_byte_rows = [
+            row
+            for row in self.store.list_zero_byte_files(settings, limit=10_000)
+            if self._row_within_snapshot_window(
+                row,
+                comparison_window_started_at,
+                timestamp_field="modified_at_fs",
+            )
+        ]
+        latest_files = [
+            row
+            for row in self.store.list_latest_snapshot_files(settings)
+            if self._row_within_snapshot_window(
+                row,
+                comparison_window_started_at,
+                timestamp_field="modified_at_fs",
+            )
+        ]
         files_by_root: dict[str, list[dict[str, object]]] = defaultdict(list)
         for row in latest_files:
             files_by_root[str(row["root_slug"])].append(row)
@@ -191,8 +262,17 @@ class CatalogConsistencyStateCollector:
                 }
             )
 
-        asset_rows = self.postgres.list_all_assets_for_catalog_consistency(dsn, timeout)
-        asset_file_rows = self.postgres.list_all_asset_files_for_catalog_consistency(dsn, timeout)
+        asset_rows = [
+            row
+            for row in self.postgres.list_all_assets_for_catalog_consistency(dsn, timeout)
+            if self._asset_within_snapshot_window(row, comparison_window_started_at)
+        ]
+        stable_asset_ids = {str(row["id"]) for row in asset_rows}
+        asset_file_rows = [
+            row
+            for row in self.postgres.list_all_asset_files_for_catalog_consistency(dsn, timeout)
+            if str(row.get("assetId")) in stable_asset_ids
+        ]
         live_photo_video_ids = {
             str(value)
             for asset in asset_rows
@@ -418,6 +498,7 @@ class CatalogConsistencyStateCollector:
                 "rootSlug": str(row["root_slug"]),
                 "snapshotId": row["snapshot_id"],
                 "generation": row["generation"],
+                "startedAt": row.get("started_at"),
                 "committedAt": row["committed_at"],
                 "absolutePath": row["absolute_path"],
             }
@@ -455,11 +536,43 @@ class CatalogConsistencyStateCollector:
             derivative_indexes=derivative_indexes,
             snapshot_basis=snapshot_basis,
             latest_scan_committed_at=latest_scan_committed_at,
+            comparison_window_started_at=comparison_window_started_at,
+            comparison_window_committed_at=snapshot_state.comparison_window_committed_at,
             configured_root_slugs=[row["slug"] for row in snapshot_state.synced_roots],
             total_assets_scanned=total_assets_scanned,
             valid_motion_video_components=valid_motion_video_components,
             progress_metadata=snapshot_state.metadata,
         )
+
+    def _asset_within_snapshot_window(
+        self,
+        row: dict[str, object],
+        comparison_window_started_at: str | None,
+    ) -> bool:
+        cutoff = parse_timestamp(comparison_window_started_at)
+        if cutoff is None:
+            return True
+        created_at = parse_timestamp(row.get("createdAt"))
+        updated_at = parse_timestamp(row.get("updatedAt"))
+        for candidate in (created_at, updated_at):
+            if candidate is not None and candidate > cutoff:
+                return False
+        return True
+
+    def _row_within_snapshot_window(
+        self,
+        row: dict[str, object],
+        comparison_window_started_at: str | None,
+        *,
+        timestamp_field: str,
+    ) -> bool:
+        cutoff = parse_timestamp(comparison_window_started_at)
+        if cutoff is None:
+            return True
+        row_timestamp = parse_timestamp(row.get(timestamp_field))
+        if row_timestamp is None:
+            return True
+        return row_timestamp <= cutoff
 
     def _is_original_candidate(self, row: dict[str, object]) -> bool:
         extension = str(row.get("extension") or "").lower()

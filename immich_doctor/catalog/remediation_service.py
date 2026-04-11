@@ -147,6 +147,8 @@ class CatalogRemediationService:
                 "latestSnapshots": state.latest_snapshots,
                 "snapshotBasis": state.snapshot_basis,
                 "latestScanCommittedAt": state.latest_scan_committed_at,
+                "comparisonWindowStartedAt": state.comparison_window_started_at,
+                "comparisonWindowCommittedAt": state.comparison_window_committed_at,
                 "totals": {
                     "brokenDbOriginals": len(broken_db_originals),
                     "brokenDbCleanupEligible": sum(

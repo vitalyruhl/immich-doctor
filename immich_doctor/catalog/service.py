@@ -37,6 +37,7 @@ _SCAN_PRIORITY = {
     "library": 4,
 }
 _DISCOVERY_PROGRESS_INTERVAL = 250
+_PROGRESS_EMIT_INTERVAL_SECONDS = 0.75
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +138,8 @@ class ScanRuntimeController:
                     self._condition.wait(timeout=0.2)
                     continue
                 actor = self._actors[actor_id]
-                if actor.state not in {"running", "idle"}:
-                    actor.state = "idle"
+                if actor.state not in {"running", "waiting"}:
+                    actor.state = "waiting"
                     actor.current_relative_path = None
                 return "running"
 
@@ -155,8 +156,10 @@ class ScanRuntimeController:
                 actor.state = "stopped"
             elif actor_id in self._paused:
                 actor.state = "paused"
+            elif actor.role == "collector" and self._collector_finished:
+                actor.state = "completed"
             else:
-                actor.state = "idle"
+                actor.state = "waiting"
             actor.current_relative_path = None
             self._condition.notify_all()
 
@@ -182,7 +185,7 @@ class ScanRuntimeController:
             return sum(
                 1
                 for actor in self._actors.values()
-                if actor.role == "worker" and actor.state == "running"
+                if actor.role == "worker" and actor.state in {"running", "waiting"}
             )
 
     def stopped_worker_count(self) -> int:
@@ -196,6 +199,16 @@ class ScanRuntimeController:
     def snapshot(self) -> list[dict[str, object]]:
         with self._condition:
             return [actor.to_dict() for actor in self._actors.values()]
+
+    def mark_scan_completed(self) -> None:
+        with self._condition:
+            for actor in self._actors.values():
+                if actor.state in {"stopped", "paused"}:
+                    continue
+                actor.state = "completed"
+                actor.current_relative_path = None
+            self._collector_finished = True
+            self._condition.notify_all()
 
 
 @dataclass(slots=True)
@@ -912,6 +925,8 @@ class CatalogInventoryScanService:
         files_seen_lock = Lock()
         shared_files_seen = [files_seen]
         stop_reason: dict[str, str | None] = {"value": None}
+        last_emit_phase = [""]
+        last_emit_monotonic = [0.0]
 
         def current_control_state() -> dict[str, bool]:
             return (
@@ -924,6 +939,14 @@ class CatalogInventoryScanService:
             if progress_callback is None:
                 return
             with emit_lock:
+                now_monotonic = time.monotonic()
+                should_emit = (
+                    phase != last_emit_phase[0]
+                    or stop_reason["value"] is not None
+                    or (now_monotonic - last_emit_monotonic[0]) >= _PROGRESS_EMIT_INTERVAL_SECONDS
+                )
+                if not should_emit:
+                    return
                 updated_session = self.store.get_scan_session(settings, session_id)
                 if updated_session is None:
                     return
@@ -963,6 +986,8 @@ class CatalogInventoryScanService:
                         "message": message,
                     }
                 )
+                last_emit_phase[0] = phase
+                last_emit_monotonic[0] = now_monotonic
 
         collector_thread = Thread(
             target=self._collector_loop,
@@ -1020,6 +1045,7 @@ class CatalogInventoryScanService:
                 controller=controller,
             )
 
+        controller.mark_scan_completed()
         return self._finalize_completed_incremental_scan(
             settings,
             root_row=root_row,

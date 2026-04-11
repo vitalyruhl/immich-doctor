@@ -113,6 +113,7 @@ function createStore(): any {
       summary: "1 ignored finding is currently active.",
     },
     isApplyingAction: false,
+    isLoadingRemediation: false,
     isRefreshingRemediation: false,
     lastActionSummary: null,
     quarantineError: null,
@@ -132,9 +133,11 @@ function createStore(): any {
     quarantineState: {
       summary: "1 quarantined finding is currently active.",
     },
+    loadRemediation: vi.fn().mockResolvedValue(undefined),
     refreshRemediation: vi.fn().mockResolvedValue(undefined),
     releaseIgnoredItems: vi.fn().mockResolvedValue(undefined),
     remediationError: null,
+    remediationLoaded: true,
     remediationScanResult: {
       summary: "Detailed findings loaded.",
     },
@@ -258,5 +261,24 @@ describe("CatalogRemediationPanel", () => {
     await ignoredTab!.trigger("click");
     await nextTick();
     expect(wrapper.text()).toContain("Release ignore");
+  });
+
+  it("supports lazy loading of cached findings", async () => {
+    store.remediationLoaded = false;
+
+    const wrapper = mount(CatalogRemediationPanel, {
+      global: {
+        stubs: {
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
+          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
+        },
+      },
+    });
+    await nextTick();
+
+    const loadButton = wrapper.findAll("button").find((button) => button.text() === "Load cached findings");
+    expect(loadButton).toBeTruthy();
+    await loadButton!.trigger("click");
+    expect(store.loadRemediation).toHaveBeenCalled();
   });
 });

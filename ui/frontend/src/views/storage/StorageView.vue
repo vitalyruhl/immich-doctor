@@ -121,13 +121,13 @@
                     <p class="runtime-actor-card__eyebrow">{{ actor.role }}</p>
                     <h5>{{ actorLabel(actor) }}</h5>
                   </div>
-                  <StatusTag :status="toUiStatus(actor.state)" />
+                  <span class="scan-actor-state" :class="`scan-actor-state--${actorStateTone(actor.state)}`">
+                    {{ actor.state }}
+                  </span>
                 </div>
                 <dl class="runtime-actor-card__details">
-                  <dt>State</dt>
-                  <dd>{{ actor.state }}</dd>
                   <dt>Current path</dt>
-                  <dd>{{ actor.currentRelativePath ?? "Idle" }}</dd>
+                  <dd>{{ actor.currentRelativePath ?? actorPathLabel(actor) }}</dd>
                 </dl>
                 <section class="runtime-actions runtime-actions--compact">
                   <button
@@ -235,6 +235,22 @@ function toUiStatus(value: string | null | undefined): "ok" | "warning" | "error
     return "warning";
   }
   if (["failed", "FAIL", "fail", "canceled", "stopped"].includes(value)) {
+    return "error";
+  }
+  return "unknown";
+}
+
+function actorStateTone(value: string | null | undefined): "ok" | "warning" | "error" | "unknown" {
+  if (!value) {
+    return "unknown";
+  }
+  if (["running", "waiting", "completed"].includes(value)) {
+    return "ok";
+  }
+  if (["pausing", "paused", "resuming", "stopping"].includes(value)) {
+    return "warning";
+  }
+  if (["failed", "stopped"].includes(value)) {
     return "error";
   }
   return "unknown";
@@ -388,6 +404,24 @@ function actorLabel(actor: CatalogScanRuntimeActor): string {
   return actor.actorId;
 }
 
+function actorPathLabel(actor: CatalogScanRuntimeActor): string {
+  if (actor.state === "waiting") {
+    return actor.role === "collector"
+      ? "Waiting for the next directory batch"
+      : "Waiting for the next directory";
+  }
+  if (actor.state === "completed") {
+    return "Completed";
+  }
+  if (actor.state === "paused") {
+    return "Paused";
+  }
+  if (actor.state === "stopped") {
+    return "Stopped";
+  }
+  return "No active path";
+}
+
 function pauseActorDisabled(actor: CatalogScanRuntimeActor): boolean {
   return (
     catalogStore.isLifecycleTransitioning
@@ -455,7 +489,7 @@ function startPolling(): void {
   }
   pollHandle = window.setInterval(() => {
     void catalogStore.refreshScanJob();
-  }, 1500);
+  }, 3000);
 }
 
 function stopPolling(): void {
@@ -599,5 +633,37 @@ onUnmounted(() => {
 
 .runtime-actions--compact {
   flex-wrap: wrap;
+}
+
+.scan-actor-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 6.5rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.scan-actor-state--ok {
+  background: #dff4e7;
+  color: #155b35;
+}
+
+.scan-actor-state--warning {
+  background: #fff1cf;
+  color: #8b5b00;
+}
+
+.scan-actor-state--error {
+  background: #fde4e1;
+  color: #8f2f24;
+}
+
+.scan-actor-state--unknown {
+  background: #e8eef2;
+  color: #44515b;
 }
 </style>
