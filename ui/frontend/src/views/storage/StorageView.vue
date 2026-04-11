@@ -103,6 +103,62 @@
             · Active workers: <strong>{{ activeWorkerCount }}</strong>
           </p>
           <p class="health-card__details">{{ workerResizeMessage }}</p>
+          <section class="runtime-actors">
+            <div class="settings-section__header runtime-actors__header">
+              <div>
+                <h4>Runtime actors</h4>
+                <p>Collector and workers are controlled individually. Each actor can be paused, resumed, or stopped without affecting the global scan controls above.</p>
+              </div>
+            </div>
+            <div v-if="scanActors.length" class="runtime-actors__grid">
+              <article
+                v-for="actor in scanActors"
+                :key="actor.actorId"
+                class="runtime-actor-card"
+              >
+                <div class="runtime-actor-card__header">
+                  <div>
+                    <p class="runtime-actor-card__eyebrow">{{ actor.role }}</p>
+                    <h5>{{ actorLabel(actor) }}</h5>
+                  </div>
+                  <StatusTag :status="toUiStatus(actor.state)" />
+                </div>
+                <dl class="runtime-actor-card__details">
+                  <dt>State</dt>
+                  <dd>{{ actor.state }}</dd>
+                  <dt>Current path</dt>
+                  <dd>{{ actor.currentRelativePath ?? "Idle" }}</dd>
+                </dl>
+                <section class="runtime-actions runtime-actions--compact">
+                  <button
+                    type="button"
+                    class="runtime-action runtime-action--secondary"
+                    :disabled="pauseActorDisabled(actor)"
+                    @click="void pauseActor(actor.actorId)"
+                  >
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    class="runtime-action runtime-action--secondary"
+                    :disabled="resumeActorDisabled(actor)"
+                    @click="void resumeActor(actor.actorId)"
+                  >
+                    Resume
+                  </button>
+                  <button
+                    type="button"
+                    class="runtime-action runtime-action--secondary"
+                    :disabled="stopActorDisabled(actor)"
+                    @click="void stopActor(actor.actorId)"
+                  >
+                    Stop
+                  </button>
+                </section>
+              </article>
+            </div>
+            <p v-else class="health-card__details">No runtime actors are currently reported.</p>
+          </section>
           <p v-if="catalogStore.scanError" class="runtime-blocking-message">{{ catalogStore.scanError }}</p>
 
           <section v-if="scanProgressPercent !== null" class="catalog-progress">
@@ -151,6 +207,7 @@ import type {
   CatalogJobProgress,
   CatalogSessionRow,
   CatalogSnapshotRow,
+  CatalogScanRuntimeActor,
   CatalogValidationReport,
 } from "@/api/types/catalog";
 
@@ -220,6 +277,18 @@ const scanProgress = computed<CatalogJobProgress | null>(() => {
 const scanRuntimeState = computed(() => catalogStore.scanRuntime?.scanState ?? "idle");
 const configuredWorkerCount = computed(() => catalogStore.scanRuntime?.configuredWorkerCount ?? 0);
 const activeWorkerCount = computed(() => catalogStore.scanRuntime?.activeWorkerCount ?? 0);
+const scanActors = computed<CatalogScanRuntimeActor[]>(() => {
+  const actors = catalogStore.scanRuntime?.actors;
+  if (!Array.isArray(actors)) {
+    return [];
+  }
+  return [...actors].sort((left, right) => {
+    if (left.role !== right.role) {
+      return left.role === "collector" ? -1 : 1;
+    }
+    return left.actorId.localeCompare(right.actorId, undefined, { numeric: true });
+  });
+});
 const workerResizeMessage = computed(() => {
   const resize = catalogStore.scanRuntime?.workerResize;
   if (!resize || resize.supported) {
@@ -237,10 +306,10 @@ const scanStats = computed(() => {
     return null;
   }
   if (
-    scanProgress.value.phase === "prepare"
+    scanProgress.value.phase === "collect"
     && typeof scanProgress.value.directoriesDiscovered === "number"
   ) {
-    return `Counting directories: ${scanProgress.value.directoriesDiscovered}`;
+    return `Collecting directories: ${scanProgress.value.directoriesDiscovered}`;
   }
   if (
     typeof scanProgress.value.directoriesTotal === "number"
@@ -308,6 +377,40 @@ const scanPanelStatus = computed(() => {
   return toUiStatus(catalogStore.scanJob?.state ?? latestSession.value?.status);
 });
 const latestSessionStatus = computed(() => toUiStatus(latestSession.value?.status));
+function actorLabel(actor: CatalogScanRuntimeActor): string {
+  if (actor.role === "collector") {
+    return "Collector";
+  }
+  const workerMatch = actor.actorId.match(/^worker-(\d+)$/);
+  if (workerMatch) {
+    return `Worker ${workerMatch[1]}`;
+  }
+  return actor.actorId;
+}
+
+function pauseActorDisabled(actor: CatalogScanRuntimeActor): boolean {
+  return (
+    catalogStore.isLifecycleTransitioning
+    || catalogStore.isActorTransitioning(actor.actorId)
+    || ["paused", "stopped", "stopping", "completed", "failed"].includes(actor.state)
+  );
+}
+
+function resumeActorDisabled(actor: CatalogScanRuntimeActor): boolean {
+  return (
+    catalogStore.isLifecycleTransitioning
+    || catalogStore.isActorTransitioning(actor.actorId)
+    || !["paused", "pausing"].includes(actor.state)
+  );
+}
+
+function stopActorDisabled(actor: CatalogScanRuntimeActor): boolean {
+  return (
+    catalogStore.isLifecycleTransitioning
+    || catalogStore.isActorTransitioning(actor.actorId)
+    || ["stopped", "stopping", "completed"].includes(actor.state)
+  );
+}
 async function runScan(): Promise<void> {
   await catalogStore.startScan(true);
 }
@@ -322,6 +425,18 @@ async function resumeScan(): Promise<void> {
 
 async function stopScan(): Promise<void> {
   await catalogStore.stopScan();
+}
+
+async function pauseActor(actorId: string): Promise<void> {
+  await catalogStore.pauseScanActor(actorId);
+}
+
+async function resumeActor(actorId: string): Promise<void> {
+  await catalogStore.resumeScanActor(actorId);
+}
+
+async function stopActor(actorId: string): Promise<void> {
+  await catalogStore.stopScanActor(actorId);
 }
 
 async function refresh(): Promise<void> {
@@ -420,5 +535,69 @@ onUnmounted(() => {
 .catalog-root--selected {
   border-color: #13202a;
   background: #eef5fb;
+}
+
+.runtime-actors {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.runtime-actors__header p {
+  margin: 0.25rem 0 0;
+}
+
+.runtime-actors__grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.runtime-actor-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid #dbe2e8;
+  border-radius: 0.75rem;
+  background: #f8fbfd;
+}
+
+.runtime-actor-card__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.runtime-actor-card__eyebrow {
+  margin: 0;
+  color: #5c6b77;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.runtime-actor-card__header h5 {
+  margin: 0.1rem 0 0;
+  font-size: 1rem;
+}
+
+.runtime-actor-card__details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 0.85rem;
+  margin: 0;
+}
+
+.runtime-actor-card__details dt {
+  color: #5c6b77;
+  font-size: 0.85rem;
+}
+
+.runtime-actor-card__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-actions--compact {
+  flex-wrap: wrap;
 }
 </style>

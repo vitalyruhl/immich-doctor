@@ -156,14 +156,14 @@ def test_catalog_scan_reports_prepare_phase_and_fixed_directory_total(tmp_path: 
     )
 
     prepare_updates = [
-        payload for payload in progress_payloads if payload.get("phase") == "prepare"
+        payload for payload in progress_payloads if payload.get("phase") == "collect"
     ]
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
 
     assert prepare_updates
     assert scan_updates
     assert prepare_updates[-1]["directoriesTotal"] == 3
-    assert {payload["directoriesTotal"] for payload in scan_updates} == {3}
+    assert max(int(payload["directoriesTotal"]) for payload in scan_updates) == 3
     assert scan_updates[-1]["percent"] == 100.0
 
 
@@ -300,6 +300,27 @@ def test_catalog_scan_parallel_workers_no_duplicates_or_misses(tmp_path: Path) -
     assert len(scanned_paths) == len(set(scanned_paths))
 
 
+def test_catalog_scan_handles_username_root_segments_without_uuid_assumptions(
+    tmp_path: Path,
+) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "alice" / "00").mkdir(parents=True, exist_ok=True)
+    (uploads / "alice" / "00" / "asset.jpg").write_bytes(b"asset")
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=2)
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    assert report.overall_status == CheckStatus.PASS
+    files = CatalogStore().list_latest_snapshot_files(settings, slug="uploads", limit=None)
+    assert [str(row["relative_path"]) for row in files] == ["alice/00/asset.jpg"]
+
+
 def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
     uploads = tmp_path / "uploads"
     (uploads / "a" / "b").mkdir(parents=True, exist_ok=True)
@@ -319,7 +340,7 @@ def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
 
     assert report.metadata["scan_workers"] == 3
     prepare_updates = [
-        payload for payload in progress_payloads if payload.get("phase") == "prepare"
+        payload for payload in progress_payloads if payload.get("phase") == "collect"
     ]
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
     assert prepare_updates
@@ -363,14 +384,13 @@ def test_catalog_scan_progress_reports_all_dispatched_workers(
         with active_lock:
             report_holder["active"] = int(report_holder.get("active", 1)) - 1
         return {
-            "subdirectories": [],
             "files": [],
             "error_count": 0,
             "bytes_delta": 0,
             "last_relative_path": None,
         }
 
-    monkeypatch.setattr(CatalogInventoryScanService, "_observe_directory", fake_observe_directory)
+    monkeypatch.setattr(CatalogInventoryScanService, "_observe_directory_files", fake_observe_directory)
 
     def run_scan() -> None:
         report_holder["report"] = service.run(

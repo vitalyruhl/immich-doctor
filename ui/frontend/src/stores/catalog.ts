@@ -2,12 +2,15 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { ApiClientError } from "@/api/client";
 import {
+  pauseCatalogScanActor,
   fetchCatalogScanJob,
   fetchCatalogStatus,
   pauseCatalogScanJob,
   requestCatalogScanWorkers,
+  resumeCatalogScanActor,
   resumeCatalogScanJob,
   startCatalogScanJob,
+  stopCatalogScanActor,
   stopCatalogScanJob,
 } from "@/api/catalog";
 import type {
@@ -84,6 +87,7 @@ export const useCatalogStore = defineStore("catalog", () => {
   const isLoading = ref(false);
   const isScanning = ref(false);
   const isLifecycleTransitioning = ref(false);
+  const actorTransitioning = ref<Record<string, boolean>>({});
   const error = ref<string | null>(null);
   const scanError = ref<string | null>(null);
 
@@ -204,6 +208,69 @@ export const useCatalogStore = defineStore("catalog", () => {
     }
   }
 
+  function isActorTransitioning(actorId: string): boolean {
+    return Boolean(actorTransitioning.value[actorId]);
+  }
+
+  function setActorTransitioning(actorId: string, transitioning: boolean): void {
+    if (transitioning) {
+      actorTransitioning.value = {
+        ...actorTransitioning.value,
+        [actorId]: true,
+      };
+      return;
+    }
+
+    const next = { ...actorTransitioning.value };
+    delete next[actorId];
+    actorTransitioning.value = next;
+  }
+
+  async function pauseScanActor(actorId: string): Promise<CatalogWorkflowJobRecord | null> {
+    setActorTransitioning(actorId, true);
+    scanError.value = null;
+    try {
+      const response = await pauseCatalogScanActor(actorId);
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      setActorTransitioning(actorId, false);
+    }
+  }
+
+  async function resumeScanActor(actorId: string): Promise<CatalogWorkflowJobRecord | null> {
+    setActorTransitioning(actorId, true);
+    scanError.value = null;
+    try {
+      const response = await resumeCatalogScanActor(actorId);
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      setActorTransitioning(actorId, false);
+    }
+  }
+
+  async function stopScanActor(actorId: string): Promise<CatalogWorkflowJobRecord | null> {
+    setActorTransitioning(actorId, true);
+    scanError.value = null;
+    try {
+      const response = await stopCatalogScanActor(actorId);
+      scanJob.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      scanError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      setActorTransitioning(actorId, false);
+    }
+  }
+
   async function requestScanWorkers(workers: number): Promise<CatalogWorkflowJobRecord | null> {
     isLifecycleTransitioning.value = true;
     scanError.value = null;
@@ -242,18 +309,22 @@ export const useCatalogStore = defineStore("catalog", () => {
     isScanning,
     latestSnapshots,
     load,
+    isActorTransitioning,
     refresh,
     refreshScanJob,
     rootCount,
     roots,
+    pauseScanActor,
     pauseScan,
     requestScanWorkers,
+    resumeScanActor,
     resumeScan,
     scanError,
     scanCoverage,
     scanJob,
     scanJobActive,
     scanRuntime,
+    stopScanActor,
     stopScan,
     selectedRoot,
     setSelectedRoot,

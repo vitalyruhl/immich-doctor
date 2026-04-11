@@ -1157,7 +1157,6 @@ class CatalogInventoryScanService:
                 bytes_delta=observed["bytes_delta"],
                 last_relative_path=observed["last_relative_path"],
             )
-            controller.mark_idle(worker_id)
             with files_seen_lock:
                 files_seen[0] += len(observed["files"])
                 if (
@@ -1167,6 +1166,7 @@ class CatalogInventoryScanService:
                 ):
                     stop_reason["value"] = "paused"
             emit_progress("scan", f"Scanning files for root `{root_row['slug']}`.")
+            controller.mark_idle(worker_id)
             if stop_reason["value"] == "paused":
                 return
 
