@@ -261,7 +261,71 @@ class CatalogInventoryScanService:
             root_path=root_path,
             worker_count=worker_count,
             progress_callback=progress_callback,
+            control_state_provider=control_state_provider,
         )
+        control_state = (
+            control_state_provider()
+            if control_state_provider is not None
+            else {"pauseRequested": False, "stopRequested": False}
+        )
+        if bool(control_state.get("pauseRequested")) or bool(control_state.get("stopRequested")):
+            interrupted_for_stop = bool(control_state.get("stopRequested"))
+            interrupted_session = (
+                self.store.mark_session_stopped(settings, session_id)
+                if interrupted_for_stop
+                else self.store.mark_session_paused(settings, session_id)
+            )
+            snapshot = self.store.get_snapshot(settings, int(session_row["snapshot_id"]))
+            if interrupted_session is None or snapshot is None:
+                action = "stopped" if interrupted_for_stop else "paused"
+                raise ValueError(f"Catalog session `{session_id}` could not be {action}.")
+            checks.append(
+                CheckResult(
+                    name="catalog_scan_session",
+                    status=CheckStatus.WARN,
+                    message=(
+                        (
+                            f"Catalog session `{session_id}` stopped during directory "
+                            "preparation."
+                        )
+                        if interrupted_for_stop
+                        else (
+                            f"Catalog session `{session_id}` paused during directory "
+                            "preparation."
+                        )
+                    ),
+                    details={
+                        "snapshot_id": interrupted_session["snapshot_id"],
+                        "files_seen": interrupted_session["files_seen"],
+                        "pending_directories": self.store.count_pending_directories(
+                            settings,
+                            session_id,
+                        ),
+                        "scan_workers": worker_count,
+                        "scan_state": "stopped" if interrupted_for_stop else "paused",
+                    },
+                )
+            )
+            return {
+                "checks": checks,
+                "session": interrupted_session,
+                "snapshot": snapshot,
+                "summary": (
+                    (
+                        f"Catalog scan stopped for root `{root_row['slug']}` during directory "
+                        f"preparation. Resume with `--resume-session-id {session_id}`."
+                    )
+                    if interrupted_for_stop
+                    else (
+                        f"Catalog scan paused for root `{root_row['slug']}` during directory "
+                        f"preparation. Resume with `--resume-session-id {session_id}`."
+                    )
+                ),
+                "run_context": {
+                    "scan_workers": worker_count,
+                    "scan_state": "stopped" if interrupted_for_stop else "paused",
+                },
+            }
         inflight: dict[Future[dict[str, object]], tuple[int, str]] = {}
         completed_by_order: dict[int, tuple[str, dict[str, object]]] = {}
         next_claim_order = 0
@@ -287,6 +351,7 @@ class CatalogInventoryScanService:
                     inflight[future] = (next_claim_order, relative_path)
                     next_claim_order += 1
 
+                active_worker_count = len(inflight)
                 if not inflight:
                     break
 
@@ -355,7 +420,7 @@ class CatalogInventoryScanService:
                                 "rootSlug": str(root_row["slug"]),
                                 "sessionId": session_id,
                                 "configuredWorkerCount": worker_count,
-                                "activeWorkerCount": len(inflight),
+                                "activeWorkerCount": active_worker_count,
                                 "scanState": scan_state,
                                 "filesSeen": int(updated_session["files_seen"]),
                                 "bytesSeen": int(updated_session["bytes_seen"]),
@@ -525,6 +590,7 @@ class CatalogInventoryScanService:
         root_path: Path,
         worker_count: int,
         progress_callback: Callable[[dict[str, object]], None] | None,
+        control_state_provider: Callable[[], dict[str, bool]] | None,
     ) -> None:
         discovered_directories: list[str] = []
 
@@ -548,8 +614,18 @@ class CatalogInventoryScanService:
 
         stack: list[tuple[Path, str]] = [(root_path, "")]
         seen_relative_paths = {""}
+        control_state = {"pauseRequested": False, "stopRequested": False}
 
         while stack:
+            control_state = (
+                control_state_provider()
+                if control_state_provider is not None
+                else {"pauseRequested": False, "stopRequested": False}
+            )
+            if bool(control_state.get("pauseRequested")) or bool(
+                control_state.get("stopRequested")
+            ):
+                break
             current_path, relative_path = stack.pop()
             discovered_directories.append(relative_path)
             discovered_count = len(discovered_directories)
@@ -596,7 +672,13 @@ class CatalogInventoryScanService:
                 "rootSlug": root_slug,
                 "configuredWorkerCount": worker_count,
                 "activeWorkerCount": 0,
-                "scanState": "running",
+                "scanState": (
+                    "stopped"
+                    if bool(control_state.get("stopRequested"))
+                    else "paused"
+                    if bool(control_state.get("pauseRequested"))
+                    else "running"
+                ),
                 "current": len(discovered_directories),
                 "total": len(discovered_directories),
                 "percent": None,
@@ -604,7 +686,16 @@ class CatalogInventoryScanService:
                 "directoriesTotal": total_directories,
                 "directoriesCompleted": directories_completed,
                 "pendingDirectories": pending_directories,
-                "message": f"Prepared {total_directories} directories for root `{root_slug}`.",
+                "message": (
+                    f"Prepared {total_directories} directories for root `{root_slug}`."
+                    if not bool(control_state.get("pauseRequested"))
+                    and not bool(control_state.get("stopRequested"))
+                    else (
+                        f"Stopping directory inventory preparation for root `{root_slug}`."
+                        if bool(control_state.get("stopRequested"))
+                        else f"Pausing directory inventory preparation for root `{root_slug}`."
+                    )
+                ),
             }
         )
 
