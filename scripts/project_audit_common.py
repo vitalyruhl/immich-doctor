@@ -224,11 +224,11 @@ class GitHubClient:
             for node in page["nodes"]:
                 content = node.get("content")
                 status_value = node.get("fieldValueByName")
-                if not content or not status_value:
+                if not content:
                     continue
                 yield ProjectItem(
                     id=node["id"],
-                    status=status_value["name"],
+                    status=(status_value or {}).get("name") or "",
                     updated_at=node.get("updatedAt"),
                     content=ContentRef(
                         kind=content["__typename"],
