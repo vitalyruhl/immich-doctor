@@ -227,8 +227,9 @@ def test_catalog_scan_job_recovers_incomplete_session_for_effective_root(
                 max_files: int | None,
                 progress_callback: Any,
                 control_state_provider: Any,
+                runtime_controller: Any,
             ) -> ValidationReport:
-                del settings_arg, max_files, progress_callback, control_state_provider
+                del settings_arg, max_files, progress_callback, control_state_provider, runtime_controller
                 resume_calls.append((root_slug, resume_session_id))
                 release.wait(5)
                 return ValidationReport(
@@ -344,8 +345,9 @@ def test_catalog_scan_pause_and_resume_transitions(tmp_path: Path) -> None:
             max_files: int | None,
             progress_callback: Any,
             control_state_provider: Any,
+            runtime_controller: Any,
         ) -> ValidationReport:
-            del settings_arg, root_slug, resume_session_id, max_files, progress_callback
+            del settings_arg, root_slug, resume_session_id, max_files, progress_callback, runtime_controller
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 state = control_state_provider()

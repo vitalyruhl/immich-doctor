@@ -10,7 +10,11 @@ from immich_doctor.backup.core.job_models import (
     BackgroundJobState,
 )
 from immich_doctor.catalog.consistency_service import CatalogConsistencyValidationService
-from immich_doctor.catalog.service import CatalogInventoryScanService, CatalogRootRegistry
+from immich_doctor.catalog.service import (
+    CatalogInventoryScanService,
+    CatalogRootRegistry,
+    ScanRuntimeController,
+)
 from immich_doctor.catalog.store import CatalogStore
 from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckStatus, ValidationReport
@@ -195,6 +199,42 @@ class CatalogWorkflowService:
         if stopped is None:
             return self._with_scan_runtime_details(settings, _record_to_payload(active_scan))
         return self._with_scan_runtime_details(settings, _record_to_payload(stopped))
+
+    def pause_scan_actor(self, settings: AppSettings, *, actor_id: str) -> dict[str, object]:
+        payload = self.get_scan_job(settings)
+        controller = self.runtime.get_job_attachment(job_type=CATALOG_SCAN_JOB_TYPE)
+        if not isinstance(controller, ScanRuntimeController):
+            payload["summary"] = "No active catalog scan actor is available to pause."
+            return self._with_scan_runtime_details(settings, payload)
+        if not controller.request_pause(actor_id):
+            payload["summary"] = f"Catalog scan actor `{actor_id}` was not found."
+            return self._with_scan_runtime_details(settings, payload)
+        payload["summary"] = f"Pause requested for catalog scan actor `{actor_id}`."
+        return self._with_scan_runtime_details(settings, payload)
+
+    def resume_scan_actor(self, settings: AppSettings, *, actor_id: str) -> dict[str, object]:
+        payload = self.get_scan_job(settings)
+        controller = self.runtime.get_job_attachment(job_type=CATALOG_SCAN_JOB_TYPE)
+        if not isinstance(controller, ScanRuntimeController):
+            payload["summary"] = "No active catalog scan actor is available to resume."
+            return self._with_scan_runtime_details(settings, payload)
+        if not controller.request_resume(actor_id):
+            payload["summary"] = f"Catalog scan actor `{actor_id}` cannot be resumed."
+            return self._with_scan_runtime_details(settings, payload)
+        payload["summary"] = f"Resume requested for catalog scan actor `{actor_id}`."
+        return self._with_scan_runtime_details(settings, payload)
+
+    def stop_scan_actor(self, settings: AppSettings, *, actor_id: str) -> dict[str, object]:
+        payload = self.get_scan_job(settings)
+        controller = self.runtime.get_job_attachment(job_type=CATALOG_SCAN_JOB_TYPE)
+        if not isinstance(controller, ScanRuntimeController):
+            payload["summary"] = "No active catalog scan actor is available to stop."
+            return self._with_scan_runtime_details(settings, payload)
+        if not controller.request_stop(actor_id):
+            payload["summary"] = f"Catalog scan actor `{actor_id}` was not found."
+            return self._with_scan_runtime_details(settings, payload)
+        payload["summary"] = f"Stop requested for catalog scan actor `{actor_id}`."
+        return self._with_scan_runtime_details(settings, payload)
 
     def request_scan_worker_resize(
         self,
@@ -394,6 +434,8 @@ class CatalogWorkflowService:
         reports: list[dict[str, object]] = []
         root_count = len(roots)
         worst_state = BackgroundJobState.COMPLETED
+        controller = ScanRuntimeController(worker_count=handle.settings.catalog_scan_workers)
+        self.runtime.set_job_attachment(job_type=CATALOG_SCAN_JOB_TYPE, attachment=controller)
         for index, root in enumerate(roots, start=1):
             if handle.stop_requested():
                 return {
@@ -437,6 +479,7 @@ class CatalogWorkflowService:
                     "pauseRequested": handle.pause_requested(),
                     "stopRequested": handle.stop_requested(),
                 },
+                runtime_controller=controller,
             )
             report_dict = report.to_dict()
             reports.append({"rootSlug": root.slug, "report": report_dict})
@@ -498,6 +541,8 @@ class CatalogWorkflowService:
         root_slug: str,
         resume_session_id: str,
     ) -> dict[str, object]:
+        controller = ScanRuntimeController(worker_count=handle.settings.catalog_scan_workers)
+        self.runtime.set_job_attachment(job_type=CATALOG_SCAN_JOB_TYPE, attachment=controller)
         logger.info(
             "Catalog scan job %s resuming session %s for root %s",
             handle.record.job_id,
@@ -521,6 +566,7 @@ class CatalogWorkflowService:
                 "pauseRequested": handle.pause_requested(),
                 "stopRequested": handle.stop_requested(),
             },
+            runtime_controller=controller,
         )
         session_status = self._scan_session_status(report)
         if session_status == "stopped":
@@ -838,10 +884,19 @@ class CatalogWorkflowService:
 
         progress = result.get("progress")
         active_worker_count = 0
+        actors: list[dict[str, object]] = []
         if isinstance(progress, dict):
             candidate = progress.get("activeWorkerCount")
             if isinstance(candidate, int):
                 active_worker_count = max(candidate, 0)
+            actor_candidate = progress.get("actors")
+            if isinstance(actor_candidate, list):
+                actors = [item for item in actor_candidate if isinstance(item, dict)]
+
+        controller = self.runtime.get_job_attachment(job_type=CATALOG_SCAN_JOB_TYPE)
+        if isinstance(controller, ScanRuntimeController):
+            actors = controller.snapshot()
+            active_worker_count = controller.active_worker_count()
 
         state_value = str(payload.get("state") or BackgroundJobState.PENDING.value)
         has_job_id = payload.get("jobId") is not None
@@ -853,6 +908,7 @@ class CatalogWorkflowService:
             "scanState": scan_state,
             "configuredWorkerCount": settings.catalog_scan_workers,
             "activeWorkerCount": active_worker_count,
+            "actors": actors,
             "workerResize": {
                 "supported": False,
                 "semantics": "next_run_only",

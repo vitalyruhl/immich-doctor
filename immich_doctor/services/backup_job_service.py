@@ -141,6 +141,10 @@ class BackgroundJobRuntime:
         init=False,
         repr=False,
     )
+    _job_attachments: dict[str, object] = field(
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         self._executor = ThreadPoolExecutor(
@@ -150,6 +154,7 @@ class BackgroundJobRuntime:
         self._lock = Lock()
         self._active_jobs: dict[str, tuple[ManagedJobHandle, Future[None]]] = {}
         self._capability_snapshots = {}
+        self._job_attachments = {}
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=False)
@@ -230,6 +235,17 @@ class BackgroundJobRuntime:
             snapshot = self._capability_snapshots.get(name)
             return dict(snapshot) if snapshot is not None else None
 
+    def set_job_attachment(self, *, job_type: str, attachment: object | None) -> None:
+        with self._lock:
+            if attachment is None:
+                self._job_attachments.pop(job_type, None)
+                return
+            self._job_attachments[job_type] = attachment
+
+    def get_job_attachment(self, *, job_type: str) -> object | None:
+        with self._lock:
+            return self._job_attachments.get(job_type)
+
     def _run_job(
         self,
         handle: ManagedJobHandle,
@@ -259,3 +275,4 @@ class BackgroundJobRuntime:
                 active = self._active_jobs.get(handle.record.job_type)
                 if active is not None and active[0].record.job_id == handle.record.job_id:
                     self._active_jobs.pop(handle.record.job_type, None)
+                self._job_attachments.pop(handle.record.job_type, None)

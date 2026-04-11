@@ -20,6 +20,7 @@ class CatalogStore:
         catalog_root(settings).mkdir(parents=True, exist_ok=True)
         with self.connect(settings) as connection:
             connection.executescript(_SCHEMA_SQL)
+            self._ensure_schema_columns(connection)
             connection.commit()
 
     @contextmanager
@@ -181,6 +182,19 @@ class CatalogStore:
                     scan_session_id,
                     relative_path,
                     status,
+                    worker_id,
+                    discovered_at
+                )
+                VALUES (?, '', 'pending', NULL, ?);
+                """,
+                (session_id, started_at),
+            )
+            connection.execute(
+                """
+                INSERT INTO scan_collect_queue (
+                    scan_session_id,
+                    relative_path,
+                    status,
                     discovered_at
                 )
                 VALUES (?, '', 'pending', ?);
@@ -230,6 +244,15 @@ class CatalogStore:
             connection.execute(
                 """
                 UPDATE scan_directory_queue
+                SET status = 'pending'
+                    , worker_id = NULL
+                WHERE scan_session_id = ? AND status = 'processing';
+                """,
+                (session_id,),
+            )
+            connection.execute(
+                """
+                UPDATE scan_collect_queue
                 SET status = 'pending'
                 WHERE scan_session_id = ? AND status = 'processing';
                 """,
@@ -281,7 +304,13 @@ class CatalogStore:
             ).fetchone()
         return dict(row) if row is not None else None
 
-    def claim_next_directory(self, settings: AppSettings, session_id: str) -> str | None:
+    def claim_next_directory(
+        self,
+        settings: AppSettings,
+        session_id: str,
+        *,
+        worker_id: str,
+    ) -> str | None:
         self.initialize(settings)
         with self.connect(settings) as connection:
             connection.execute("BEGIN IMMEDIATE;")
@@ -302,6 +331,36 @@ class CatalogStore:
             connection.execute(
                 """
                 UPDATE scan_directory_queue
+                SET status = 'processing',
+                    worker_id = ?
+                WHERE scan_session_id = ? AND relative_path = ?;
+                """,
+                (worker_id, session_id, relative_path),
+            )
+            connection.commit()
+        return relative_path
+
+    def claim_next_collect_directory(self, settings: AppSettings, session_id: str) -> str | None:
+        self.initialize(settings)
+        with self.connect(settings) as connection:
+            connection.execute("BEGIN IMMEDIATE;")
+            row = connection.execute(
+                """
+                SELECT relative_path
+                FROM scan_collect_queue
+                WHERE scan_session_id = ? AND status = 'pending'
+                ORDER BY relative_path ASC
+                LIMIT 1;
+                """,
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return None
+            relative_path = str(row["relative_path"])
+            connection.execute(
+                """
+                UPDATE scan_collect_queue
                 SET status = 'processing'
                 WHERE scan_session_id = ? AND relative_path = ?;
                 """,
@@ -331,6 +390,37 @@ class CatalogStore:
                     scan_session_id,
                     relative_path,
                     status,
+                    worker_id,
+                    discovered_at
+                )
+                VALUES (?, ?, 'pending', NULL, ?)
+                ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
+                """,
+                [(session_id, relative_path, now) for relative_path in unique_paths],
+            )
+            connection.commit()
+
+    def seed_collect_queue(
+        self,
+        settings: AppSettings,
+        *,
+        session_id: str,
+        relative_paths: list[str],
+    ) -> None:
+        self.initialize(settings)
+        if not relative_paths:
+            return
+
+        now = _utcnow()
+        unique_paths = sorted(set(relative_paths))
+        with self.connect(settings) as connection:
+            connection.execute("BEGIN IMMEDIATE;")
+            connection.executemany(
+                """
+                INSERT INTO scan_collect_queue (
+                    scan_session_id,
+                    relative_path,
+                    status,
                     discovered_at
                 )
                 VALUES (?, ?, 'pending', ?)
@@ -340,7 +430,7 @@ class CatalogStore:
             )
             connection.commit()
 
-    def apply_directory_observation(
+    def apply_directory_files(
         self,
         settings: AppSettings,
         *,
@@ -348,7 +438,6 @@ class CatalogStore:
         storage_root_id: int,
         snapshot_id: int,
         relative_path: str,
-        subdirectories: list[str],
         file_observations: list[CatalogFileObservation],
         error_count: int,
         bytes_delta: int,
@@ -358,20 +447,6 @@ class CatalogStore:
         now = _utcnow()
         with self.connect(settings) as connection:
             connection.execute("BEGIN IMMEDIATE;")
-            for child_path in subdirectories:
-                connection.execute(
-                    """
-                    INSERT INTO scan_directory_queue (
-                        scan_session_id,
-                        relative_path,
-                        status,
-                        discovered_at
-                    )
-                    VALUES (?, ?, 'pending', ?)
-                    ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
-                    """,
-                    (session_id, child_path, now),
-                )
             for observation in file_observations:
                 connection.execute(
                     """
@@ -444,6 +519,7 @@ class CatalogStore:
                 """
                 UPDATE scan_directory_queue
                 SET status = 'done',
+                    worker_id = NULL,
                     completed_at = ?
                 WHERE scan_session_id = ? AND relative_path = ?;
                 """,
@@ -469,6 +545,58 @@ class CatalogStore:
                     session_id,
                 ),
             )
+            connection.commit()
+
+    def complete_collected_directory(
+        self,
+        settings: AppSettings,
+        *,
+        session_id: str,
+        relative_path: str,
+        child_relative_paths: list[str],
+    ) -> None:
+        self.initialize(settings)
+        now = _utcnow()
+        unique_children = sorted(set(child_relative_paths))
+        with self.connect(settings) as connection:
+            connection.execute("BEGIN IMMEDIATE;")
+            connection.execute(
+                """
+                UPDATE scan_collect_queue
+                SET status = 'done',
+                    completed_at = ?
+                WHERE scan_session_id = ? AND relative_path = ?;
+                """,
+                (now, session_id, relative_path),
+            )
+            if unique_children:
+                connection.executemany(
+                    """
+                    INSERT INTO scan_collect_queue (
+                        scan_session_id,
+                        relative_path,
+                        status,
+                        discovered_at
+                    )
+                    VALUES (?, ?, 'pending', ?)
+                    ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
+                    """,
+                    [(session_id, child_path, now) for child_path in unique_children],
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO scan_directory_queue (
+                        scan_session_id,
+                        relative_path,
+                        status,
+                        worker_id,
+                        discovered_at
+                    )
+                    VALUES (?, ?, 'pending', NULL, ?)
+                    ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
+                    """,
+                    [(session_id, child_path, now) for child_path in unique_children],
+                )
             connection.commit()
 
     def mark_session_paused(
@@ -518,6 +646,43 @@ class CatalogStore:
             connection.execute(
                 """
                 UPDATE scan_directory_queue
+                SET status = 'pending'
+                    , worker_id = NULL
+                WHERE scan_session_id = ?
+                  AND status = 'processing';
+                """,
+                (session_id,),
+            )
+            connection.commit()
+
+    def requeue_processing_directories_for_worker(
+        self,
+        settings: AppSettings,
+        session_id: str,
+        *,
+        worker_id: str,
+    ) -> None:
+        self.initialize(settings)
+        with self.connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE scan_directory_queue
+                SET status = 'pending',
+                    worker_id = NULL
+                WHERE scan_session_id = ?
+                  AND status = 'processing'
+                  AND worker_id = ?;
+                """,
+                (session_id, worker_id),
+            )
+            connection.commit()
+
+    def requeue_collecting_directories(self, settings: AppSettings, session_id: str) -> None:
+        self.initialize(settings)
+        with self.connect(settings) as connection:
+            connection.execute(
+                """
+                UPDATE scan_collect_queue
                 SET status = 'pending'
                 WHERE scan_session_id = ?
                   AND status = 'processing';
@@ -848,6 +1013,57 @@ class CatalogStore:
             ).fetchone()
         return int(row["pending_count"]) if row is not None else 0
 
+    def count_pending_collect_directories(self, settings: AppSettings, session_id: str) -> int:
+        self.initialize(settings)
+        with self.connect(settings) as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS pending_count
+                FROM scan_collect_queue
+                WHERE scan_session_id = ?
+                  AND status IN ('pending', 'processing');
+                """,
+                (session_id,),
+            ).fetchone()
+        return int(row["pending_count"]) if row is not None else 0
+
+    def _ensure_schema_columns(self, connection: sqlite3.Connection) -> None:
+        directory_columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(scan_directory_queue);").fetchall()
+        }
+        if "worker_id" not in directory_columns:
+            connection.execute(
+                "ALTER TABLE scan_directory_queue ADD COLUMN worker_id TEXT;"
+            )
+
+        tables = {
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table';"
+            ).fetchall()
+        }
+        if "scan_collect_queue" not in tables:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scan_collect_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scan_session_id TEXT NOT NULL REFERENCES scan_session(id),
+                    relative_path TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    discovered_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    UNIQUE(scan_session_id, relative_path)
+                );
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_scan_collect_queue_session_status
+                    ON scan_collect_queue(scan_session_id, status, relative_path);
+                """
+            )
+
     def get_snapshot(self, settings: AppSettings, snapshot_id: int) -> dict[str, object] | None:
         self.initialize(settings)
         with self.connect(settings) as connection:
@@ -939,6 +1155,7 @@ CREATE TABLE IF NOT EXISTS scan_directory_queue (
     scan_session_id TEXT NOT NULL REFERENCES scan_session(id),
     relative_path TEXT NOT NULL,
     status TEXT NOT NULL,
+    worker_id TEXT,
     discovered_at TEXT NOT NULL,
     completed_at TEXT,
     UNIQUE(scan_session_id, relative_path)
@@ -946,6 +1163,19 @@ CREATE TABLE IF NOT EXISTS scan_directory_queue (
 
 CREATE INDEX IF NOT EXISTS idx_scan_directory_queue_session_status
     ON scan_directory_queue(scan_session_id, status, relative_path);
+
+CREATE TABLE IF NOT EXISTS scan_collect_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_session_id TEXT NOT NULL REFERENCES scan_session(id),
+    relative_path TEXT NOT NULL,
+    status TEXT NOT NULL,
+    discovered_at TEXT NOT NULL,
+    completed_at TEXT,
+    UNIQUE(scan_session_id, relative_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_collect_queue_session_status
+    ON scan_collect_queue(scan_session_id, status, relative_path);
 
 CREATE TABLE IF NOT EXISTS file_record (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
