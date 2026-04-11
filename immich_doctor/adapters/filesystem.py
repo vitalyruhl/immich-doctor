@@ -46,6 +46,10 @@ class FilesystemAdapter:
     def delete_file(self, path: Path) -> None:
         path.unlink()
 
+    def move_file(self, source: Path, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source.as_posix(), destination.as_posix())
+
     def compute_file_checksum(
         self,
         path: Path,

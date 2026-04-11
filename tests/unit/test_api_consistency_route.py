@@ -198,24 +198,22 @@ def test_catalog_consistency_job_routes_return_expected_shape(monkeypatch) -> No
 def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     monkeypatch.setattr(
         consistency_routes.CatalogRemediationService,
-        "scan",
-        lambda self, settings, **kwargs: _Result(
-            {
-                "domain": "consistency.catalog_remediation",
-                "action": "scan",
-                "status": "WARN",
-                "summary": "Catalog remediation findings loaded.",
-                "broken_db_originals": [
-                    {"asset_id": "asset-1", "classification": "missing_confirmed"}
-                ],
-                "zero_byte_findings": [
-                    {"finding_id": "zero-1", "classification": "zero_byte_upload_orphan"}
-                ],
-                "fuse_hidden_orphans": [
-                    {"finding_id": "fuse-1", "classification": "deletable_orphan"}
-                ],
-            }
-        ),
+        "load_cached_findings",
+        lambda self, settings: {
+            "domain": "consistency.catalog_remediation",
+            "action": "scan",
+            "status": "WARN",
+            "summary": "Catalog remediation findings loaded.",
+            "broken_db_originals": [
+                {"asset_id": "asset-1", "classification": "missing_confirmed"}
+            ],
+            "zero_byte_findings": [
+                {"finding_id": "zero-1", "classification": "zero_byte_upload_orphan"}
+            ],
+            "fuse_hidden_orphans": [
+                {"finding_id": "fuse-1", "classification": "deletable_orphan"}
+            ],
+        },
     )
     monkeypatch.setattr(
         consistency_routes.CatalogRemediationService,

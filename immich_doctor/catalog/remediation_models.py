@@ -69,6 +69,8 @@ class BrokenDbOriginalFinding:
     checksum_value: str | None
     checksum_algorithm: str | None
     checksum_match: bool | None
+    owner_id: str | None
+    owner_label: str | None
     eligible_actions: tuple[CatalogRemediationActionKind, ...]
     action_reason: str
     search_error: str | None = None
@@ -100,6 +102,8 @@ class BrokenDbOriginalFinding:
             "checksum_value": self.checksum_value,
             "checksum_algorithm": self.checksum_algorithm,
             "checksum_match": self.checksum_match,
+            "owner_id": self.owner_id,
+            "owner_label": self.owner_label,
             "eligible_actions": [action.value for action in self.eligible_actions],
             "action_eligible": self.action_eligible,
             "action_reason": self.action_reason,
@@ -120,6 +124,9 @@ class ZeroByteFinding:
     classification: ZeroByteClassification
     asset_id: str | None
     asset_name: str | None
+    owner_id: str | None
+    owner_label: str | None
+    db_reference_kind: str | None
     original_relative_path: str | None
     eligible_actions: tuple[CatalogRemediationActionKind, ...]
     action_reason: str
@@ -144,6 +151,9 @@ class ZeroByteFinding:
             "classification": self.classification.value,
             "asset_id": self.asset_id,
             "asset_name": self.asset_name,
+            "owner_id": self.owner_id,
+            "owner_label": self.owner_label,
+            "db_reference_kind": self.db_reference_kind,
             "original_relative_path": self.original_relative_path,
             "eligible_actions": [action.value for action in self.eligible_actions],
             "action_eligible": self.action_eligible,
@@ -162,6 +172,8 @@ class FuseHiddenOrphanFinding:
     file_name: str
     size_bytes: int
     classification: FuseHiddenOrphanClassification
+    owner_id: str | None
+    owner_label: str | None
     eligible_actions: tuple[CatalogRemediationActionKind, ...]
     action_reason: str
     in_use_check_tool: str | None = None
@@ -185,6 +197,8 @@ class FuseHiddenOrphanFinding:
             "file_name": self.file_name,
             "size_bytes": self.size_bytes,
             "classification": self.classification.value,
+            "owner_id": self.owner_id,
+            "owner_label": self.owner_label,
             "eligible_actions": [action.value for action in self.eligible_actions],
             "action_eligible": self.action_eligible,
             "action_reason": self.action_reason,
@@ -192,6 +206,58 @@ class FuseHiddenOrphanFinding:
             "in_use_check_reason": self.in_use_check_reason,
             "message": self.message,
         }
+
+
+@dataclass(slots=True, frozen=True)
+class CatalogIgnoredFinding:
+    ignored_item_id: str
+    finding_id: str
+    category_key: str
+    title: str
+    owner_id: str | None
+    owner_label: str | None
+    source_path: str | None
+    original_relative_path: str | None
+    reason: str
+    details: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    released_at: str | None = None
+    state: str = "active"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ignored_item_id": self.ignored_item_id,
+            "finding_id": self.finding_id,
+            "category_key": self.category_key,
+            "title": self.title,
+            "owner_id": self.owner_id,
+            "owner_label": self.owner_label,
+            "source_path": self.source_path,
+            "original_relative_path": self.original_relative_path,
+            "reason": self.reason,
+            "details": self.details,
+            "created_at": self.created_at,
+            "released_at": self.released_at,
+            "state": self.state,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> CatalogIgnoredFinding:
+        return cls(
+            ignored_item_id=str(payload["ignored_item_id"]),
+            finding_id=str(payload["finding_id"]),
+            category_key=str(payload["category_key"]),
+            title=str(payload["title"]),
+            owner_id=payload.get("owner_id"),
+            owner_label=payload.get("owner_label"),
+            source_path=payload.get("source_path"),
+            original_relative_path=payload.get("original_relative_path"),
+            reason=str(payload["reason"]),
+            details=dict(payload.get("details", {})),
+            created_at=str(payload["created_at"]),
+            released_at=payload.get("released_at"),
+            state=str(payload.get("state") or "active"),
+        )
 
 
 @dataclass(slots=True, frozen=True)

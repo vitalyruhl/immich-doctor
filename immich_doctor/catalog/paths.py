@@ -11,3 +11,11 @@ def catalog_root(settings: AppSettings) -> Path:
 
 def catalog_database_path(settings: AppSettings) -> Path:
     return catalog_root(settings) / "file-catalog.sqlite3"
+
+
+def catalog_remediation_cache_path(settings: AppSettings) -> Path:
+    return catalog_root(settings) / "remediation-cache.json"
+
+
+def catalog_ignored_findings_path(settings: AppSettings) -> Path:
+    return catalog_root(settings) / "ignored-findings.json"

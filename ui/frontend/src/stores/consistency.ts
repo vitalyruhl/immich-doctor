@@ -2,8 +2,17 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { ApiClientError } from "@/api/client";
 import {
+  applyCatalogBrokenDbActionDirect,
+  deleteCatalogQuarantine,
   fetchCatalogConsistencyJob,
+  fetchCatalogIgnoredFindings,
+  fetchCatalogQuarantine,
   fetchCatalogRemediationFindings,
+  ignoreCatalogFindings,
+  quarantineCatalogFindings,
+  refreshCatalogRemediationFindings,
+  releaseCatalogIgnoredFindings,
+  restoreCatalogQuarantine,
   startCatalogConsistencyJob,
 } from "@/api/consistency";
 import type {
@@ -12,8 +21,14 @@ import type {
 } from "@/api/types/catalog";
 import type {
   BrokenDbOriginalFinding,
+  CatalogIgnoredFindingsResponse,
+  CatalogQuarantineResponse,
+  CatalogRemediationActionResponse,
   CatalogRemediationScanResponse,
+  CatalogRemediationStateItemPayload,
   FuseHiddenOrphanFinding,
+  IgnoredFindingItem,
+  QuarantineItemView,
   ZeroByteFinding,
 } from "@/api/types/consistency";
 
@@ -60,15 +75,24 @@ function sectionRows(
 export const useConsistencyStore = defineStore("consistency", () => {
   const remediationScanResult = ref<CatalogRemediationScanResponse | null>(null);
   const catalogJob = ref<CatalogWorkflowJobRecord | null>(null);
-  const lastLoadedRemediationReportAt = ref<string | null>(null);
+  const ignoredState = ref<CatalogIgnoredFindingsResponse | null>(null);
+  const quarantineState = ref<CatalogQuarantineResponse | null>(null);
 
   const isLoading = ref(false);
   const isCatalogLoading = ref(false);
   const isCatalogStarting = ref(false);
   const isLoadingRemediation = ref(false);
+  const isRefreshingRemediation = ref(false);
+  const isLoadingIgnored = ref(false);
+  const isLoadingQuarantine = ref(false);
+  const isApplyingAction = ref(false);
 
   const catalogJobError = ref<string | null>(null);
   const remediationError = ref<string | null>(null);
+  const ignoredError = ref<string | null>(null);
+  const quarantineError = ref<string | null>(null);
+  const actionError = ref<string | null>(null);
+  const lastActionSummary = ref<string | null>(null);
 
   const catalogReport = computed<CatalogValidationReport | null>(() => {
     const candidate = catalogJob.value?.result?.report;
@@ -143,12 +167,14 @@ export const useConsistencyStore = defineStore("consistency", () => {
   async function load(): Promise<void> {
     isLoading.value = true;
     try {
-      await loadCatalogJob();
+      await Promise.all([
+        loadCatalogJob(),
+        loadRemediation(),
+        loadIgnored(),
+        loadQuarantine(),
+      ]);
     } finally {
       isLoading.value = false;
-    }
-    if (catalogReport.value) {
-      void loadRemediation();
     }
   }
 
@@ -158,9 +184,6 @@ export const useConsistencyStore = defineStore("consistency", () => {
     try {
       const response = await fetchCatalogConsistencyJob();
       catalogJob.value = response.data;
-      if (catalogReport.value) {
-        void loadRemediation();
-      }
       return response.data;
     } catch (caughtError) {
       catalogJobError.value = toErrorMessage(caughtError);
@@ -187,33 +210,148 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function loadRemediation(
-    force = false,
-  ): Promise<CatalogRemediationScanResponse | null> {
-    const reportGeneratedAt = catalogReport.value?.generated_at ?? null;
-    if (!force && !reportGeneratedAt) {
-      return remediationScanResult.value;
-    }
-    if (
-      !force &&
-      remediationScanResult.value &&
-      reportGeneratedAt === lastLoadedRemediationReportAt.value
-    ) {
-      return remediationScanResult.value;
-    }
-
+  async function loadRemediation(): Promise<CatalogRemediationScanResponse | null> {
     isLoadingRemediation.value = true;
     remediationError.value = null;
     try {
       const response = await fetchCatalogRemediationFindings();
       remediationScanResult.value = response.data;
-      lastLoadedRemediationReportAt.value = reportGeneratedAt;
       return response.data;
     } catch (caughtError) {
       remediationError.value = toErrorMessage(caughtError);
       return null;
     } finally {
       isLoadingRemediation.value = false;
+    }
+  }
+
+  async function refreshRemediation(): Promise<CatalogRemediationScanResponse | null> {
+    isRefreshingRemediation.value = true;
+    remediationError.value = null;
+    try {
+      const response = await refreshCatalogRemediationFindings();
+      remediationScanResult.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      remediationError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isRefreshingRemediation.value = false;
+    }
+  }
+
+  async function loadIgnored(): Promise<CatalogIgnoredFindingsResponse | null> {
+    isLoadingIgnored.value = true;
+    ignoredError.value = null;
+    try {
+      const response = await fetchCatalogIgnoredFindings();
+      ignoredState.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      ignoredError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLoadingIgnored.value = false;
+    }
+  }
+
+  async function loadQuarantine(): Promise<CatalogQuarantineResponse | null> {
+    isLoadingQuarantine.value = true;
+    quarantineError.value = null;
+    try {
+      const response = await fetchCatalogQuarantine();
+      quarantineState.value = response.data;
+      return response.data;
+    } catch (caughtError) {
+      quarantineError.value = toErrorMessage(caughtError);
+      return null;
+    } finally {
+      isLoadingQuarantine.value = false;
+    }
+  }
+
+  async function runWorkspaceAction(
+    runner: () => Promise<CatalogRemediationActionResponse | CatalogIgnoredFindingsResponse | Record<string, unknown>>,
+  ): Promise<void> {
+    isApplyingAction.value = true;
+    actionError.value = null;
+    lastActionSummary.value = null;
+    try {
+      const result = await runner();
+      lastActionSummary.value =
+        typeof result === "object" && result !== null && "summary" in result
+          ? String(result.summary)
+          : "Action completed.";
+      await Promise.all([loadIgnored(), loadQuarantine(), loadRemediation()]);
+    } catch (caughtError) {
+      actionError.value = toErrorMessage(caughtError);
+    } finally {
+      isApplyingAction.value = false;
+    }
+  }
+
+  async function ignoreItems(items: CatalogRemediationStateItemPayload[]): Promise<void> {
+    await runWorkspaceAction(async () => {
+      const response = await ignoreCatalogFindings({ items });
+      return response.data;
+    });
+  }
+
+  async function quarantineItems(items: CatalogRemediationStateItemPayload[]): Promise<void> {
+    await runWorkspaceAction(async () => {
+      const response = await quarantineCatalogFindings({ items });
+      return response.data;
+    });
+  }
+
+  async function releaseIgnoredItems(ignoredItemIds: string[]): Promise<void> {
+    await runWorkspaceAction(async () => {
+      const response = await releaseCatalogIgnoredFindings({
+        ignored_item_ids: ignoredItemIds,
+      });
+      return response.data;
+    });
+  }
+
+  async function restoreQuarantineItems(quarantineItemIds: string[]): Promise<void> {
+    await runWorkspaceAction(async () => {
+      const response = await restoreCatalogQuarantine({
+        quarantine_item_ids: quarantineItemIds,
+      });
+      return response.data;
+    });
+  }
+
+  async function deleteQuarantineItemsPermanently(quarantineItemIds: string[]): Promise<void> {
+    await runWorkspaceAction(async () => {
+      const response = await deleteCatalogQuarantine({
+        quarantine_item_ids: quarantineItemIds,
+      });
+      return response.data;
+    });
+  }
+
+  async function applyBrokenDbAction(
+    assetIds: string[],
+    actionKind: "broken_db_cleanup" | "broken_db_path_fix",
+  ): Promise<void> {
+    isApplyingAction.value = true;
+    actionError.value = null;
+    lastActionSummary.value = null;
+    try {
+      const response = await applyCatalogBrokenDbActionDirect({
+        asset_ids: assetIds,
+        action_kind: actionKind,
+      });
+      lastActionSummary.value =
+        typeof response.data.summary === "string"
+          ? response.data.summary
+          : "Action completed.";
+      await Promise.all([loadCatalogJob(), loadIgnored(), loadQuarantine(), refreshRemediation()]);
+    } catch (caughtError) {
+      actionError.value = toErrorMessage(caughtError);
+    } finally {
+      isApplyingAction.value = false;
     }
   }
 
@@ -235,8 +373,28 @@ export const useConsistencyStore = defineStore("consistency", () => {
   const unmappedDatabasePaths = computed(() =>
     sectionRows(catalogReport.value, "UNMAPPED_DATABASE_PATHS"),
   );
+  const ignoredFindings = computed<IgnoredFindingItem[]>(
+    () => ignoredState.value?.items ?? [],
+  );
+  const quarantinedItems = computed<QuarantineItemView[]>(
+    () => quarantineState.value?.items ?? [],
+  );
+  const hiddenFindingIds = computed(() => {
+    const ids = new Set<string>();
+    for (const item of ignoredFindings.value) {
+      ids.add(item.finding_id);
+    }
+    for (const item of quarantinedItems.value) {
+      if (item.finding_id) {
+        ids.add(item.finding_id);
+      }
+    }
+    return ids;
+  });
 
   return {
+    actionError,
+    applyBrokenDbAction,
     brokenDbOriginals,
     catalogJob,
     catalogJobError,
@@ -244,18 +402,38 @@ export const useConsistencyStore = defineStore("consistency", () => {
     catalogReadinessState,
     catalogReadinessTitle,
     catalogReport,
+    deleteQuarantineItemsPermanently,
     fuseHiddenOrphans,
+    hiddenFindingIds,
+    ignoreItems,
+    ignoredError,
+    ignoredFindings,
+    ignoredState,
+    isApplyingAction,
     isCatalogLoading,
     isCatalogStarting,
     isLoading,
+    isLoadingIgnored,
+    isLoadingQuarantine,
     isLoadingRemediation,
+    isRefreshingRemediation,
     isWaitingOnCatalog,
+    lastActionSummary,
     load,
     loadCatalogJob,
+    loadIgnored,
+    loadQuarantine,
     loadRemediation,
     orphanDerivatives,
+    quarantineError,
+    quarantineItems,
+    quarantineState,
+    quarantinedItems,
     remediationError,
     remediationScanResult,
+    refreshRemediation,
+    releaseIgnoredItems,
+    restoreQuarantineItems,
     startCatalog,
     storageOriginalsMissingInDb,
     unmappedDatabasePaths,

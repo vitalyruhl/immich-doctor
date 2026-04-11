@@ -8,6 +8,7 @@ from immich_doctor.api.models import (
     CatalogRemediationApplyApiResponse,
     CatalogRemediationPreviewApiResponse,
     CatalogRemediationScanApiResponse,
+    CatalogRemediationStateApiResponse,
     MissingAssetApplyApiResponse,
     MissingAssetPreviewApiResponse,
     MissingAssetRestoreApiResponse,
@@ -72,6 +73,41 @@ class CatalogRemediationZeroBytePreviewRequest(BaseModel):
 
 class CatalogRemediationApplyRequest(BaseModel):
     repair_run_id: str
+
+
+class CatalogRemediationDirectBrokenApplyRequest(BaseModel):
+    asset_ids: list[str] = Field(default_factory=list)
+    action_kind: str
+
+
+class CatalogRemediationStateItemRequest(BaseModel):
+    finding_id: str
+    category_key: str
+    title: str
+    source_path: str | None = None
+    asset_id: str | None = None
+    owner_id: str | None = None
+    owner_label: str | None = None
+    root_slug: str | None = None
+    relative_path: str | None = None
+    original_relative_path: str | None = None
+    db_reference_kind: str | None = None
+    size_bytes: int | None = None
+    reason: str | None = None
+
+
+class CatalogRemediationStateBatchRequest(BaseModel):
+    items: list[CatalogRemediationStateItemRequest] = Field(default_factory=list)
+
+
+class CatalogRemediationIgnoredReleaseRequest(BaseModel):
+    ignored_item_ids: list[str] = Field(default_factory=list)
+    release_all: bool = False
+
+
+class CatalogRemediationQuarantineTransitionRequest(BaseModel):
+    quarantine_item_ids: list[str] = Field(default_factory=list)
+    apply_all: bool = False
 
 
 @consistency_router.get(
@@ -187,14 +223,21 @@ def delete_missing_asset_restore_points(
 def scan_catalog_remediation_findings(
     classification: list[str] | None = _CLASSIFICATION_QUERY,
 ) -> CatalogRemediationScanApiResponse:
-    data = (
-        CatalogRemediationService()
-        .scan(
+    data = CatalogRemediationService().load_cached_findings(load_settings())
+    if classification:
+        data = CatalogRemediationService().scan(
             load_settings(),
             classifications=tuple(classification or []),
-        )
-        .to_dict()
-    )
+        ).to_dict()
+    return CatalogRemediationScanApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/refresh",
+    response_model=CatalogRemediationScanApiResponse,
+)
+def refresh_catalog_remediation_findings() -> CatalogRemediationScanApiResponse:
+    data = CatalogRemediationService().refresh_cached_findings(load_settings())
     return CatalogRemediationScanApiResponse(data=data)
 
 
@@ -290,6 +333,112 @@ def apply_catalog_remediation(
         .to_dict()
     )
     return CatalogRemediationApplyApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/broken-db-originals/apply-direct",
+    response_model=CatalogRemediationApplyApiResponse,
+)
+def apply_catalog_broken_db_action_direct(
+    payload: CatalogRemediationDirectBrokenApplyRequest,
+) -> CatalogRemediationApplyApiResponse:
+    data = CatalogRemediationService().execute_broken_db_action(
+        load_settings(),
+        asset_ids=tuple(payload.asset_ids),
+        action_kind=payload.action_kind,  # type: ignore[arg-type]
+    )
+    return CatalogRemediationApplyApiResponse(data=data)
+
+
+@consistency_router.get(
+    "/catalog-remediation/ignored",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def list_catalog_remediation_ignored() -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().list_ignored_findings(load_settings())
+    return CatalogRemediationStateApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/ignored",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def ignore_catalog_remediation_findings(
+    payload: CatalogRemediationStateBatchRequest,
+) -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().ignore_findings(
+        load_settings(),
+        items=tuple(item.model_dump(mode="python") for item in payload.items),
+    )
+    return CatalogRemediationStateApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/ignored/release",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def release_catalog_remediation_ignored(
+    payload: CatalogRemediationIgnoredReleaseRequest,
+) -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().release_ignored_findings(
+        load_settings(),
+        ignored_item_ids=tuple(payload.ignored_item_ids),
+        release_all=payload.release_all,
+    )
+    return CatalogRemediationStateApiResponse(data=data)
+
+
+@consistency_router.get(
+    "/catalog-remediation/quarantine",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def list_catalog_remediation_quarantine() -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().list_quarantine_items(load_settings())
+    return CatalogRemediationStateApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/quarantine",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def quarantine_catalog_remediation_findings(
+    payload: CatalogRemediationStateBatchRequest,
+) -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().quarantine_findings(
+        load_settings(),
+        items=tuple(item.model_dump(mode="python") for item in payload.items),
+    )
+    return CatalogRemediationStateApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/quarantine/restore",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def restore_catalog_remediation_quarantine(
+    payload: CatalogRemediationQuarantineTransitionRequest,
+) -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().restore_quarantine_items(
+        load_settings(),
+        quarantine_item_ids=tuple(payload.quarantine_item_ids),
+        restore_all=payload.apply_all,
+    )
+    return CatalogRemediationStateApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/quarantine/delete",
+    response_model=CatalogRemediationStateApiResponse,
+)
+def delete_catalog_remediation_quarantine(
+    payload: CatalogRemediationQuarantineTransitionRequest,
+) -> CatalogRemediationStateApiResponse:
+    data = CatalogRemediationService().delete_quarantine_items(
+        load_settings(),
+        quarantine_item_ids=tuple(payload.quarantine_item_ids),
+        delete_all=payload.apply_all,
+    )
+    return CatalogRemediationStateApiResponse(data=data)
 
 
 @consistency_router.get("/catalog", response_model=CatalogConsistencyJobApiResponse)

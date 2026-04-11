@@ -10,6 +10,7 @@ from immich_doctor.backup.core.job_models import (
     BackgroundJobState,
 )
 from immich_doctor.catalog.consistency_service import CatalogConsistencyValidationService
+from immich_doctor.catalog.remediation_service import CatalogRemediationService
 from immich_doctor.catalog.service import (
     CatalogInventoryScanService,
     CatalogRootRegistry,
@@ -49,6 +50,9 @@ class CatalogWorkflowService:
     scan_service: CatalogInventoryScanService = field(default_factory=CatalogInventoryScanService)
     consistency_service: CatalogConsistencyValidationService = field(
         default_factory=CatalogConsistencyValidationService
+    )
+    remediation_service: CatalogRemediationService = field(
+        default_factory=CatalogRemediationService
     )
 
     def get_scan_job(self, settings: AppSettings) -> dict[str, object]:
@@ -521,6 +525,13 @@ class CatalogWorkflowService:
             handle.record.job_id,
             root_count,
         )
+        try:
+            self.remediation_service.refresh_cached_findings(handle.settings)
+        except Exception:
+            logger.exception(
+                "Catalog remediation refresh after scan completion failed for job %s",
+                handle.record.job_id,
+            )
         return {
             "state": worst_state.value,
             "summary": f"Catalog scan completed across {root_count} configured roots.",
@@ -581,6 +592,13 @@ class CatalogWorkflowService:
             state = self._scan_report_state(report.overall_status)
             summary = f"Catalog scan resumed and completed for root `{root_slug}`."
             phase = "completed"
+            try:
+                self.remediation_service.refresh_cached_findings(handle.settings)
+            except Exception:
+                logger.exception(
+                    "Catalog remediation refresh after resumed scan completion failed for job %s",
+                    handle.record.job_id,
+                )
         return {
             "state": state.value,
             "summary": summary,

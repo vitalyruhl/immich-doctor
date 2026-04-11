@@ -5,16 +5,49 @@ import CatalogRemediationPanel from "./CatalogRemediationPanel.vue";
 
 function createStore(): any {
   return {
+    actionError: null,
+    applyBrokenDbAction: vi.fn().mockResolvedValue(undefined),
+    brokenDbOriginals: [
+      {
+        finding_id: "broken-1",
+        asset_id: "asset-1",
+        asset_name: "missing.jpg",
+        owner_id: "owner-1",
+        owner_label: "Alice",
+        classification: "missing_confirmed",
+        expected_database_path: "/upload/alice/missing.jpg",
+        expected_absolute_path: "/upload/alice/missing.jpg",
+        expected_relative_path: "alice/missing.jpg",
+        found_absolute_path: null,
+        action_reason: "Eligible for cleanup",
+        message: "Missing confirmed.",
+      },
+      {
+        finding_id: "broken-2",
+        asset_id: "asset-2",
+        asset_name: "path-fix.jpg",
+        owner_id: "owner-2",
+        owner_label: "Bob",
+        classification: "found_with_hash_match",
+        expected_database_path: "/upload/bob/path-fix.jpg",
+        expected_absolute_path: "/upload/bob/path-fix.jpg",
+        expected_relative_path: "bob/path-fix.jpg",
+        found_absolute_path: "/upload/bob-relocated/path-fix.jpg",
+        action_reason: "Eligible for path fix",
+        message: "Hash match.",
+      },
+    ],
+    catalogJobError: null,
     catalogReport: {
       summary: "Catalog report loaded.",
-      generated_at: "2026-04-10T08:00:00+00:00",
       sections: [
         {
           name: "STORAGE_ORIGINALS_MISSING_IN_DB",
           rows: [
             {
               root_slug: "uploads",
-              relative_path: "user-a/orphan.jpg",
+              relative_path: "charlie/orphan.jpg",
+              absolute_path: "/upload/charlie/orphan.jpg",
               file_name: "orphan.jpg",
               size_bytes: 123,
             },
@@ -26,8 +59,10 @@ function createStore(): any {
             {
               asset_id: "asset-9",
               derivative_type: "preview",
-              relative_path: "user-a/orphan-preview.webp",
-              original_relative_path: "user-a/original.jpg",
+              root_slug: "thumbs",
+              relative_path: "charlie/orphan-preview.webp",
+              absolute_path: "/thumbs/charlie/orphan-preview.webp",
+              original_relative_path: "charlie/original.jpg",
             },
           ],
         },
@@ -43,132 +78,107 @@ function createStore(): any {
             },
           ],
         },
-        {
-          name: "ZERO_BYTE_FILES",
-          rows: [
-            {
-              root_slug: "uploads",
-              relative_path: "user-a/raw-zero.jpg",
-              file_name: "raw-zero.jpg",
-              size_bytes: 0,
-              generation: 2,
-            },
-          ],
-        },
       ],
     },
-    remediationScanResult: {
-      summary: "Catalog remediation findings loaded.",
-    },
-    remediationError: null,
-    isLoadingRemediation: false,
-    brokenDbOriginals: [
+    fuseHiddenOrphans: [
       {
-        finding_id: "broken-1",
-        asset_id: "asset-1",
-        asset_name: "missing.jpg",
-        classification: "missing_confirmed",
-        expected_database_path: "/usr/src/app/upload/upload/user-a/missing.jpg",
-        found_absolute_path: null,
-        action_reason: "Eligible for cleanup",
-        action_eligible: true,
-        message: "Missing confirmed.",
-      },
-      {
-        finding_id: "broken-2",
-        asset_id: "asset-2",
-        asset_name: "path-fix.jpg",
-        classification: "found_with_hash_match",
-        expected_database_path: "/usr/src/app/upload/upload/user-a/path-fix.jpg",
-        found_absolute_path: "/upload/user-a/path-fix.jpg",
-        action_reason: "Eligible for path fix",
-        action_eligible: true,
-        message: "Hash match.",
-      },
-      {
-        finding_id: "broken-3",
-        asset_id: "asset-3",
-        asset_name: "relocated.jpg",
-        classification: "found_elsewhere",
-        expected_database_path: "/usr/src/app/upload/upload/user-a/relocated.jpg",
-        found_absolute_path: "/upload/user-b/relocated.jpg",
-        action_reason: "Inspect only",
-        action_eligible: false,
-        message: "Found elsewhere.",
+        finding_id: "fuse-1",
+        root_slug: "uploads",
+        relative_path: "delta/.fuse_hidden0001",
+        absolute_path: "/upload/delta/.fuse_hidden0001",
+        file_name: ".fuse_hidden0001",
+        size_bytes: 456,
+        owner_id: null,
+        owner_label: "delta",
+        classification: "deletable_orphan",
+        action_reason: "Safe for quarantine-first handling.",
+        in_use_check_reason: "No open file handles",
+        message: "Safe to quarantine.",
       },
     ],
+    hiddenFindingIds: new Set<string>(),
+    ignoredError: null,
+    ignoredFindings: [
+      {
+        ignored_item_id: "ignored-1",
+        category_key: "zero-byte",
+        owner_id: null,
+        owner_label: "echo",
+        reason: "Operator ignored the finding.",
+        source_path: "/upload/echo/skip.jpg",
+        created_at: "2026-04-10T08:00:00+00:00",
+      },
+    ],
+    ignoredState: {
+      summary: "1 ignored finding is currently active.",
+    },
+    isApplyingAction: false,
+    isRefreshingRemediation: false,
+    lastActionSummary: null,
+    quarantineError: null,
+    quarantineItems: vi.fn().mockResolvedValue(undefined),
+    quarantinedItems: [
+      {
+        quarantine_item_id: "quarantine-1",
+        category_key: "storage-missing",
+        owner_id: null,
+        owner_label: "frank",
+        source_path: "/upload/frank/orphan.jpg",
+        original_relative_path: null,
+        quarantine_path: "/quarantine/catalog-remediation/storage-missing/item/orphan.jpg",
+        reason: "Operator quarantined the finding.",
+      },
+    ],
+    quarantineState: {
+      summary: "1 quarantined finding is currently active.",
+    },
+    refreshRemediation: vi.fn().mockResolvedValue(undefined),
+    releaseIgnoredItems: vi.fn().mockResolvedValue(undefined),
+    remediationError: null,
+    remediationScanResult: {
+      summary: "Detailed findings loaded.",
+    },
+    restoreQuarantineItems: vi.fn().mockResolvedValue(undefined),
     storageOriginalsMissingInDb: [
       {
         root_slug: "uploads",
-        relative_path: "user-a/orphan.jpg",
+        relative_path: "charlie/orphan.jpg",
+        absolute_path: "/upload/charlie/orphan.jpg",
         file_name: "orphan.jpg",
         size_bytes: 123,
       },
     ],
+    ignoreItems: vi.fn().mockResolvedValue(undefined),
     orphanDerivatives: [
       {
         asset_id: "asset-9",
         derivative_type: "preview",
-        relative_path: "user-a/orphan-preview.webp",
-        original_relative_path: "user-a/original.jpg",
+        root_slug: "thumbs",
+        relative_path: "charlie/orphan-preview.webp",
+        absolute_path: "/thumbs/charlie/orphan-preview.webp",
+        original_relative_path: "charlie/original.jpg",
       },
     ],
     zeroByteFindings: [
       {
         finding_id: "zero-1",
         root_slug: "uploads",
-        absolute_path: "/upload/user-a/orphan-zero.jpg",
-        file_name: "orphan-zero.jpg",
-        size_bytes: 0,
-        classification: "zero_byte_upload_orphan",
-        action_reason: "Delete allowed",
-        message: "Orphan zero-byte upload.",
-      },
-      {
-        finding_id: "zero-2",
-        root_slug: "uploads",
-        absolute_path: "/upload/user-a/critical-zero.jpg",
-        file_name: "critical-zero.jpg",
+        relative_path: "echo/zero.jpg",
+        absolute_path: "/upload/echo/zero.jpg",
+        file_name: "zero.jpg",
         size_bytes: 0,
         classification: "zero_byte_upload_critical",
-        action_reason: "Still referenced as original",
-        message: "Critical original.",
+        asset_id: "asset-3",
+        asset_name: "zero.jpg",
+        owner_id: "owner-3",
+        owner_label: "Echo",
+        db_reference_kind: "original_path",
+        original_relative_path: "echo/zero.jpg",
+        action_reason: "Only quarantine is allowed.",
+        message: "DB-linked zero-byte original.",
       },
     ],
-    fuseHiddenOrphans: [
-      {
-        finding_id: "fuse-1",
-        root_slug: "uploads",
-        absolute_path: "/upload/user-a/.fuse_hidden0001",
-        file_name: ".fuse_hidden0001",
-        size_bytes: 123,
-        classification: "blocked_in_use",
-        in_use_check_reason: "File is still in use",
-        action_reason: "Ignore only",
-        message: "Still in use.",
-      },
-      {
-        finding_id: "fuse-2",
-        root_slug: "uploads",
-        absolute_path: "/upload/user-b/.fuse_hidden0002",
-        file_name: ".fuse_hidden0002",
-        size_bytes: 456,
-        classification: "deletable_orphan",
-        in_use_check_reason: "No open file handles",
-        action_reason: "Eligible",
-        message: "Safe to delete.",
-      },
-    ],
-    unmappedDatabasePaths: [
-      {
-        asset_id: "asset-7",
-        asset_name: "legacy.jpg",
-        database_path: "/usr/src/app/upload/thumbs/legacy.jpg",
-        mapping_status: "unexpected_root",
-        path_kind: "original",
-      },
-    ],
-    loadRemediation: vi.fn().mockResolvedValue(undefined),
+    deleteQuarantineItemsPermanently: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -184,7 +194,7 @@ describe("CatalogRemediationPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders grouped catalog findings without preview/apply blocks", async () => {
+  it("renders findings with category-local actions and owner labels", async () => {
     const wrapper = mount(CatalogRemediationPanel, {
       global: {
         stubs: {
@@ -195,21 +205,15 @@ describe("CatalogRemediationPanel", () => {
     });
     await nextTick();
 
-    expect(wrapper.text()).toContain("Catalog findings workspace");
     expect(wrapper.text()).toContain("DB originals missing in storage");
     expect(wrapper.text()).toContain("Storage originals missing in DB");
-    expect(wrapper.text()).toContain("Zero-byte files");
-    expect(wrapper.text()).toContain("`.fuse_hidden*` artifacts");
-    expect(wrapper.text()).not.toContain("Preview");
-    expect(wrapper.text()).not.toContain("Apply");
-
-    const groupCards = wrapper.findAll(".catalog-remediation-group");
-    expect(groupCards.length).toBeGreaterThanOrEqual(5);
-    expect(groupCards.some((card) => card.text().includes("DB originals missing in storage"))).toBe(true);
-    expect(groupCards.some((card) => card.text().includes("Storage originals missing in DB"))).toBe(true);
+    expect(wrapper.text()).toContain("Alice");
+    expect(wrapper.text()).toContain("Quarantine all");
+    expect(wrapper.text()).toContain("Ignore unselected");
+    expect(wrapper.text()).not.toContain("Select all visible");
   });
 
-  it("stages context-sensitive bulk actions only for selected eligible rows", async () => {
+  it("stages and applies category actions without checkbox selection", async () => {
     const wrapper = mount(CatalogRemediationPanel, {
       global: {
         stubs: {
@@ -220,26 +224,21 @@ describe("CatalogRemediationPanel", () => {
     });
     await nextTick();
 
-    const selectAllButton = wrapper
+    const markRemovedButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === "Select all visible");
-    await selectAllButton!.trigger("click");
+      .find((button) => button.text() === "Mark removed");
+    await markRemovedButton!.trigger("click");
     await nextTick();
 
-    expect(wrapper.text()).toContain("Repair selected");
-    expect(wrapper.text()).toContain("Delete selected");
-
-    const deleteSelectedButton = wrapper
+    const performButton = wrapper
       .findAll("button")
-      .find((button) => button.text().includes("Delete selected"));
-    await deleteSelectedButton!.trigger("click");
-    await nextTick();
+      .find((button) => button.text().includes("Perform staged actions"));
+    await performButton!.trigger("click");
 
-    expect(wrapper.text()).toContain("Staged actions");
-    expect(wrapper.text()).toContain("Delete:");
+    expect(store.applyBrokenDbAction).toHaveBeenCalledWith(["asset-1"], "broken_db_cleanup");
   });
 
-  it("shows blocked reasons and row-specific actions per finding type", async () => {
+  it("shows quarantine and ignored tabs with dedicated operations", async () => {
     const wrapper = mount(CatalogRemediationPanel, {
       global: {
         stubs: {
@@ -250,29 +249,14 @@ describe("CatalogRemediationPanel", () => {
     });
     await nextTick();
 
-    expect(wrapper.text()).toContain("Still referenced as original");
-    expect(wrapper.text()).toContain("Inspect");
-    expect(wrapper.text()).toContain("Mark removed");
-    expect(wrapper.text()).toContain("Repair path");
-    expect(wrapper.text()).toContain("Quarantine");
-    expect(wrapper.text()).toContain("Ignore");
-  });
-
-  it("falls back to raw zero-byte snapshot rows when remediation enrichment is unavailable", async () => {
-    store.zeroByteFindings = [];
-
-    const wrapper = mount(CatalogRemediationPanel, {
-      global: {
-        stubs: {
-          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
-          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
-        },
-      },
-    });
+    const quarantineTab = wrapper.findAll("button").find((button) => button.text() === "Quarantine");
+    await quarantineTab!.trigger("click");
     await nextTick();
+    expect(wrapper.text()).toContain("Delete permanently");
 
-    expect(wrapper.text()).toContain("raw-zero.jpg");
-    expect(wrapper.text()).toContain("Zero-byte snapshot");
-    expect(wrapper.text()).toContain("Detailed remediation classification is not loaded.");
+    const ignoredTab = wrapper.findAll("button").find((button) => button.text() === "Ignored");
+    await ignoredTab!.trigger("click");
+    await nextTick();
+    expect(wrapper.text()).toContain("Release ignore");
   });
 });

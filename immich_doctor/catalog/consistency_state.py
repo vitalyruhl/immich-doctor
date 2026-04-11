@@ -313,6 +313,11 @@ class CatalogConsistencyStateCollector:
                 {
                     "root_slug": row["root_slug"],
                     "relative_path": relative_path,
+                    "absolute_path": str(
+                        settings.immich_uploads_path.joinpath(*relative_path.split("/"))
+                    )
+                    if settings.immich_uploads_path is not None
+                    else None,
                     "file_name": row["file_name"],
                     "size_bytes": row["size_bytes"],
                     "snapshot_id": row["snapshot_id"],
@@ -490,6 +495,7 @@ class CatalogConsistencyStateCollector:
                 "derivative_type": derivative_type,
                 "root_slug": resolved.root_slug,
                 "relative_path": resolved.relative_path,
+                "absolute_path": str(resolved.absolute_path),
                 "database_path": path_text,
                 "original_relative_path": original_relative_path,
             }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from immich_doctor.catalog.consistency_state import (
 from immich_doctor.catalog.remediation_models import (
     BrokenDbOriginalClassification,
     BrokenDbOriginalFinding,
+    CatalogIgnoredFinding,
     CatalogRemediationActionKind,
     CatalogRemediationApplyResult,
     CatalogRemediationFindingKind,
@@ -28,6 +30,7 @@ from immich_doctor.catalog.remediation_models import (
     ZeroByteClassification,
     ZeroByteFinding,
 )
+from immich_doctor.catalog.remediation_state_store import CatalogRemediationStateStore
 from immich_doctor.consistency.missing_asset_models import (
     MissingAssetOperationItem,
     MissingAssetReferenceFinding,
@@ -44,6 +47,7 @@ from immich_doctor.repair import (
     RepairJournalStore,
     RepairRun,
     RepairRunStatus,
+    QuarantineItem,
     UndoType,
     build_live_state_fingerprint,
     create_plan_token,
@@ -69,6 +73,7 @@ class CatalogRemediationService:
     filesystem: FilesystemAdapter = field(default_factory=FilesystemAdapter)
     external_tools: ExternalToolsAdapter = field(default_factory=ExternalToolsAdapter)
     repair_store: RepairJournalStore = field(default_factory=RepairJournalStore)
+    state_store: CatalogRemediationStateStore = field(default_factory=CatalogRemediationStateStore)
 
     def scan(
         self,
@@ -172,6 +177,301 @@ class CatalogRemediationService:
             ],
         )
         return self._filter_scan_result(result, classifications=classifications)
+
+    def load_cached_findings(self, settings: AppSettings) -> dict[str, object]:
+        cached = self.state_store.load_cached_findings(settings)
+        if cached is not None:
+            return cached
+        return CatalogRemediationScanResult(
+            summary=(
+                "Detailed catalog remediation findings have not been refreshed yet. "
+                "Run an explicit refresh or finish a storage scan."
+            ),
+            checks=[],
+            broken_db_originals=[],
+            zero_byte_findings=[],
+            fuse_hidden_orphans=[],
+            metadata={"cacheState": "missing"},
+            recommendations=[
+                "Use the refresh button to build detailed findings from the latest storage scan.",
+            ],
+        ).to_dict()
+
+    def refresh_cached_findings(self, settings: AppSettings) -> dict[str, object]:
+        result = self.scan(settings).to_dict()
+        result["metadata"] = {
+            **(result.get("metadata") if isinstance(result.get("metadata"), dict) else {}),
+            "cacheState": "ready",
+            "cachedAt": datetime.now(UTC).isoformat(),
+        }
+        self.state_store.save_cached_findings(settings, result)
+        return result
+
+    def list_ignored_findings(self, settings: AppSettings) -> dict[str, object]:
+        items = [
+            item.to_dict()
+            for item in self.state_store.load_ignored_findings(settings)
+            if item.state == "active"
+        ]
+        items.sort(key=lambda item: str(item["created_at"]), reverse=True)
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": f"{len(items)} ignored findings are currently active.",
+            "items": items,
+        }
+
+    def ignore_findings(
+        self,
+        settings: AppSettings,
+        *,
+        items: tuple[dict[str, object], ...],
+    ) -> dict[str, object]:
+        existing = self.state_store.load_ignored_findings(settings)
+        by_finding_id = {item.finding_id: item for item in existing if item.state == "active"}
+        created = 0
+        for payload in items:
+            finding_id = str(payload.get("finding_id") or "").strip()
+            if not finding_id or finding_id in by_finding_id:
+                continue
+            item = CatalogIgnoredFinding(
+                ignored_item_id=uuid4().hex,
+                finding_id=finding_id,
+                category_key=str(payload.get("category_key") or "unknown"),
+                title=str(payload.get("title") or finding_id),
+                owner_id=self._optional_text(payload.get("owner_id")),
+                owner_label=self._optional_text(payload.get("owner_label")),
+                source_path=self._optional_text(payload.get("source_path")),
+                original_relative_path=self._optional_text(payload.get("original_relative_path")),
+                reason=(
+                    self._optional_text(payload.get("reason"))
+                    or "Operator ignored the finding from the consistency workspace."
+                ),
+                details={
+                    key: value
+                    for key, value in dict(payload).items()
+                    if key
+                    not in {
+                        "finding_id",
+                        "category_key",
+                        "title",
+                        "owner_id",
+                        "owner_label",
+                        "source_path",
+                        "original_relative_path",
+                        "reason",
+                    }
+                },
+            )
+            existing.append(item)
+            by_finding_id[finding_id] = item
+            created += 1
+        self.state_store.save_ignored_findings(settings, existing)
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": f"Ignored {created} findings.",
+            "items": [item.to_dict() for item in existing if item.state == "active"],
+        }
+
+    def release_ignored_findings(
+        self,
+        settings: AppSettings,
+        *,
+        ignored_item_ids: tuple[str, ...],
+        release_all: bool = False,
+    ) -> dict[str, object]:
+        target_ids = set(ignored_item_ids)
+        updated: list[CatalogIgnoredFinding] = []
+        released = 0
+        for item in self.state_store.load_ignored_findings(settings):
+            if item.state == "active" and (release_all or item.ignored_item_id in target_ids):
+                updated.append(
+                    CatalogIgnoredFinding(
+                        ignored_item_id=item.ignored_item_id,
+                        finding_id=item.finding_id,
+                        category_key=item.category_key,
+                        title=item.title,
+                        owner_id=item.owner_id,
+                        owner_label=item.owner_label,
+                        source_path=item.source_path,
+                        original_relative_path=item.original_relative_path,
+                        reason=item.reason,
+                        details=item.details,
+                        created_at=item.created_at,
+                        released_at=datetime.now(UTC).isoformat(),
+                        state="released",
+                    )
+                )
+                released += 1
+                continue
+            updated.append(item)
+        self.state_store.save_ignored_findings(settings, updated)
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": f"Released {released} ignored findings.",
+            "items": [item.to_dict() for item in updated if item.state == "active"],
+        }
+
+    def list_quarantine_items(self, settings: AppSettings) -> dict[str, object]:
+        items = [
+            item.to_dict()
+            for item in self.repair_store.load_quarantine_index(settings)
+            if item.category_key and item.state == "active"
+        ]
+        items.sort(key=lambda item: str(item["created_at"]), reverse=True)
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": f"{len(items)} quarantined findings are currently active.",
+            "items": items,
+        }
+
+    def quarantine_findings(
+        self,
+        settings: AppSettings,
+        *,
+        items: tuple[dict[str, object], ...],
+    ) -> dict[str, object]:
+        results: list[dict[str, object]] = []
+        for payload in items:
+            finding_id = str(payload.get("finding_id") or "").strip()
+            category_key = str(payload.get("category_key") or "unknown")
+            source_path_text = self._optional_text(payload.get("source_path"))
+            if source_path_text is None:
+                results.append(
+                    {
+                        "finding_id": finding_id,
+                        "status": "failed",
+                        "message": "No source path was provided for quarantine.",
+                    }
+                )
+                continue
+            source_path = Path(source_path_text)
+            if not self.filesystem.path_exists(source_path):
+                results.append(
+                    {
+                        "finding_id": finding_id,
+                        "status": "already_missing",
+                        "message": "Source file is already absent and could not be quarantined.",
+                    }
+                )
+                continue
+            root_path = self._root_path_for(
+                settings,
+                root_slug=self._optional_text(payload.get("root_slug")) or "uploads",
+            )
+            if root_path is None or not self.filesystem.is_child_path(root_path, source_path):
+                results.append(
+                    {
+                        "finding_id": finding_id,
+                        "status": "failed",
+                        "message": "Source path is outside the configured storage root.",
+                    }
+                )
+                continue
+            quarantine_item_id = uuid4().hex
+            destination = self._quarantine_destination_for(
+                settings,
+                category_key=category_key,
+                finding_id=finding_id,
+                source_path=source_path,
+            )
+            try:
+                self.filesystem.move_file(source_path, destination)
+                item = QuarantineItem(
+                    quarantine_item_id=quarantine_item_id,
+                    repair_run_id="catalog-remediation",
+                    asset_id=self._optional_text(payload.get("asset_id")),
+                    source_path=source_path.as_posix(),
+                    quarantine_path=destination.as_posix(),
+                    reason=(
+                        self._optional_text(payload.get("reason"))
+                        or "Operator quarantined the finding from the consistency workspace."
+                    ),
+                    size_bytes=int(payload["size_bytes"]) if payload.get("size_bytes") else None,
+                    restorable=True,
+                    owner_id=self._optional_text(payload.get("owner_id")),
+                    owner_label=self._optional_text(payload.get("owner_label")),
+                    category_key=category_key,
+                    finding_id=finding_id or None,
+                    source_kind="catalog_remediation",
+                    root_slug=self._optional_text(payload.get("root_slug")),
+                    relative_path=self._optional_text(payload.get("relative_path")),
+                    original_relative_path=self._optional_text(payload.get("original_relative_path")),
+                    db_reference_kind=self._optional_text(payload.get("db_reference_kind")),
+                    state="active",
+                    state_changed_at=datetime.now(UTC).isoformat(),
+                )
+                self.repair_store.append_quarantine_item(settings, item)
+                results.append(
+                    {
+                        "finding_id": finding_id,
+                        "status": "applied",
+                        "message": "Finding was moved into quarantine.",
+                        "quarantine_item": item.to_dict(),
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "finding_id": finding_id,
+                        "status": "failed",
+                        "message": f"Quarantine failed: {exc}",
+                    }
+                )
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": f"Processed {len(results)} quarantine requests.",
+            "items": results,
+        }
+
+    def restore_quarantine_items(
+        self,
+        settings: AppSettings,
+        *,
+        quarantine_item_ids: tuple[str, ...],
+        restore_all: bool = False,
+    ) -> dict[str, object]:
+        return self._transition_quarantine_items(
+            settings,
+            quarantine_item_ids=quarantine_item_ids,
+            apply_all=restore_all,
+            target_state="restored",
+        )
+
+    def delete_quarantine_items(
+        self,
+        settings: AppSettings,
+        *,
+        quarantine_item_ids: tuple[str, ...],
+        delete_all: bool = False,
+    ) -> dict[str, object]:
+        return self._transition_quarantine_items(
+            settings,
+            quarantine_item_ids=quarantine_item_ids,
+            apply_all=delete_all,
+            target_state="deleted",
+        )
+
+    def execute_broken_db_action(
+        self,
+        settings: AppSettings,
+        *,
+        asset_ids: tuple[str, ...],
+        action_kind: CatalogRemediationActionKind | str,
+    ) -> dict[str, object]:
+        normalized_action = CatalogRemediationActionKind(str(action_kind))
+        if normalized_action == CatalogRemediationActionKind.BROKEN_DB_CLEANUP:
+            preview = self.preview_broken_db_cleanup(
+                settings,
+                asset_ids=asset_ids,
+                select_all=False,
+            )
+        else:
+            preview = self.preview_broken_db_path_fix(
+                settings,
+                asset_ids=asset_ids,
+                select_all=False,
+            )
+        return self.apply(settings, repair_run_id=preview.repair_run_id).to_dict()
 
     def preview_broken_db_cleanup(
         self,
@@ -500,6 +800,10 @@ class CatalogRemediationService:
         uploads_root = settings.immich_uploads_path
         if uploads_root is None:
             return []
+        owner_labels = self._owner_labels(settings, state=state)
+        asset_owner_ids = {
+            str(asset["id"]): truthy_path(asset.get("ownerId")) for asset in state.asset_rows
+        }
         uploads_files_by_relative = {
             str(row["relative_path"]): row
             for row in state.latest_files
@@ -533,6 +837,12 @@ class CatalogRemediationService:
                         expected_relative_path=resolved_original.relative_path,
                         expected_database_path=original_path,
                         expected_absolute_path=str(resolved_original.absolute_path),
+                        owner_id=asset_owner_ids.get(asset_id),
+                        owner_label=self._resolve_owner_label(
+                            owner_id=asset_owner_ids.get(asset_id),
+                            relative_path=resolved_original.relative_path,
+                            owner_labels=owner_labels,
+                        ),
                         located_file=_LocatedFile(
                             root_slug=SOURCE_ROOT_SLUG,
                             relative_path=resolved_original.relative_path,
@@ -579,6 +889,12 @@ class CatalogRemediationService:
                             checksum_value=self._asset_checksum_value(asset),
                             checksum_algorithm=self._asset_checksum_algorithm(asset),
                             checksum_match=None,
+                            owner_id=asset_owner_ids.get(asset_id),
+                            owner_label=self._resolve_owner_label(
+                                owner_id=asset_owner_ids.get(asset_id),
+                                relative_path=str(row["relative_path"]),
+                                owner_labels=owner_labels,
+                            ),
                             eligible_actions=(CatalogRemediationActionKind.BROKEN_DB_CLEANUP,),
                             action_reason=(
                                 "The expected storage path is absent and no "
@@ -598,6 +914,12 @@ class CatalogRemediationService:
                         expected_relative_path=str(row["relative_path"]),
                         expected_database_path=str(row["database_path"]),
                         expected_absolute_path=str(uploads_root / str(row["relative_path"])),
+                        owner_id=asset_owner_ids.get(asset_id),
+                        owner_label=self._resolve_owner_label(
+                            owner_id=asset_owner_ids.get(asset_id),
+                            relative_path=str(row["relative_path"]),
+                            owner_labels=owner_labels,
+                        ),
                         located_file=located,
                     )
                 )
@@ -621,6 +943,12 @@ class CatalogRemediationService:
                         checksum_value=self._asset_checksum_value(asset),
                         checksum_algorithm=self._asset_checksum_algorithm(asset),
                         checksum_match=None,
+                        owner_id=asset_owner_ids.get(asset_id),
+                        owner_label=self._resolve_owner_label(
+                            owner_id=asset_owner_ids.get(asset_id),
+                            relative_path=str(row["relative_path"]),
+                            owner_labels=owner_labels,
+                        ),
                         eligible_actions=(),
                         action_reason="Relocation search did not complete safely.",
                         search_error=str(exc),
@@ -636,6 +964,8 @@ class CatalogRemediationService:
         expected_relative_path: str,
         expected_database_path: str,
         expected_absolute_path: str,
+        owner_id: str | None,
+        owner_label: str | None,
         located_file: _LocatedFile,
     ) -> BrokenDbOriginalFinding:
         checksum_value = self._asset_checksum_value(asset)
@@ -695,6 +1025,8 @@ class CatalogRemediationService:
             checksum_value=checksum_value,
             checksum_algorithm=checksum_algorithm,
             checksum_match=checksum_match,
+            owner_id=owner_id,
+            owner_label=owner_label,
             eligible_actions=eligible_actions,
             action_reason=action_reason,
             message=message,
@@ -707,6 +1039,10 @@ class CatalogRemediationService:
         state: CatalogConsistencyState,
     ) -> list[ZeroByteFinding]:
         asset_by_id = {str(asset["id"]): asset for asset in state.asset_rows}
+        owner_labels = self._owner_labels(settings, state=state)
+        asset_owner_ids = {
+            str(asset["id"]): truthy_path(asset.get("ownerId")) for asset in state.asset_rows
+        }
         original_asset_by_relative = {
             relative_path: asset_id for asset_id, relative_path in state.original_by_asset.items()
         }
@@ -742,13 +1078,22 @@ class CatalogRemediationService:
                             classification=ZeroByteClassification.ZERO_BYTE_UPLOAD_CRITICAL,
                             asset_id=asset_id,
                             asset_name=truthy_path(asset.get("originalFileName")),
+                            owner_id=asset_owner_ids.get(asset_id),
+                            owner_label=self._resolve_owner_label(
+                                owner_id=asset_owner_ids.get(asset_id),
+                                relative_path=relative_path,
+                                owner_labels=owner_labels,
+                            ),
+                            db_reference_kind="original_path",
                             original_relative_path=relative_path,
                             eligible_actions=(),
                             action_reason=(
-                                "The zero-byte upload is referenced by the DB as the original file."
+                                "The zero-byte upload is referenced by the DB as the original file "
+                                "and may only be quarantined."
                             ),
                             message=(
-                                "The original upload is zero bytes and must not be auto-deleted."
+                                "The original upload is zero bytes, remains wired in the DB, and "
+                                "must not be deleted directly."
                             ),
                         )
                     )
@@ -765,11 +1110,18 @@ class CatalogRemediationService:
                         classification=ZeroByteClassification.ZERO_BYTE_UPLOAD_ORPHAN,
                         asset_id=None,
                         asset_name=None,
+                        owner_id=None,
+                        owner_label=self._owner_label_from_relative_path(relative_path),
+                        db_reference_kind="none",
                         original_relative_path=None,
-                        eligible_actions=(CatalogRemediationActionKind.ZERO_BYTE_DELETE,),
-                        action_reason="The zero-byte upload has no DB original reference.",
+                        eligible_actions=(),
+                        action_reason=(
+                            "The zero-byte upload has no DB original reference and should be "
+                            "quarantined before any final delete."
+                        ),
                         message=(
-                            "The zero-byte upload is an orphan storage artifact and can be deleted."
+                            "The zero-byte upload is an orphan storage artifact and is limited "
+                            "to quarantine-first handling."
                         ),
                     )
                 )
@@ -801,15 +1153,22 @@ class CatalogRemediationService:
                     ),
                     asset_id=asset_id,
                     asset_name=truthy_path(asset.get("originalFileName")),
+                    owner_id=asset_owner_ids.get(asset_id),
+                    owner_label=self._resolve_owner_label(
+                        owner_id=asset_owner_ids.get(asset_id),
+                        relative_path=relative_path,
+                        owner_labels=owner_labels,
+                    ),
+                    db_reference_kind="derivative_path",
                     original_relative_path=original_relative_path,
-                    eligible_actions=(CatalogRemediationActionKind.ZERO_BYTE_DELETE,),
+                    eligible_actions=(),
                     action_reason=(
                         "The zero-byte derivative is linked to an asset whose "
-                        "original upload still exists."
+                        "original upload still exists and should be quarantined first."
                     ),
                     message=(
-                        "The derivative is zero bytes and can be deleted so "
-                        "it may be regenerated later."
+                        "The derivative is zero bytes and remains DB-linked, so it is limited "
+                        "to quarantine-first handling."
                     ),
                 )
             )
@@ -871,6 +1230,8 @@ class CatalogRemediationService:
                         file_name=file_name,
                         size_bytes=int(row["size_bytes"]),
                         classification=FuseHiddenOrphanClassification.BLOCKED_IN_USE,
+                        owner_id=None,
+                        owner_label=self._owner_label_from_relative_path(str(row["relative_path"])),
                         eligible_actions=(),
                         action_reason="The orphan artifact is still held open by a process.",
                         in_use_check_tool=tool,
@@ -890,12 +1251,17 @@ class CatalogRemediationService:
                         file_name=file_name,
                         size_bytes=int(row["size_bytes"]),
                         classification=FuseHiddenOrphanClassification.DELETABLE_ORPHAN,
-                        eligible_actions=(CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,),
-                        action_reason="The orphan artifact is not reported as in use.",
+                        owner_id=None,
+                        owner_label=self._owner_label_from_relative_path(str(row["relative_path"])),
+                        eligible_actions=(),
+                        action_reason=(
+                            "The orphan artifact is not reported as in use and should be "
+                            "quarantined before any final delete."
+                        ),
                         in_use_check_tool=tool,
                         in_use_check_reason=reason,
                         message=(
-                            "The orphan artifact can be deleted through an explicit apply step."
+                            "The orphan artifact is safe for quarantine-first handling."
                         ),
                     )
                 )
@@ -910,6 +1276,8 @@ class CatalogRemediationService:
                     file_name=file_name,
                     size_bytes=int(row["size_bytes"]),
                     classification=FuseHiddenOrphanClassification.CHECK_FAILED,
+                    owner_id=None,
+                    owner_label=self._owner_label_from_relative_path(str(row["relative_path"])),
                     eligible_actions=(),
                     action_reason="The in-use check was unavailable or failed.",
                     in_use_check_tool=tool,
@@ -1352,6 +1720,164 @@ class CatalogRemediationService:
             error_details=None,
         )
         self.repair_store.append_journal_entry(settings, entry)
+
+    def _owner_labels(
+        self,
+        settings: AppSettings,
+        *,
+        state: CatalogConsistencyState,
+    ) -> dict[str, str]:
+        dsn = settings.postgres_dsn_value()
+        if dsn is None:
+            return {}
+        timeout = settings.postgres_connect_timeout_seconds
+        try:
+            rows = self.postgres.list_users_for_catalog_consistency(dsn, timeout)
+        except Exception:
+            return {}
+        labels: dict[str, str] = {}
+        for row in rows:
+            owner_id = truthy_path(row.get("id"))
+            if owner_id is None:
+                continue
+            labels[owner_id] = self._display_name_for_user(row)
+        return labels
+
+    def _display_name_for_user(self, row: dict[str, object]) -> str:
+        for key in ("name", "storageLabel", "email"):
+            value = self._optional_text(row.get(key))
+            if value is not None:
+                return value
+        first_name = self._optional_text(row.get("firstName"))
+        last_name = self._optional_text(row.get("lastName"))
+        joined_name = " ".join(part for part in (first_name, last_name) if part)
+        if joined_name:
+            return joined_name
+        return str(row.get("id") or "Unknown owner")
+
+    def _resolve_owner_label(
+        self,
+        *,
+        owner_id: str | None,
+        relative_path: str | None,
+        owner_labels: dict[str, str],
+    ) -> str | None:
+        if owner_id and owner_id in owner_labels:
+            return owner_labels[owner_id]
+        if relative_path:
+            return self._owner_label_from_relative_path(relative_path)
+        return None
+
+    def _owner_label_from_relative_path(self, relative_path: str) -> str | None:
+        normalized = relative_path.replace("\\", "/").strip("/")
+        if not normalized:
+            return None
+        first_segment = normalized.split("/", maxsplit=1)[0].strip()
+        return first_segment or None
+
+    def _optional_text(self, value: object) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text or None
+
+    def _quarantine_destination_for(
+        self,
+        settings: AppSettings,
+        *,
+        category_key: str,
+        finding_id: str,
+        source_path: Path,
+    ) -> Path:
+        safe_category = category_key.replace("/", "-")
+        safe_finding = finding_id.replace("/", "-").replace(":", "-") or uuid4().hex
+        return settings.quarantine_path / "catalog-remediation" / safe_category / safe_finding / source_path.name
+
+    def _transition_quarantine_items(
+        self,
+        settings: AppSettings,
+        *,
+        quarantine_item_ids: tuple[str, ...],
+        apply_all: bool,
+        target_state: str,
+    ) -> dict[str, object]:
+        selected_ids = set(quarantine_item_ids)
+        current_items = self.repair_store.load_quarantine_index(settings)
+        results: list[dict[str, object]] = []
+        for item in current_items:
+            if item.state != "active" or not item.category_key:
+                continue
+            if not apply_all and item.quarantine_item_id not in selected_ids:
+                continue
+            quarantine_path = Path(item.quarantine_path)
+            source_path = Path(item.source_path)
+            try:
+                if target_state == "restored":
+                    if not self.filesystem.path_exists(quarantine_path):
+                        results.append(
+                            {
+                                "quarantine_item_id": item.quarantine_item_id,
+                                "status": "failed",
+                                "message": "Quarantined file is missing and cannot be restored.",
+                            }
+                        )
+                        continue
+                    if self.filesystem.path_exists(source_path):
+                        results.append(
+                            {
+                                "quarantine_item_id": item.quarantine_item_id,
+                                "status": "failed",
+                                "message": "Original source path already exists and blocks restore.",
+                            }
+                        )
+                        continue
+                    self.filesystem.move_file(quarantine_path, source_path)
+                    updated_item = QuarantineItem(
+                        **{
+                            **item.to_dict(),
+                            "state": "restored",
+                            "state_changed_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    self.repair_store.append_quarantine_item(settings, updated_item)
+                    results.append(
+                        {
+                            "quarantine_item_id": item.quarantine_item_id,
+                            "status": "restored",
+                            "message": "Quarantined file was restored to the original path.",
+                        }
+                    )
+                    continue
+                if self.filesystem.path_exists(quarantine_path):
+                    self.filesystem.delete_file(quarantine_path)
+                updated_item = QuarantineItem(
+                    **{
+                        **item.to_dict(),
+                        "state": "deleted",
+                        "state_changed_at": datetime.now(UTC).isoformat(),
+                        "deleted_at": datetime.now(UTC).isoformat(),
+                        "restorable": False,
+                    }
+                )
+                self.repair_store.append_quarantine_item(settings, updated_item)
+                results.append(
+                    {
+                        "quarantine_item_id": item.quarantine_item_id,
+                        "status": "deleted",
+                        "message": "Quarantined file was deleted permanently.",
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "quarantine_item_id": item.quarantine_item_id,
+                        "status": "failed",
+                        "message": f"Quarantine transition failed: {exc}",
+                    }
+                )
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": f"Processed {len(results)} quarantine transitions.",
+            "items": results,
+        }
 
     def _asset_checksum_value(self, asset: dict[str, object]) -> str | None:
         for key in ("checksum", "originalChecksum"):

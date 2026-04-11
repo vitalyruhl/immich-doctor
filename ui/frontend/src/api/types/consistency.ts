@@ -31,6 +31,8 @@ export interface BrokenDbOriginalFinding {
   asset_id: string;
   asset_name: string | null;
   asset_type: string | null;
+  owner_id: string | null;
+  owner_label: string | null;
   expected_absolute_path: string | null;
   expected_database_path: string;
   expected_relative_path: string;
@@ -61,6 +63,9 @@ export interface ZeroByteFinding {
   classification: ZeroByteClassification;
   asset_id: string | null;
   asset_name: string | null;
+  owner_id: string | null;
+  owner_label: string | null;
+  db_reference_kind: string | null;
   original_relative_path: string | null;
   eligible_actions: CatalogRemediationActionKind[];
   action_eligible: boolean;
@@ -77,6 +82,8 @@ export interface FuseHiddenOrphanFinding {
   file_name: string;
   size_bytes: number;
   classification: FuseHiddenOrphanClassification;
+  owner_id: string | null;
+  owner_label: string | null;
   eligible_actions: CatalogRemediationActionKind[];
   action_eligible: boolean;
   action_reason: string;
@@ -97,4 +104,79 @@ export interface CatalogRemediationScanResponse {
   fuse_hidden_orphans: FuseHiddenOrphanFinding[];
   metadata: Record<string, unknown>;
   recommendations: string[];
+}
+
+export interface CatalogRemediationStateItemPayload {
+  finding_id: string;
+  category_key: string;
+  title: string;
+  source_path?: string | null;
+  asset_id?: string | null;
+  owner_id?: string | null;
+  owner_label?: string | null;
+  root_slug?: string | null;
+  relative_path?: string | null;
+  original_relative_path?: string | null;
+  db_reference_kind?: string | null;
+  size_bytes?: number | null;
+  reason?: string | null;
+}
+
+export interface IgnoredFindingItem {
+  ignored_item_id: string;
+  finding_id: string;
+  category_key: string;
+  title: string;
+  owner_id: string | null;
+  owner_label: string | null;
+  source_path: string | null;
+  original_relative_path: string | null;
+  reason: string;
+  details: Record<string, unknown>;
+  created_at: string;
+  released_at: string | null;
+  state: string;
+}
+
+export interface CatalogIgnoredFindingsResponse {
+  generated_at: string;
+  summary: string;
+  items: IgnoredFindingItem[];
+}
+
+export interface QuarantineItemView {
+  quarantine_item_id: string;
+  repair_run_id: string;
+  asset_id: string | null;
+  source_path: string;
+  quarantine_path: string;
+  reason: string;
+  checksum: string | null;
+  size_bytes: number | null;
+  restorable: boolean;
+  owner_id: string | null;
+  owner_label: string | null;
+  category_key: string | null;
+  finding_id: string | null;
+  source_kind: string | null;
+  root_slug: string | null;
+  relative_path: string | null;
+  original_relative_path: string | null;
+  db_reference_kind: string | null;
+  state: string;
+  state_changed_at: string | null;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface CatalogQuarantineResponse {
+  generated_at: string;
+  summary: string;
+  items: QuarantineItemView[];
+}
+
+export interface CatalogRemediationActionResponse {
+  generated_at: string;
+  summary: string;
+  items: Array<Record<string, unknown>>;
 }
