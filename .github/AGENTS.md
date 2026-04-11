@@ -177,6 +177,8 @@ The agent MUST inspect both local and remote unpublished state, including:
 - remote `feature/*` or `chore/*` branches not yet integrated into their canonical target
 - local branches with commits not pushed to their upstream
 - local branches whose upstream no longer exists
+- matching GitHub Project tracked item for the requested task scope
+- canonical task-tracking Issue existence for that tracked item scope
 
 Treat an open PR as unpublished state until it is merged.
 
@@ -189,6 +191,12 @@ If relevant unpublished state exists, the agent must first do one of:
 1. integrate it
 2. synchronize onto it
 3. explicitly supersede it with a clear warning and isolation plan
+
+Task-tracking requirement is mandatory:
+
+- before starting task work, there must be a corresponding Issue tracked in GitHub Project
+- tracked item form may be Issue card or PR card, but task tracking MUST resolve to an Issue
+- if no matching Issue exists, create it and add/link it in the GitHub Project before forward-progress work
 
 Silent ignore of unpublished state is forbidden.
 
@@ -260,6 +268,7 @@ Before forward-progress or topology-changing work, ALL must pass:
 3. Publication state is inspected locally and remotely
 4. No overlapping/competing active branch work with unclear boundaries
 5. Branch topology and merge target are unambiguous
+6. Requested task has a corresponding Issue tracked in GitHub Project (created if missing)
 
 The agent must STOP before continuing if ANY are true:
 - the working tree contains unrelated or unclear changes
@@ -277,6 +286,7 @@ The agent must STOP before continuing if ANY are true:
 - canonical base is ambiguous/unreachable
 - overlap/competing work is unresolved
 - branch topology is ambiguous/inconsistent
+- no corresponding GitHub Project tracked Issue exists for the requested task
 
 ========================================
 MANDATORY REPORTING CONTRACT
@@ -288,9 +298,12 @@ For every blocked/proceed decision, agent MUST report:
 - canonical base (found/ambiguous/missing)
 - freshness status (ahead/equal/behind)
 - publication state status (clear / local unpublished / remote unpublished / open PR active)
+- task-tracking status (tracked Issue found / created now / missing-blocked)
 - overlap/collision status
 - topology clarity status
 - chosen action (proceed / create-switch branch / sync first / integrate unpublished state first / consolidate first / stop)
+
+When running `workflow.toMain`, reporting MUST also include tracked item transition status for repository taxonomy (for example `Review`/`Done`, including equivalent wording such as `prüfen`/`fertig`).
 
 Dirty-tree classification is mandatory:
 - in-scope carry-over
