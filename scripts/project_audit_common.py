@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-DEFAULT_PROJECT_TITLE = "Backup Execution Roadmap"
+DEFAULT_PROJECT_TITLE = "Backup-Doctor Projekt"
+DEFAULT_PROJECT_NUMBER = 3
 
 
 @dataclass(slots=True)
@@ -99,18 +100,18 @@ class GitHubClient:
         project_number: int | None,
     ) -> dict[str, Any]:
         query = """
-        query($owner: String!, $repo: String!, $query: String!) {
+        query($owner: String!, $repo: String!) {
           repository(owner: $owner, name: $repo) {
             owner {
               __typename
               login
               ... on User {
-                projectsV2(first: 20, query: $query) {
+                projectsV2(first: 100) {
                   nodes { id number title url }
                 }
               }
               ... on Organization {
-                projectsV2(first: 20, query: $query) {
+                projectsV2(first: 100) {
                   nodes { id number title url }
                 }
               }
@@ -118,7 +119,7 @@ class GitHubClient:
           }
         }
         """
-        data = self.graphql(query, {"owner": owner, "repo": repo_name, "query": title})
+        data = self.graphql(query, {"owner": owner, "repo": repo_name})
         repository = data.get("repository")
         if not repository:
             raise RuntimeError(f"Repository {owner}/{repo_name} could not be resolved")
@@ -128,7 +129,13 @@ class GitHubClient:
             for project in projects:
                 if project["number"] == project_number:
                     return project
-            raise RuntimeError(f"Project number {project_number} not found for owner {owner}")
+            available = ", ".join(
+                f"#{project['number']} {project['title']}" for project in projects
+            ) or "none"
+            raise RuntimeError(
+                f"Project number {project_number} not found for owner {owner}. "
+                f"Available projects: {available}"
+            )
         matches = [project for project in projects if project["title"] == title]
         if len(matches) != 1:
             raise RuntimeError(

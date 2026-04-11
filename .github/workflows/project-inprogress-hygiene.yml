@@ -15,11 +15,11 @@ on:
         required: false
         type: string
       project_title:
-        description: "Exact Projects v2 title"
+        description: "Optional Projects v2 title override"
         required: false
         type: string
       project_number:
-        description: "Optional Projects v2 number override"
+        description: "Projects v2 number override"
         required: false
         type: string
 
@@ -61,7 +61,7 @@ jobs:
         env:
           PROJECT_STATUS_AUDIT_TOKEN: ${{ secrets.PROJECT_STATUS_AUDIT_TOKEN || github.token }}
           PROJECT_STATUS_AUDIT_OWNER: ${{ inputs.project_owner || vars.PROJECT_STATUS_AUDIT_OWNER || github.repository_owner }}
-          PROJECT_STATUS_AUDIT_PROJECT_TITLE: ${{ inputs.project_title || vars.PROJECT_STATUS_AUDIT_TITLE || 'Backup Execution Roadmap' }}
-          PROJECT_STATUS_AUDIT_PROJECT_NUMBER: ${{ inputs.project_number || vars.PROJECT_STATUS_AUDIT_NUMBER }}
+          PROJECT_STATUS_AUDIT_PROJECT_TITLE: ${{ inputs.project_title || vars.PROJECT_STATUS_AUDIT_TITLE || 'Backup-Doctor Projekt' }}
+          PROJECT_STATUS_AUDIT_PROJECT_NUMBER: ${{ inputs.project_number || vars.PROJECT_STATUS_AUDIT_NUMBER || '3' }}
           PROJECT_STATUS_AUDIT_DRY_RUN: ${{ steps.mode.outputs.dry_run }}
         run: python scripts/project_inprogress_hygiene.py --repo "${{ github.repository }}"

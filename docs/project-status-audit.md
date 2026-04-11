@@ -17,7 +17,7 @@ Current workflows:
 - [`.github/workflows/project-status-audit.yml`](../.github/workflows/project-status-audit.yml)
 - [`.github/workflows/project-inprogress-hygiene.yml`](../.github/workflows/project-inprogress-hygiene.yml)
 
-The automation scans the `Backup Execution Roadmap` GitHub Project and evaluates only items currently in:
+The automation scans the `Backup-Doctor Projekt` GitHub Project and evaluates only items currently in:
 
 - `Blocked`
 - `Validation`
@@ -87,6 +87,8 @@ Use `workflow_dispatch` and set:
 - `dry_run=true` to see what would change without updating the project
 - optional `project_owner`, `project_title`, or `project_number` overrides if the project location changes later
 
+The automation is intended to resolve the project primarily by `project_number`. Title is retained only as a human-readable fallback or override.
+
 ## Dry Run
 
 In dry-run mode the workflow:
@@ -124,7 +126,13 @@ Recommended configuration:
   - `PROJECT_STATUS_AUDIT_TITLE`
   - `PROJECT_STATUS_AUDIT_NUMBER`
 
-If the project stays on the same owner/title, the defaults are enough and only the token is usually needed.
+Current default target:
+
+- owner: `vitalyruhl`
+- project number: `3`
+- display title: `Backup-Doctor Projekt`
+
+If the project stays on the same owner/number, the defaults are enough and only the token is usually needed.
 
 ## Safe Rule Changes
 

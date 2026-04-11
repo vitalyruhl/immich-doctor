@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from project_audit_common import (
+    DEFAULT_PROJECT_NUMBER,
     DEFAULT_PROJECT_TITLE,
     AuditDecision,
     GitHubClient,
@@ -84,7 +85,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=int(os.getenv("PROJECT_STATUS_AUDIT_PROJECT_NUMBER"))
         if os.getenv("PROJECT_STATUS_AUDIT_PROJECT_NUMBER")
-        else None,
+        else DEFAULT_PROJECT_NUMBER,
     )
     parser.add_argument(
         "--dry-run",
