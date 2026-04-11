@@ -73,8 +73,16 @@ Before any workflow shortcut that changes topology, merges branches, or starts n
 - open PRs not yet merged
 - upstream branches that disappeared but still have local history
 - unpublished governance changes that would alter the decision logic itself
+- matching GitHub Project tracked item for the requested task scope
+- canonical task-tracking Issue existence for that scope
 
 If relevant unpublished state exists for the same scope, do not continue from an older effective base.
+
+Task tracking is mandatory before forward-progress workflow actions:
+
+- there must be a corresponding Issue tracked in GitHub Project before task start
+- tracked item may be Issue or PR card, but the work item must resolve to an Issue
+- if no matching Issue exists, create the Issue and add/link it in GitHub Project before continuing
 
 Required action:
 
@@ -124,6 +132,7 @@ Preconditions:
 
 - current branch is `main` or `feature/<feature>`
 - input has exactly two kebab-case segments
+- corresponding task Issue exists and is tracked in GitHub Project (create + link first if missing)
 - apply `UNIFIED PRE-WORK BLOCKER`
 
 STOP if:
@@ -340,6 +349,7 @@ Preconditions:
 
 - apply `UNIFIED PRE-WORK BLOCKER`
 - current state is runnable and validated
+- corresponding task Issue is tracked in GitHub Project and ready for transition update on merge
 
 Automatic prerequisite chain:
 
@@ -360,6 +370,7 @@ Deterministic outcome:
 - push required branch state
 - open or update PR to `main`
 - merge via PR when checks are green
+- update/move the tracked project item to review/done semantics according to repository status taxonomy (for example `Review` then `Done`, including equivalent wording such as `prüfen`/`fertig`)
 - clean fully integrated branches afterward
 
 ### `workflow.cleanBranches`
