@@ -369,12 +369,31 @@ def test_catalog_scan_progress_reports_all_dispatched_workers(
     active_lock = Lock()
     report_holder: dict[str, object] = {}
 
-    def fake_observe_directory(
-        self: CatalogInventoryScanService,
-        root_path: Path,
+    def fake_apply_directory_files(
+        self: CatalogStore,
+        settings_arg: AppSettings,
+        *,
+        session_id: str,
+        storage_root_id: int,
+        snapshot_id: int,
         relative_path: str,
-    ) -> dict[str, object]:
-        del self, root_path, relative_path
+        file_observations: list[object],
+        error_count: int,
+        bytes_delta: int,
+        last_relative_path: str | None,
+    ) -> None:
+        del (
+            self,
+            settings_arg,
+            session_id,
+            storage_root_id,
+            snapshot_id,
+            relative_path,
+            file_observations,
+            error_count,
+            bytes_delta,
+            last_relative_path,
+        )
         with active_lock:
             current = int(report_holder.get("active", 0)) + 1
             report_holder["active"] = current
@@ -383,14 +402,8 @@ def test_catalog_scan_progress_reports_all_dispatched_workers(
         assert release.wait(timeout=5)
         with active_lock:
             report_holder["active"] = int(report_holder.get("active", 1)) - 1
-        return {
-            "files": [],
-            "error_count": 0,
-            "bytes_delta": 0,
-            "last_relative_path": None,
-        }
 
-    monkeypatch.setattr(CatalogInventoryScanService, "_observe_directory_files", fake_observe_directory)
+    monkeypatch.setattr(CatalogStore, "apply_directory_files", fake_apply_directory_files)
 
     def run_scan() -> None:
         report_holder["report"] = service.run(

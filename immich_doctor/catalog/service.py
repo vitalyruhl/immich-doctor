@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import logging
 import os
 import time
@@ -38,6 +39,7 @@ _SCAN_PRIORITY = {
 }
 _DISCOVERY_PROGRESS_INTERVAL = 250
 _PROGRESS_EMIT_INTERVAL_SECONDS = 0.75
+_COLLECTOR_BATCH_SIZE = 128
 
 logger = logging.getLogger(__name__)
 
@@ -1089,8 +1091,12 @@ class CatalogInventoryScanService:
                 self.store.requeue_collecting_directories(settings, session_id)
                 return
 
-            relative_path = self.store.claim_next_collect_directory(settings, session_id)
-            if relative_path is None:
+            relative_paths = self.store.claim_next_collect_directories(
+                settings,
+                session_id,
+                limit=_COLLECTOR_BATCH_SIZE,
+            )
+            if not relative_paths:
                 controller.mark_collector_finished()
                 emit_progress(
                     "collect",
@@ -1098,13 +1104,24 @@ class CatalogInventoryScanService:
                 )
                 return
 
-            controller.mark_running("collector", relative_path)
-            child_relative_paths = self._collect_directory_children(root_path, relative_path)
-            self.store.complete_collected_directory(
+            controller.mark_running("collector", relative_paths[0])
+            collected_rows: list[dict[str, object]] = []
+            for relative_path in relative_paths:
+                scanned = self._scan_directory_contents(root_path, relative_path)
+                collected_rows.append(
+                    {
+                        "relative_path": relative_path,
+                        "child_relative_paths": scanned["child_relative_paths"],
+                        "file_observations": scanned["files"],
+                        "error_count": scanned["error_count"],
+                        "bytes_delta": scanned["bytes_delta"],
+                        "last_relative_path": scanned["last_relative_path"],
+                    }
+                )
+            self.store.complete_collected_directories(
                 settings,
                 session_id=session_id,
-                relative_path=relative_path,
-                child_relative_paths=child_relative_paths,
+                collected_rows=collected_rows,
             )
             controller.mark_idle("collector")
             emit_progress("collect", f"Collecting directories for root `{root_row['slug']}`.")
@@ -1158,33 +1175,43 @@ class CatalogInventoryScanService:
                 )
                 return
 
-            relative_path = self.store.claim_next_directory(
+            claimed = self.store.claim_next_directory(
                 settings,
                 session_id,
                 worker_id=worker_id,
             )
-            if relative_path is None:
+            if claimed is None:
                 controller.mark_idle(worker_id)
                 if controller.collector_finished():
                     return
                 time.sleep(0.05)
                 continue
 
+            relative_path = str(claimed["relative_path"])
             controller.mark_running(worker_id, relative_path)
-            observed = self._observe_directory_files(root_path, relative_path)
+            payload_json = str(claimed.get("payload_json") or "[]")
+            observed_files = [
+                CatalogFileObservation.from_dict(item)
+                for item in json.loads(payload_json)
+                if isinstance(item, dict)
+            ]
             self.store.apply_directory_files(
                 settings,
                 session_id=session_id,
                 storage_root_id=int(root_row["id"]),
                 snapshot_id=int(session_row["snapshot_id"]),
                 relative_path=relative_path,
-                file_observations=observed["files"],
-                error_count=observed["error_count"],
-                bytes_delta=observed["bytes_delta"],
-                last_relative_path=observed["last_relative_path"],
+                file_observations=observed_files,
+                error_count=int(claimed.get("payload_error_count") or 0),
+                bytes_delta=int(claimed.get("payload_bytes_delta") or 0),
+                last_relative_path=(
+                    str(claimed["payload_last_relative_path"])
+                    if claimed.get("payload_last_relative_path") is not None
+                    else None
+                ),
             )
             with files_seen_lock:
-                files_seen[0] += len(observed["files"])
+                files_seen[0] += len(observed_files)
                 if (
                     max_files is not None
                     and files_seen[0] >= max_files
@@ -1304,8 +1331,22 @@ class CatalogInventoryScanService:
         root_path: Path,
         relative_path: str,
     ) -> dict[str, object]:
+        scanned = self._scan_directory_contents(root_path, relative_path)
+        return {
+            "files": scanned["files"],
+            "error_count": scanned["error_count"],
+            "bytes_delta": scanned["bytes_delta"],
+            "last_relative_path": scanned["last_relative_path"],
+        }
+
+    def _scan_directory_contents(
+        self,
+        root_path: Path,
+        relative_path: str,
+    ) -> dict[str, object]:
         directory_path = root_path if not relative_path else root_path / relative_path
         files: list[CatalogFileObservation] = []
+        child_relative_paths: list[str] = []
         error_count = 0
         bytes_delta = 0
         last_relative_path: str | None = None
@@ -1313,6 +1354,14 @@ class CatalogInventoryScanService:
         try:
             with os.scandir(directory_path) as iterator:
                 for entry in iterator:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            child_relative_paths.append(
+                                self._relative_path(root_path, Path(entry.path))
+                            )
+                            continue
+                    except OSError:
+                        continue
                     try:
                         if not entry.is_file(follow_symlinks=False):
                             continue
@@ -1334,8 +1383,10 @@ class CatalogInventoryScanService:
                 error_count += 1
 
         files.sort(key=lambda item: item.relative_path)
+        child_relative_paths.sort()
         return {
             "files": files,
+            "child_relative_paths": child_relative_paths,
             "error_count": error_count,
             "bytes_delta": bytes_delta,
             "last_relative_path": last_relative_path,
