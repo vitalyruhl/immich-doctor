@@ -405,8 +405,12 @@ def test_catalog_remediation_group_routes_return_expected_shape(monkeypatch) -> 
     client = TestClient(create_api_app())
 
     overview_response = client.get("/api/consistency/catalog-remediation/groups")
-    list_response = client.get("/api/consistency/catalog-remediation/groups/broken-db?limit=20&offset=0")
-    detail_response = client.get("/api/consistency/catalog-remediation/groups/broken-db/items/broken-1")
+    list_response = client.get(
+        "/api/consistency/catalog-remediation/groups/broken-db?limit=20&offset=0"
+    )
+    detail_response = client.get(
+        "/api/consistency/catalog-remediation/groups/broken-db/items/broken-1"
+    )
 
     assert overview_response.status_code == 200
     assert overview_response.json()["data"]["groups"][0]["count"] == 12

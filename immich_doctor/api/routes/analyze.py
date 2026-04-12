@@ -116,7 +116,10 @@ def stop_catalog_scan_job(request: Request) -> CatalogScanJobApiResponse:
     return CatalogScanJobApiResponse(data=data)
 
 
-@analyze_router.post("/catalog/scan-job/actors/{actor_id}/pause", response_model=CatalogScanJobApiResponse)
+@analyze_router.post(
+    "/catalog/scan-job/actors/{actor_id}/pause",
+    response_model=CatalogScanJobApiResponse,
+)
 def pause_catalog_scan_actor(request: Request, actor_id: str) -> CatalogScanJobApiResponse:
     data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).pause_scan_actor(
         load_settings(),
@@ -125,7 +128,10 @@ def pause_catalog_scan_actor(request: Request, actor_id: str) -> CatalogScanJobA
     return CatalogScanJobApiResponse(data=data)
 
 
-@analyze_router.post("/catalog/scan-job/actors/{actor_id}/resume", response_model=CatalogScanJobApiResponse)
+@analyze_router.post(
+    "/catalog/scan-job/actors/{actor_id}/resume",
+    response_model=CatalogScanJobApiResponse,
+)
 def resume_catalog_scan_actor(request: Request, actor_id: str) -> CatalogScanJobApiResponse:
     data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).resume_scan_actor(
         load_settings(),
@@ -134,7 +140,10 @@ def resume_catalog_scan_actor(request: Request, actor_id: str) -> CatalogScanJob
     return CatalogScanJobApiResponse(data=data)
 
 
-@analyze_router.post("/catalog/scan-job/actors/{actor_id}/stop", response_model=CatalogScanJobApiResponse)
+@analyze_router.post(
+    "/catalog/scan-job/actors/{actor_id}/stop",
+    response_model=CatalogScanJobApiResponse,
+)
 def stop_catalog_scan_actor(request: Request, actor_id: str) -> CatalogScanJobApiResponse:
     data = CatalogWorkflowService(runtime=request.app.state.backup_job_runtime).stop_scan_actor(
         load_settings(),

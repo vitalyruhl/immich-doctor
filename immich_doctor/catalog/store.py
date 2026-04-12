@@ -1074,15 +1074,18 @@ class CatalogStore:
             )
         if "payload_file_count" not in directory_columns:
             connection.execute(
-                "ALTER TABLE scan_directory_queue ADD COLUMN payload_file_count INTEGER NOT NULL DEFAULT 0;"
+                "ALTER TABLE scan_directory_queue "
+                "ADD COLUMN payload_file_count INTEGER NOT NULL DEFAULT 0;"
             )
         if "payload_error_count" not in directory_columns:
             connection.execute(
-                "ALTER TABLE scan_directory_queue ADD COLUMN payload_error_count INTEGER NOT NULL DEFAULT 0;"
+                "ALTER TABLE scan_directory_queue "
+                "ADD COLUMN payload_error_count INTEGER NOT NULL DEFAULT 0;"
             )
         if "payload_bytes_delta" not in directory_columns:
             connection.execute(
-                "ALTER TABLE scan_directory_queue ADD COLUMN payload_bytes_delta INTEGER NOT NULL DEFAULT 0;"
+                "ALTER TABLE scan_directory_queue "
+                "ADD COLUMN payload_bytes_delta INTEGER NOT NULL DEFAULT 0;"
             )
         if "payload_last_relative_path" not in directory_columns:
             connection.execute(

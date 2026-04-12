@@ -110,7 +110,7 @@
           <button
             v-if="group.supportedActions.includes('delete')"
             type="button"
-            class="runtime-action runtime-action--secondary"
+            :class="groupActionClass('delete')"
             @click="stageGroupAction(group.key, 'delete')"
           >
             Delete visible
@@ -118,7 +118,7 @@
           <button
             v-if="group.supportedActions.includes('quarantine')"
             type="button"
-            class="runtime-action runtime-action--secondary"
+            :class="groupActionClass('quarantine')"
             @click="stageGroupAction(group.key, 'quarantine')"
           >
             Quarantine visible
@@ -126,7 +126,7 @@
           <button
             v-if="group.supportedActions.includes('ignore')"
             type="button"
-            class="runtime-action runtime-action--secondary"
+            :class="groupActionClass('ignore')"
             @click="stageGroupAction(group.key, 'ignore')"
           >
             Ignore visible
@@ -134,14 +134,14 @@
           <button
             v-if="group.supportedActions.includes('ignore')"
             type="button"
-            class="runtime-action runtime-action--secondary"
+            :class="groupActionClass('ignore')"
             @click="stageUnstagedIgnore(group.key)"
           >
             Ignore unstaged visible
           </button>
           <button
             type="button"
-            class="runtime-action runtime-action--secondary"
+            :class="groupActionClass('clear')"
             :disabled="!group.stagedCount"
             @click="clearGroupStage(group.key)"
           >
@@ -149,7 +149,7 @@
           </button>
           <button
             type="button"
-            class="runtime-action"
+            :class="performActionClass(group)"
             :disabled="!group.stagedCount || consistencyStore.isApplyingAction"
             @click="void performGroupActions(group)"
           >
@@ -222,7 +222,7 @@
                         v-for="action in row.actions"
                         :key="`${row.id}:${action.id}`"
                         type="button"
-                        class="runtime-action runtime-action--secondary"
+                        :class="rowActionClass(action.id)"
                         :disabled="Boolean(action.disabledReason)"
                         :title="action.disabledReason ?? action.helpText"
                         @click="stageRowAction(row.id, action.id)"
@@ -231,7 +231,7 @@
                       </button>
                       <button
                         type="button"
-                        class="runtime-action runtime-action--secondary"
+                        class="runtime-action runtime-action--secondary catalog-remediation-action"
                         @click="void toggleMoreInfo(row)"
                       >
                         {{ expandedRowIds[row.id] ? "Less info" : "...more info" }}
@@ -324,7 +324,7 @@
                   <div class="runtime-actions catalog-remediation-row-actions">
                     <button
                       type="button"
-                      class="runtime-action runtime-action--secondary"
+                      class="runtime-action runtime-action--secondary catalog-remediation-action catalog-remediation-action--safe"
                       :disabled="consistencyStore.isApplyingAction"
                       @click="void consistencyStore.restoreQuarantineItems([item.quarantine_item_id])"
                     >
@@ -332,7 +332,7 @@
                     </button>
                     <button
                       type="button"
-                      class="runtime-action"
+                      class="runtime-action catalog-remediation-action catalog-remediation-action--danger"
                       :disabled="consistencyStore.isApplyingAction"
                       @click="void consistencyStore.deleteQuarantineItemsPermanently([item.quarantine_item_id])"
                     >
@@ -391,7 +391,7 @@
                 <td>
                   <button
                     type="button"
-                    class="runtime-action runtime-action--secondary"
+                    class="runtime-action runtime-action--secondary catalog-remediation-action catalog-remediation-action--safe"
                     :disabled="consistencyStore.isApplyingAction"
                     @click="void consistencyStore.releaseIgnoredItems([item.ignored_item_id])"
                   >
@@ -520,6 +520,47 @@ function makeRowAction(
 
 function pageSizeValue(limit: number | null): string {
   return limit === null ? "-1" : String(limit);
+}
+
+function actionTone(actionId: RowActionId | "clear"): "safe" | "danger" | "neutral" {
+  if (actionId === "delete") {
+    return "danger";
+  }
+  if (actionId === "clear") {
+    return "safe";
+  }
+  return "safe";
+}
+
+function actionButtonClass(tone: "safe" | "danger" | "neutral"): string[] {
+  return [
+    "runtime-action",
+    "runtime-action--secondary",
+    "catalog-remediation-action",
+    tone === "danger"
+      ? "catalog-remediation-action--danger"
+      : tone === "safe"
+      ? "catalog-remediation-action--safe"
+      : "",
+  ].filter(Boolean);
+}
+
+function rowActionClass(actionId: RowActionId): string[] {
+  return actionButtonClass(actionTone(actionId));
+}
+
+function groupActionClass(actionId: RowActionId | "clear"): string[] {
+  return actionButtonClass(actionTone(actionId));
+}
+
+function performActionClass(group: FindingGroupModel): string[] {
+  const stagedActions = group.rows
+    .map((row) => stagedActionByRowId.value[row.id])
+    .filter((actionId): actionId is RowActionId => Boolean(actionId));
+  if (stagedActions.some((actionId) => actionId === "delete")) {
+    return ["runtime-action", "catalog-remediation-action", "catalog-remediation-action--danger"];
+  }
+  return ["runtime-action", "catalog-remediation-action", "catalog-remediation-action--safe"];
 }
 
 function isStorageNoiseRow(row: Record<string, unknown>): boolean {
@@ -1146,5 +1187,22 @@ async function refreshPanel(): Promise<void> {
 .catalog-remediation-detail-item {
   display: grid;
   gap: 0.25rem;
+}
+
+.catalog-remediation-action {
+  padding: 0.42rem 0.72rem;
+  font-size: 0.8rem;
+}
+
+.catalog-remediation-action--safe {
+  background: #eef6ff;
+  border-color: #8db5df;
+  color: #123d6b;
+}
+
+.catalog-remediation-action--danger {
+  background: #fff1f1;
+  border-color: #d89a9a;
+  color: #8b1e1e;
 }
 </style>

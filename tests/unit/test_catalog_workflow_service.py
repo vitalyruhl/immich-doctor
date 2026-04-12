@@ -226,7 +226,13 @@ def test_catalog_scan_job_recovers_running_session_for_effective_root(
                 control_state_provider: Any,
                 runtime_controller: Any,
             ) -> ValidationReport:
-                del settings_arg, max_files, progress_callback, control_state_provider, runtime_controller
+                del (
+                    settings_arg,
+                    max_files,
+                    progress_callback,
+                    control_state_provider,
+                    runtime_controller,
+                )
                 resume_calls.append((root_slug, resume_session_id))
                 release.wait(5)
                 return ValidationReport(
@@ -344,7 +350,14 @@ def test_catalog_scan_pause_and_resume_transitions(tmp_path: Path) -> None:
             control_state_provider: Any,
             runtime_controller: Any,
         ) -> ValidationReport:
-            del settings_arg, root_slug, resume_session_id, max_files, progress_callback, runtime_controller
+            del (
+                settings_arg,
+                root_slug,
+                resume_session_id,
+                max_files,
+                progress_callback,
+                runtime_controller,
+            )
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 state = control_state_provider()
@@ -411,7 +424,7 @@ def test_catalog_scan_get_job_does_not_auto_recover_paused_session(tmp_path: Pat
         result = service.get_scan_job(settings)
 
         assert result["jobId"] is None
-        assert result["summary"] != f"Catalog scan recovery queued for root `uploads`."
+        assert result["summary"] != "Catalog scan recovery queued for root `uploads`."
         assert runtime.active_job(job_type=CATALOG_SCAN_JOB_TYPE) is None
     finally:
         runtime.shutdown()

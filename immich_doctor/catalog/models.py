@@ -44,7 +44,7 @@ class CatalogFileObservation:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "CatalogFileObservation":
+    def from_dict(cls, payload: dict[str, object]) -> CatalogFileObservation:
         return cls(
             relative_path=str(payload.get("relative_path") or ""),
             parent_relative_path=str(payload.get("parent_relative_path") or ""),
@@ -52,14 +52,22 @@ class CatalogFileObservation:
             extension=str(payload["extension"]) if payload.get("extension") is not None else None,
             size_bytes=int(payload.get("size_bytes") or 0),
             created_at_fs=(
-                str(payload["created_at_fs"]) if payload.get("created_at_fs") is not None else None
+                str(payload["created_at_fs"])
+                if payload.get("created_at_fs") is not None
+                else None
             ),
             modified_at_fs=(
-                str(payload["modified_at_fs"]) if payload.get("modified_at_fs") is not None else None
+                str(payload["modified_at_fs"])
+                if payload.get("modified_at_fs") is not None
+                else None
             ),
             file_type_guess=str(payload.get("file_type_guess") or "unknown"),
             media_class_guess=str(payload.get("media_class_guess") or "unknown"),
             zero_byte_flag=bool(payload.get("zero_byte_flag")),
-            stat_device=str(payload["stat_device"]) if payload.get("stat_device") is not None else None,
-            stat_inode=str(payload["stat_inode"]) if payload.get("stat_inode") is not None else None,
+            stat_device=(
+                str(payload["stat_device"]) if payload.get("stat_device") is not None else None
+            ),
+            stat_inode=(
+                str(payload["stat_inode"]) if payload.get("stat_inode") is not None else None
+            ),
         )

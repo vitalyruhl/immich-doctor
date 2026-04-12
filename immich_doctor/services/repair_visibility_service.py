@@ -84,7 +84,9 @@ class RepairVisibilityService:
 
     def quarantine_summary(self, settings: AppSettings) -> dict[str, object]:
         items = [
-            item for item in self.store.load_quarantine_index(settings) if getattr(item, "state", "active") == "active"
+            item
+            for item in self.store.load_quarantine_index(settings)
+            if getattr(item, "state", "active") == "active"
         ]
         path_check = self.filesystem.validate_creatable_directory(
             "quarantine_path",

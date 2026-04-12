@@ -243,7 +243,10 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
     assert stop_response.status_code == 200
     assert stop_response.json()["data"]["state"] == "stopping"
     assert actor_pause_response.status_code == 200
-    assert actor_pause_response.json()["data"]["result"]["runtime"]["actors"][0]["actorId"] == "worker-1"
+    assert (
+        actor_pause_response.json()["data"]["result"]["runtime"]["actors"][0]["actorId"]
+        == "worker-1"
+    )
     assert actor_resume_response.status_code == 200
     assert actor_stop_response.status_code == 200
     assert workers_response.status_code == 200

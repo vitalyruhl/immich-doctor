@@ -42,12 +42,12 @@ from immich_doctor.core.config import AppSettings
 from immich_doctor.core.models import CheckResult, CheckStatus
 from immich_doctor.db.schema_detection import DatabaseStateDetector
 from immich_doctor.repair import (
+    QuarantineItem,
     RepairJournalEntry,
     RepairJournalEntryStatus,
     RepairJournalStore,
     RepairRun,
     RepairRunStatus,
-    QuarantineItem,
     UndoType,
     build_live_state_fingerprint,
     create_plan_token,
@@ -319,7 +319,9 @@ class CatalogRemediationService:
                 "message": row["message"],
                 "details": self._serialize_group_detail(group_key=group_key, payload=item),
             }
-        raise KeyError(f"Catalog remediation finding `{finding_id}` was not found in `{group_key}`.")
+        raise KeyError(
+            f"Catalog remediation finding `{finding_id}` was not found in `{group_key}`."
+        )
 
     def list_ignored_findings(self, settings: AppSettings) -> dict[str, object]:
         items = [
@@ -445,6 +447,7 @@ class CatalogRemediationService:
         items: tuple[dict[str, object], ...],
     ) -> dict[str, object]:
         results: list[dict[str, object]] = []
+        root_write_checks: dict[str, CheckResult] = {}
         for payload in items:
             finding_id = str(payload.get("finding_id") or "").strip()
             category_key = str(payload.get("category_key") or "unknown")
@@ -478,6 +481,26 @@ class CatalogRemediationService:
                         "finding_id": finding_id,
                         "status": "failed",
                         "message": "Source path is outside the configured storage root.",
+                    }
+                )
+                continue
+            root_key = root_path.as_posix()
+            if root_key not in root_write_checks:
+                root_write_checks[root_key] = self.filesystem.validate_writable_directory(
+                    "catalog_remediation_source_root",
+                    root_path,
+                )
+            root_write_check = root_write_checks[root_key]
+            if root_write_check.status == CheckStatus.FAIL:
+                results.append(
+                    {
+                        "finding_id": finding_id,
+                        "status": "failed",
+                        "message": self._quarantine_root_write_error(
+                            root_path=root_path,
+                            source_path=source_path,
+                            check=root_write_check,
+                        ),
                     }
                 )
                 continue
@@ -1376,7 +1399,8 @@ class CatalogRemediationService:
                     )
                 )
                 continue
-            if status == "not_in_use":
+            if status in {"not_in_use", "skipped"}:
+                skipped_in_container = status == "skipped"
                 findings.append(
                     FuseHiddenOrphanFinding(
                         finding_id=f"fuse-hidden:{row['root_slug']}:{row['relative_path']}",
@@ -1391,12 +1415,25 @@ class CatalogRemediationService:
                         owner_label=self._owner_label_from_relative_path(str(row["relative_path"])),
                         eligible_actions=(CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,),
                         action_reason=(
-                            "The orphan artifact is not reported as in use. "
-                            "Try deleting it directly."
+                            (
+                                "Container runtime skips host-only lock checks. "
+                                "Try deleting the artifact directly; if it is still locked, "
+                                "deletion will fail."
+                            )
+                            if skipped_in_container
+                            else (
+                                "The orphan artifact is not reported as in use. "
+                                "Try deleting it directly."
+                            )
                         ),
                         in_use_check_tool=tool,
                         in_use_check_reason=reason,
-                        message="The orphan artifact can be deleted directly.",
+                        message=(
+                            "Container runtime cannot reliably inspect host-managed FUSE locks. "
+                            "Try deleting the orphan artifact directly."
+                            if skipped_in_container
+                            else "The orphan artifact can be deleted directly."
+                        ),
                     )
                 )
                 continue
@@ -1415,11 +1452,15 @@ class CatalogRemediationService:
                     eligible_actions=(CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,),
                     action_reason=(
                         "The in-use check is unavailable from the current runtime. "
-                        "Try deleting the artifact directly; if it is still locked, deletion will fail."
+                        "Try deleting the artifact directly; if it is still locked, deletion "
+                        "will fail."
                     ),
                     in_use_check_tool=tool,
                     in_use_check_reason=reason,
-                    message="The in-use check could not be completed safely, but a direct delete can still be attempted.",
+                    message=(
+                        "The in-use check could not be completed safely, but a direct delete "
+                        "can still be attempted."
+                    ),
                 )
             )
         return findings
@@ -1957,7 +1998,10 @@ class CatalogRemediationService:
             "classification": str(payload.get("classification") or "unknown"),
             "message": str(payload.get("message") or ""),
             "summary_path": self._optional_text(payload.get("absolute_path")),
-            "summary_context": db_reference_kind or self._optional_text(payload.get("original_relative_path")),
+            "summary_context": (
+                db_reference_kind
+                or self._optional_text(payload.get("original_relative_path"))
+            ),
             "status_reason": self._optional_text(payload.get("action_reason")) or "Inspect only.",
             "blocked_reason": None,
             "actions": ["quarantine", "ignore"],
@@ -1971,9 +2015,15 @@ class CatalogRemediationService:
                 "source_path": self._optional_text(payload.get("absolute_path")),
                 "root_slug": root_slug,
                 "relative_path": self._optional_text(payload.get("relative_path")),
-                "original_relative_path": self._optional_text(payload.get("original_relative_path")),
+                "original_relative_path": self._optional_text(
+                    payload.get("original_relative_path")
+                ),
                 "db_reference_kind": db_reference_kind,
-                "size_bytes": int(payload["size_bytes"]) if payload.get("size_bytes") is not None else None,
+                "size_bytes": (
+                    int(payload["size_bytes"])
+                    if payload.get("size_bytes") is not None
+                    else None
+                ),
             },
         }
 
@@ -2007,7 +2057,11 @@ class CatalogRemediationService:
                 "source_path": self._optional_text(payload.get("absolute_path")),
                 "root_slug": self._optional_text(payload.get("root_slug")),
                 "relative_path": self._optional_text(payload.get("relative_path")),
-                "size_bytes": int(payload["size_bytes"]) if payload.get("size_bytes") is not None else None,
+                "size_bytes": (
+                    int(payload["size_bytes"])
+                    if payload.get("size_bytes") is not None
+                    else None
+                ),
             },
         }
 
@@ -2160,7 +2214,33 @@ class CatalogRemediationService:
     ) -> Path:
         safe_category = category_key.replace("/", "-")
         safe_finding = finding_id.replace("/", "-").replace(":", "-") or uuid4().hex
-        return settings.quarantine_path / "catalog-remediation" / safe_category / safe_finding / source_path.name
+        return (
+            settings.quarantine_path
+            / "catalog-remediation"
+            / safe_category
+            / safe_finding
+            / source_path.name
+        )
+
+    def _quarantine_root_write_error(
+        self,
+        *,
+        root_path: Path,
+        source_path: Path,
+        check: CheckResult,
+    ) -> str:
+        reason = str(check.details.get("reason") or "").strip()
+        if reason == "read_only_filesystem":
+            return (
+                f"Quarantine failed because the storage root `{root_path}` is mounted read-only "
+                f"inside the immich-doctor container, so `{source_path}` cannot be moved. In "
+                "Unraid, set the matching storage path mapping for immich-doctor to Read/Write. "
+                "If you use Compose, remove any `:ro` flag from that volume."
+            )
+        return (
+            f"Quarantine failed because the storage root `{root_path}` is not writable for the "
+            "immich-doctor process."
+        )
 
     def _transition_quarantine_items(
         self,
@@ -2196,7 +2276,9 @@ class CatalogRemediationService:
                             {
                                 "quarantine_item_id": item.quarantine_item_id,
                                 "status": "failed",
-                                "message": "Original source path already exists and blocks restore.",
+                                "message": (
+                                    "Original source path already exists and blocks restore."
+                                ),
                             }
                         )
                         continue
