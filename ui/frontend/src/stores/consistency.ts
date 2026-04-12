@@ -61,6 +61,17 @@ function summarizeActionFailures(result: unknown): string | null {
   return details + suffix;
 }
 
+function hasReadyRemediationCache(candidate: unknown): boolean {
+  if (!candidate || typeof candidate !== "object") {
+    return false;
+  }
+  const metadata =
+    "metadata" in candidate && candidate.metadata && typeof candidate.metadata === "object"
+      ? (candidate.metadata as Record<string, unknown>)
+      : {};
+  return metadata.cacheState !== "missing";
+}
+
 type CatalogReadinessState =
   | "ready"
   | "indexing"
@@ -242,7 +253,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     try {
       const response = await fetchCatalogRemediationFindings();
       remediationScanResult.value = response.data;
-      remediationLoaded.value = true;
+      remediationLoaded.value = hasReadyRemediationCache(response.data);
       return response.data;
     } catch (caughtError) {
       remediationError.value = toErrorMessage(caughtError);
@@ -266,6 +277,17 @@ export const useConsistencyStore = defineStore("consistency", () => {
     } finally {
       isRefreshingRemediation.value = false;
     }
+  }
+
+  async function ensureRemediationLoaded(): Promise<CatalogRemediationScanResponse | null> {
+    const cached = await loadRemediation();
+    if (cached && hasReadyRemediationCache(cached)) {
+      return cached;
+    }
+    if (catalogJobError.value || isWaitingOnCatalog.value) {
+      return cached;
+    }
+    return refreshRemediation();
   }
 
   async function loadIgnored(): Promise<CatalogIgnoredFindingsResponse | null> {
@@ -451,6 +473,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     lastActionSummary,
     load,
     loadCatalogJob,
+    ensureRemediationLoaded,
     loadIgnored,
     loadQuarantine,
     loadRemediation,
