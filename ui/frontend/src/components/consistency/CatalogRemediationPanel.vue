@@ -14,17 +14,7 @@
 
       <section class="runtime-actions">
         <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          type="button"
-          class="runtime-action runtime-action--secondary"
-          :class="{ 'runtime-action--active': activeTab === tab.id }"
-          @click="activeTab = tab.id"
-        >
-          {{ tab.label }}
-        </button>
-        <button
-          v-if="activeTab === 'findings'"
+          v-if="mode === 'findings'"
           type="button"
           class="runtime-action"
           :disabled="consistencyStore.isLoadingRemediation || consistencyStore.isRefreshingRemediation"
@@ -57,7 +47,7 @@
       </p>
     </section>
 
-    <template v-if="activeTab === 'findings'">
+    <template v-if="mode === 'findings'">
       <section v-if="!consistencyStore.remediationLoaded" class="panel catalog-remediation-group">
         <div class="settings-section__header">
           <div>
@@ -244,7 +234,7 @@
       </article>
     </template>
 
-    <template v-else-if="activeTab === 'quarantine'">
+    <template v-else-if="mode === 'quarantine'">
       <article class="panel catalog-remediation-group">
         <div class="settings-section__header">
           <div>
@@ -390,7 +380,7 @@ import type {
 } from "@/api/types/consistency";
 
 type HealthTag = "ok" | "warning" | "error" | "unknown";
-type TabId = "findings" | "quarantine" | "ignored";
+type PanelMode = "findings" | "quarantine" | "ignored";
 type RowActionId =
   | "inspect"
   | "ignore"
@@ -434,20 +424,25 @@ interface FindingGroupModel {
 }
 
 const consistencyStore = useConsistencyStore();
-const activeTab = ref<TabId>("findings");
 const stagedActionByRowId = ref<Record<string, RowActionId>>({});
 
-const tabs = [
-  { id: "findings", label: "Findings" },
-  { id: "quarantine", label: "Quarantine" },
-  { id: "ignored", label: "Ignored" },
-] satisfies Array<{ id: TabId; label: string }>;
+const props = withDefaults(
+  defineProps<{
+    mode?: PanelMode;
+  }>(),
+  {
+    mode: "findings",
+  },
+);
 
 function sectionRows(
   report: CatalogValidationReport | null,
   sectionName: string,
 ): Array<Record<string, unknown>> {
-  const section = report?.sections.find((candidate) => candidate.name === sectionName);
+  const normalizedSectionName = sectionName.trim().toUpperCase();
+  const section = report?.sections.find(
+    (candidate) => String(candidate.name ?? "").trim().toUpperCase() === normalizedSectionName,
+  );
   return section ? (section.rows as Array<Record<string, unknown>>) : [];
 }
 
@@ -818,10 +813,10 @@ const findingGroups = computed<FindingGroupModel[]>(() =>
 );
 
 const workspaceSummary = computed(() => {
-  if (activeTab.value === "quarantine") {
+  if (props.mode === "quarantine") {
     return consistencyStore.quarantineState?.summary ?? "Active quarantine items are listed here.";
   }
-  if (activeTab.value === "ignored") {
+  if (props.mode === "ignored") {
     return consistencyStore.ignoredState?.summary ?? "Active ignore decisions are listed here.";
   }
   if (consistencyStore.remediationScanResult?.summary) {
@@ -834,10 +829,10 @@ const workspaceSummary = computed(() => {
 });
 
 const workspaceDetails = computed(() => {
-  if (activeTab.value === "findings") {
+  if (props.mode === "findings") {
     return "Nothing mutates automatically here. Detailed findings only rebuild after explicit refresh or directly after a finished storage scan.";
   }
-  if (activeTab.value === "quarantine") {
+  if (props.mode === "quarantine") {
     return "Final deletion is only available from this quarantine view.";
   }
   return "Ignored findings show category, reason, and timestamp until they are released.";
@@ -990,8 +985,4 @@ async function loadCachedFindings(): Promise<void> {
   background: #f8fbfd;
 }
 
-.runtime-action--active {
-  border-color: #13202a;
-  background: #eef5fb;
-}
 </style>

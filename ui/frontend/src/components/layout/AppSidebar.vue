@@ -39,6 +39,10 @@ defineProps<{
 }>();
 
 function isActive(routeName: string): boolean {
-  return routeName === String(route.name ?? "");
+  const currentRouteName = String(route.name ?? "");
+  if (routeName === "consistency" && currentRouteName.startsWith("consistency")) {
+    return true;
+  }
+  return routeName === currentRouteName;
 }
 </script>

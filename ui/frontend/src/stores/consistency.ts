@@ -68,7 +68,10 @@ function sectionRows(
   report: CatalogValidationReport | null,
   sectionName: string,
 ): Array<Record<string, unknown>> {
-  const section = report?.sections.find((candidate) => candidate.name === sectionName);
+  const normalizedSectionName = sectionName.trim().toUpperCase();
+  const section = report?.sections.find(
+    (candidate) => String(candidate.name ?? "").trim().toUpperCase() === normalizedSectionName,
+  );
   return section ? (section.rows as Array<Record<string, unknown>>) : [];
 }
 

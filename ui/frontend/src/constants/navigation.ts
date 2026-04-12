@@ -21,12 +21,6 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     description: "Runtime readiness and health checks.",
   },
   {
-    label: "Consistency",
-    icon: "pi pi-check-square",
-    to: { name: "consistency" },
-    description: "Category-first consistency validation and repair.",
-  },
-  {
     label: "Database",
     icon: "pi pi-database",
     to: { name: "database" },
@@ -37,6 +31,24 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     icon: "pi pi-folder",
     to: { name: "storage" },
     description: "Storage paths, mounts, and readiness.",
+  },
+  {
+    label: "Consistency",
+    icon: "pi pi-check-square",
+    to: { name: "consistency" },
+    description: "Category-first consistency validation and repair.",
+  },
+  {
+    label: "Quarantine",
+    icon: "pi pi-inbox",
+    to: { name: "consistency-quarantine" },
+    description: "Review quarantined consistency findings.",
+  },
+  {
+    label: "Ignored",
+    icon: "pi pi-eye-slash",
+    to: { name: "consistency-ignored" },
+    description: "Manage findings hidden from the active view.",
   },
   {
     label: "Backup",

@@ -42,7 +42,7 @@ function createStore(): any {
       summary: "Catalog report loaded.",
       sections: [
         {
-          name: "STORAGE_ORIGINALS_MISSING_IN_DB",
+          name: "storage_originals_missing_in_db",
           rows: [
             {
               root_slug: "uploads",
@@ -199,6 +199,9 @@ describe("CatalogRemediationPanel", () => {
 
   it("renders findings with category-local actions and owner labels", async () => {
     const wrapper = mount(CatalogRemediationPanel, {
+      props: {
+        mode: "findings",
+      },
       global: {
         stubs: {
           EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
@@ -218,6 +221,9 @@ describe("CatalogRemediationPanel", () => {
 
   it("stages and applies category actions without checkbox selection", async () => {
     const wrapper = mount(CatalogRemediationPanel, {
+      props: {
+        mode: "findings",
+      },
       global: {
         stubs: {
           EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
@@ -241,8 +247,11 @@ describe("CatalogRemediationPanel", () => {
     expect(store.applyBrokenDbAction).toHaveBeenCalledWith(["asset-1"], "broken_db_cleanup");
   });
 
-  it("shows quarantine and ignored tabs with dedicated operations", async () => {
+  it("renders the quarantine workspace with dedicated operations", async () => {
     const wrapper = mount(CatalogRemediationPanel, {
+      props: {
+        mode: "quarantine",
+      },
       global: {
         stubs: {
           EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
@@ -252,14 +261,23 @@ describe("CatalogRemediationPanel", () => {
     });
     await nextTick();
 
-    const quarantineTab = wrapper.findAll("button").find((button) => button.text() === "Quarantine");
-    await quarantineTab!.trigger("click");
-    await nextTick();
     expect(wrapper.text()).toContain("Delete permanently");
+  });
 
-    const ignoredTab = wrapper.findAll("button").find((button) => button.text() === "Ignored");
-    await ignoredTab!.trigger("click");
+  it("renders the ignored workspace with release actions", async () => {
+    const wrapper = mount(CatalogRemediationPanel, {
+      props: {
+        mode: "ignored",
+      },
+      global: {
+        stubs: {
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
+          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
+        },
+      },
+    });
     await nextTick();
+
     expect(wrapper.text()).toContain("Release ignore");
   });
 
@@ -267,6 +285,9 @@ describe("CatalogRemediationPanel", () => {
     store.remediationLoaded = false;
 
     const wrapper = mount(CatalogRemediationPanel, {
+      props: {
+        mode: "findings",
+      },
       global: {
         stubs: {
           EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
