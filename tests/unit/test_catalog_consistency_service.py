@@ -112,6 +112,8 @@ def test_catalog_consistency_reports_db_storage_and_orphan_findings(tmp_path: Pa
     (settings.immich_uploads_path / "user-a" / "keep.jpg").write_bytes(b"ok")
     (settings.immich_uploads_path / "user-a" / "lonely.jpg").write_bytes(b"lonely")
     (settings.immich_uploads_path / "user-a" / "missing.jpg.xmp").write_bytes(b"<xmp />")
+    (settings.immich_uploads_path / "user-a" / ".fuse_hidden0001").write_bytes(b"fuse")
+    (settings.immich_uploads_path / "user-a" / ".immich").write_bytes(b"marker")
     (settings.immich_uploads_path / "user-a" / "zero.jpg").write_bytes(b"")
     (settings.immich_thumbs_path / "user-a" / "missing_preview.webp").write_bytes(b"preview")
     (settings.immich_thumbs_path / "user-a" / "missing_thumbnail.webp").write_bytes(b"thumb")
@@ -355,3 +357,87 @@ def test_catalog_consistency_reports_missing_motion_video_component_when_storage
         section for section in report.sections if section.name == "DB_ORIGINALS_MISSING_ON_STORAGE"
     )
     assert db_missing.rows[0]["classification"] == "valid_motion_video_component_missing_on_storage"
+
+
+class _FakeWindowedPostgres:
+    def validate_connection(self, dsn: str, timeout_seconds: int) -> CheckResult:
+        del dsn, timeout_seconds
+        return CheckResult(
+            name="postgres_connection",
+            status=CheckStatus.PASS,
+            message="PostgreSQL connection established.",
+        )
+
+    def list_all_assets_for_catalog_consistency(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        del dsn, timeout_seconds
+        return [
+            {
+                "id": "asset-stable",
+                "type": "image",
+                "ownerId": "user-1",
+                "createdAt": "2026-04-09T08:00:00+00:00",
+                "updatedAt": "2026-04-09T08:00:00+00:00",
+                "originalFileName": "stable.jpg",
+                "originalPath": "/usr/src/app/upload/upload/user-a/stable.jpg",
+                "encodedVideoPath": "",
+            },
+            {
+                "id": "asset-during-scan",
+                "type": "image",
+                "ownerId": "user-1",
+                "createdAt": "2099-04-09T09:30:00+00:00",
+                "updatedAt": "2099-04-09T09:30:00+00:00",
+                "originalFileName": "during-scan.jpg",
+                "originalPath": "/usr/src/app/upload/upload/user-a/during-scan.jpg",
+                "encodedVideoPath": "",
+            },
+        ]
+
+    def list_all_asset_files_for_catalog_consistency(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        del dsn, timeout_seconds
+        return []
+
+
+def test_catalog_consistency_excludes_assets_created_after_snapshot_window_start(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+
+    for path in [
+        settings.immich_uploads_path,
+        settings.immich_thumbs_path,
+        settings.immich_profile_path,
+        settings.immich_video_path,
+    ]:
+        assert path is not None
+        path.mkdir(parents=True, exist_ok=True)
+
+    (settings.immich_uploads_path / "user-a").mkdir(parents=True, exist_ok=True)
+    stable_path = settings.immich_uploads_path / "user-a" / "stable.jpg"
+    stable_path.write_bytes(b"stable")
+
+    for root_slug in ["uploads", "thumbs", "profile", "video"]:
+        CatalogInventoryScanService().run(
+            settings,
+            root_slug=root_slug,
+            resume_session_id=None,
+            max_files=None,
+        )
+
+    report = CatalogConsistencyValidationService(
+        postgres=_FakeWindowedPostgres(),
+        sample_limit=20,
+    ).run(settings)
+
+    totals = report.metadata["totals"]
+    assert totals["dbOriginalsMissingOnStorage"] == 0
+    assert totals["totalAssetsScanned"] == 1
+    assert report.metadata["comparisonWindowStartedAt"] is not None

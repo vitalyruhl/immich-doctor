@@ -20,6 +20,27 @@ class _FakeExternalTools:
         )
 
 
+class _ReadOnlyFilesystem:
+    def path_exists(self, path: Path) -> bool:
+        return path.exists()
+
+    def is_child_path(self, parent: Path, child: Path) -> bool:
+        try:
+            child.resolve().relative_to(parent.resolve())
+        except ValueError:
+            return False
+        return True
+
+    def validate_writable_directory(self, name: str, path: Path) -> CheckResult:
+        del name
+        return CheckResult(
+            name="catalog_remediation_source_root",
+            status=CheckStatus.FAIL,
+            message="Configured directory is on a read-only filesystem.",
+            details={"path": str(path), "reason": "read_only_filesystem"},
+        )
+
+
 class _FakePostgres:
     def __init__(self, checksum_value: str) -> None:
         self.checksum_value = checksum_value
@@ -152,6 +173,7 @@ def _build_scanned_settings(tmp_path: Path) -> tuple[AppSettings, str]:
     (settings.immich_uploads_path / "user-a" / ".immich").write_bytes(b"marker")
     (settings.immich_uploads_path / "user-a" / ".fuse_hidden0001").write_bytes(b"blocked")
     (settings.immich_uploads_path / "user-b" / ".fuse_hidden0002").write_bytes(b"free")
+    (settings.immich_uploads_path / "user-b" / ".fuse_hidden0003").write_bytes(b"unknown")
     (settings.immich_uploads_path / "user-b" / "relocated.jpg").write_bytes(b"relocated")
     (settings.immich_uploads_path / "user-b" / "orphan-zero.jpg").write_bytes(b"")
     (settings.immich_thumbs_path / "user-a" / "thumb-zero.webp").write_bytes(b"")
@@ -186,6 +208,10 @@ def test_catalog_remediation_classifies_broken_zero_byte_and_fuse_hidden_finding
                     "status": "not_in_use",
                     "tool": "lsof",
                     "reason": "No open file handles were reported.",
+                },
+                str(settings.immich_uploads_path / "user-b" / ".fuse_hidden0003"): {
+                    "status": "skipped",
+                    "reason": "Container runtime skips host-managed FUSE lock inspection.",
                 },
             }
         ),
@@ -226,6 +252,11 @@ def test_catalog_remediation_classifies_broken_zero_byte_and_fuse_hidden_finding
         for item in result.fuse_hidden_orphans
         if item.relative_path == "user-b/.fuse_hidden0002"
     )
+    skipped_check = next(
+        item
+        for item in result.fuse_hidden_orphans
+        if item.relative_path == "user-b/.fuse_hidden0003"
+    )
 
     assert confirmed.classification.value == "missing_confirmed"
     assert confirmed.eligible_actions == (CatalogRemediationActionKind.BROKEN_DB_CLEANUP,)
@@ -235,15 +266,22 @@ def test_catalog_remediation_classifies_broken_zero_byte_and_fuse_hidden_finding
     assert hash_match.checksum_match is True
     assert hash_match.eligible_actions == (CatalogRemediationActionKind.BROKEN_DB_PATH_FIX,)
     assert upload_orphan.classification.value == "zero_byte_upload_orphan"
-    assert upload_orphan.action_eligible is True
+    assert upload_orphan.action_eligible is False
     assert upload_critical.classification.value == "zero_byte_upload_critical"
     assert upload_critical.action_eligible is False
     assert thumb_derivative.classification.value == "zero_byte_thumb_derivative"
+    assert thumb_derivative.action_eligible is False
     assert video_derivative.classification.value == "zero_byte_video_derivative"
+    assert video_derivative.action_eligible is False
     assert blocked.classification.value == "blocked_in_use"
     assert blocked.action_eligible is False
     assert deletable.classification.value == "deletable_orphan"
     assert deletable.action_eligible is True
+    assert deletable.eligible_actions == (CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,)
+    assert skipped_check.classification.value == "deletable_orphan"
+    assert skipped_check.action_eligible is True
+    assert skipped_check.eligible_actions == (CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,)
+    assert skipped_check.message.startswith("Container runtime cannot reliably inspect")
     assert all(item.file_name != ".immich" for item in result.fuse_hidden_orphans)
     assert all(item.file_name != ".immich" for item in result.zero_byte_findings)
 
@@ -265,6 +303,10 @@ def test_catalog_remediation_bulk_preview_filters_to_eligible_items(tmp_path: Pa
                     "tool": "lsof",
                     "reason": "No open file handles were reported.",
                 },
+                str(settings.immich_uploads_path / "user-b" / ".fuse_hidden0003"): {
+                    "status": "skipped",
+                    "reason": "Container runtime skips host-managed FUSE lock inspection.",
+                },
             }
         ),
     )
@@ -278,11 +320,84 @@ def test_catalog_remediation_bulk_preview_filters_to_eligible_items(tmp_path: Pa
         "asset-missing-confirmed"
     ]
     assert [item["asset_id"] for item in path_fix_preview.selected_items] == ["asset-path-fix"]
-    assert sorted(item["classification"] for item in zero_byte_preview.selected_items) == [
-        "zero_byte_thumb_derivative",
-        "zero_byte_upload_orphan",
-        "zero_byte_video_derivative",
+    assert zero_byte_preview.selected_items == []
+    assert sorted(item["relative_path"] for item in fuse_preview.selected_items) == [
+        "user-b/.fuse_hidden0002",
+        "user-b/.fuse_hidden0003",
     ]
-    assert [item["relative_path"] for item in fuse_preview.selected_items] == [
-        "user-b/.fuse_hidden0002"
-    ]
+
+
+def test_catalog_remediation_group_overview_and_detail_only_return_requested_page(
+    tmp_path: Path,
+) -> None:
+    settings, checksum_value = _build_scanned_settings(tmp_path)
+    service = CatalogRemediationService(
+        postgres=_FakePostgres(checksum_value=checksum_value),
+        external_tools=_FakeExternalTools(responses={}),
+    )
+
+    scan_result = service.refresh_cached_findings(settings)
+    initial_broken_count = len(scan_result["broken_db_originals"])
+    hidden_finding_id = str(scan_result["broken_db_originals"][0]["finding_id"])
+    service.ignore_findings(
+        settings,
+        items=(
+            {
+                "finding_id": hidden_finding_id,
+                "category_key": "broken-db",
+                "title": "hidden item",
+            },
+        ),
+    )
+
+    overview = service.load_group_overview(settings)
+    broken_group = next(group for group in overview["groups"] if group["key"] == "broken-db")
+    assert broken_group["count"] == initial_broken_count - 1
+
+    first_page = service.list_group_findings(
+        settings,
+        group_key="broken-db",
+        limit=1,
+        offset=0,
+    )
+    assert first_page["total"] == initial_broken_count - 1
+    assert len(first_page["items"]) == 1
+
+    detail = service.get_finding_detail(
+        settings,
+        group_key="broken-db",
+        finding_id=str(first_page["items"][0]["finding_id"]),
+    )
+    assert detail["finding_id"] == first_page["items"][0]["finding_id"]
+    assert any(item["label"] == "Expected DB path" for item in detail["details"])
+
+
+def test_quarantine_findings_explains_read_only_source_mount(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    assert settings.immich_uploads_path is not None
+    settings.immich_uploads_path.mkdir(parents=True, exist_ok=True)
+    source_path = settings.immich_uploads_path / "owner-a" / "asset.jpg"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_bytes(b"asset")
+
+    service = CatalogRemediationService(
+        postgres=_FakePostgres(checksum_value=""),
+        external_tools=_FakeExternalTools(responses={}),
+        filesystem=_ReadOnlyFilesystem(),  # type: ignore[arg-type]
+    )
+
+    result = service.quarantine_findings(
+        settings,
+        items=(
+            {
+                "finding_id": "storage-missing:owner-a/asset.jpg",
+                "category_key": "storage-missing",
+                "source_path": source_path.as_posix(),
+                "root_slug": "uploads",
+            },
+        ),
+    )
+
+    assert result["items"][0]["status"] == "failed"
+    assert "mounted read-only" in result["items"][0]["message"]
+    assert "Read/Write" in result["items"][0]["message"]

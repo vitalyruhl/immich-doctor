@@ -404,6 +404,54 @@ class PostgresAdapter:
         )
         return fetch_all_composed(dsn, timeout_seconds, query)
 
+    def list_users_for_catalog_consistency(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        table_lookup = {
+            str(row["table_name"]): f"{row['table_schema']}.{row['table_name']}"
+            for row in self.list_tables(dsn, timeout_seconds)
+        }
+        qualified_name = table_lookup.get("user")
+        if qualified_name is None:
+            return []
+        table_schema, table_name = qualified_name.split(".", maxsplit=1)
+        user_columns = {
+            str(row["column_name"])
+            for row in self.list_columns(
+                dsn,
+                timeout_seconds,
+                table_schema=table_schema,
+                table_name=table_name,
+            )
+        }
+        optional_columns = [
+            column
+            for column in ("name", "firstName", "lastName", "email", "storageLabel")
+            if column in user_columns
+        ]
+        select_columns: list[sql.Composable] = [sql.SQL("id")]
+        for column in optional_columns:
+            select_columns.append(
+                sql.SQL("{column} AS {alias}").format(
+                    column=sql.Identifier(column),
+                    alias=sql.Identifier(column),
+                )
+            )
+        query = sql.SQL(
+            """
+            SELECT
+                {select_columns}
+            FROM {user_table}
+            ORDER BY id ASC;
+            """
+        ).format(
+            select_columns=sql.SQL(", ").join(select_columns),
+            user_table=sql.Identifier(table_schema, table_name),
+        )
+        return fetch_all_composed(dsn, timeout_seconds, query)
+
     def list_all_asset_files_for_catalog_consistency(
         self,
         dsn: str,

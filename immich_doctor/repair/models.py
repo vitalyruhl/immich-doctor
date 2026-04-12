@@ -193,6 +193,18 @@ class QuarantineItem:
     checksum: str | None = None
     size_bytes: int | None = None
     restorable: bool = True
+    owner_id: str | None = None
+    owner_label: str | None = None
+    category_key: str | None = None
+    finding_id: str | None = None
+    source_kind: str | None = None
+    root_slug: str | None = None
+    relative_path: str | None = None
+    original_relative_path: str | None = None
+    db_reference_kind: str | None = None
+    state: str = "active"
+    state_changed_at: str | None = None
+    deleted_at: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
@@ -206,6 +218,18 @@ class QuarantineItem:
             "checksum": self.checksum,
             "size_bytes": self.size_bytes,
             "restorable": self.restorable,
+            "owner_id": self.owner_id,
+            "owner_label": self.owner_label,
+            "category_key": self.category_key,
+            "finding_id": self.finding_id,
+            "source_kind": self.source_kind,
+            "root_slug": self.root_slug,
+            "relative_path": self.relative_path,
+            "original_relative_path": self.original_relative_path,
+            "db_reference_kind": self.db_reference_kind,
+            "state": self.state,
+            "state_changed_at": self.state_changed_at,
+            "deleted_at": self.deleted_at,
             "created_at": self.created_at,
         }
 
@@ -221,5 +245,17 @@ class QuarantineItem:
             checksum=payload.get("checksum"),
             size_bytes=payload.get("size_bytes"),
             restorable=bool(payload["restorable"]),
+            owner_id=payload.get("owner_id"),
+            owner_label=payload.get("owner_label"),
+            category_key=payload.get("category_key"),
+            finding_id=payload.get("finding_id"),
+            source_kind=payload.get("source_kind"),
+            root_slug=payload.get("root_slug"),
+            relative_path=payload.get("relative_path"),
+            original_relative_path=payload.get("original_relative_path"),
+            db_reference_kind=payload.get("db_reference_kind"),
+            state=str(payload.get("state") or "active"),
+            state_changed_at=payload.get("state_changed_at"),
+            deleted_at=payload.get("deleted_at"),
             created_at=payload["created_at"],
         )

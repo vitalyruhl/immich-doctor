@@ -170,6 +170,39 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         analyze_routes.CatalogWorkflowService,
+        "pause_scan_actor",
+        lambda self, settings, *, actor_id: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "running",
+            "summary": f"Pause requested for {actor_id}.",
+            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "resume_scan_actor",
+        lambda self, settings, *, actor_id: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "running",
+            "summary": f"Resume requested for {actor_id}.",
+            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
+        "stop_scan_actor",
+        lambda self, settings, *, actor_id: {
+            "jobId": "catalog-scan-2",
+            "jobType": "catalog_inventory_scan",
+            "state": "running",
+            "summary": f"Stop requested for {actor_id}.",
+            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}},
+        },
+    )
+    monkeypatch.setattr(
+        analyze_routes.CatalogWorkflowService,
         "request_scan_worker_resize",
         lambda self, settings, *, workers: {
             "jobId": "catalog-scan-2",
@@ -194,6 +227,9 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
     pause_response = client.post("/api/analyze/catalog/scan-job/pause")
     resume_response = client.post("/api/analyze/catalog/scan-job/resume")
     stop_response = client.post("/api/analyze/catalog/scan-job/stop")
+    actor_pause_response = client.post("/api/analyze/catalog/scan-job/actors/worker-1/pause")
+    actor_resume_response = client.post("/api/analyze/catalog/scan-job/actors/worker-1/resume")
+    actor_stop_response = client.post("/api/analyze/catalog/scan-job/actors/worker-1/stop")
     workers_response = client.post("/api/analyze/catalog/scan-job/workers", json={"workers": 8})
 
     assert current_response.status_code == 200
@@ -206,5 +242,12 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
     assert resume_response.json()["data"]["state"] == "resuming"
     assert stop_response.status_code == 200
     assert stop_response.json()["data"]["state"] == "stopping"
+    assert actor_pause_response.status_code == 200
+    assert (
+        actor_pause_response.json()["data"]["result"]["runtime"]["actors"][0]["actorId"]
+        == "worker-1"
+    )
+    assert actor_resume_response.status_code == 200
+    assert actor_stop_response.status_code == 200
     assert workers_response.status_code == 200
     assert workers_response.json()["data"]["result"]["workerResize"]["semantics"] == "next_run_only"

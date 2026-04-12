@@ -165,6 +165,8 @@ class CatalogConsistencyValidationService:
                 "latestSnapshots": state.latest_snapshots,
                 "snapshotBasis": state.snapshot_basis,
                 "latestScanCommittedAt": state.latest_scan_committed_at,
+                "comparisonWindowStartedAt": state.comparison_window_started_at,
+                "comparisonWindowCommittedAt": state.comparison_window_committed_at,
                 "sampleLimit": self.sample_limit,
                 "totals": {
                     "totalAssetsScanned": state.total_assets_scanned,

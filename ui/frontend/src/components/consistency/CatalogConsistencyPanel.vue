@@ -328,7 +328,7 @@ function startPolling(): void {
   }
   pollHandle = window.setInterval(() => {
     void refreshJob();
-  }, 1500);
+  }, 3000);
 }
 
 function stopPolling(): void {

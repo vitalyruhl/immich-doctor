@@ -167,6 +167,12 @@ class CatalogRemediationApplyApiResponse(BaseModel):
     mocked: bool = False
 
 
+class CatalogRemediationStateApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class RepairRunsApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

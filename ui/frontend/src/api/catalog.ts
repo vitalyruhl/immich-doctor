@@ -86,6 +86,24 @@ export async function stopCatalogScanJob(): Promise<ApiResponse<CatalogWorkflowJ
   });
 }
 
+export async function pauseCatalogScanActor(actorId: string): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>(`/analyze/catalog/scan-job/actors/${encodeURIComponent(actorId)}/pause`, {
+    method: "POST",
+  });
+}
+
+export async function resumeCatalogScanActor(actorId: string): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>(`/analyze/catalog/scan-job/actors/${encodeURIComponent(actorId)}/resume`, {
+    method: "POST",
+  });
+}
+
+export async function stopCatalogScanActor(actorId: string): Promise<ApiResponse<CatalogWorkflowJobRecord>> {
+  return request<CatalogWorkflowJobRecord>(`/analyze/catalog/scan-job/actors/${encodeURIComponent(actorId)}/stop`, {
+    method: "POST",
+  });
+}
+
 export async function requestCatalogScanWorkers(
   payload: CatalogJobWorkerResizeRequest,
 ): Promise<ApiResponse<CatalogWorkflowJobRecord>> {

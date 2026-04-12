@@ -1,4 +1,7 @@
 from pathlib import Path
+from threading import Event, Lock, Thread
+
+import pytest
 
 from immich_doctor.catalog.paths import catalog_database_path
 from immich_doctor.catalog.service import (
@@ -153,14 +156,14 @@ def test_catalog_scan_reports_prepare_phase_and_fixed_directory_total(tmp_path: 
     )
 
     prepare_updates = [
-        payload for payload in progress_payloads if payload.get("phase") == "prepare"
+        payload for payload in progress_payloads if payload.get("phase") == "collect"
     ]
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
 
     assert prepare_updates
     assert scan_updates
     assert prepare_updates[-1]["directoriesTotal"] == 3
-    assert {payload["directoriesTotal"] for payload in scan_updates} == {3}
+    assert max(int(payload["directoriesTotal"]) for payload in scan_updates) == 3
     assert scan_updates[-1]["percent"] == 100.0
 
 
@@ -297,6 +300,27 @@ def test_catalog_scan_parallel_workers_no_duplicates_or_misses(tmp_path: Path) -
     assert len(scanned_paths) == len(set(scanned_paths))
 
 
+def test_catalog_scan_handles_username_root_segments_without_uuid_assumptions(
+    tmp_path: Path,
+) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "alice" / "00").mkdir(parents=True, exist_ok=True)
+    (uploads / "alice" / "00" / "asset.jpg").write_bytes(b"asset")
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=2)
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    assert report.overall_status == CheckStatus.PASS
+    files = CatalogStore().list_latest_snapshot_files(settings, slug="uploads", limit=None)
+    assert [str(row["relative_path"]) for row in files] == ["alice/00/asset.jpg"]
+
+
 def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
     uploads = tmp_path / "uploads"
     (uploads / "a" / "b").mkdir(parents=True, exist_ok=True)
@@ -316,7 +340,7 @@ def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
 
     assert report.metadata["scan_workers"] == 3
     prepare_updates = [
-        payload for payload in progress_payloads if payload.get("phase") == "prepare"
+        payload for payload in progress_payloads if payload.get("phase") == "collect"
     ]
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
     assert prepare_updates
@@ -327,3 +351,150 @@ def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
     active_worker_counts = {payload["activeWorkerCount"] for payload in scan_updates}
     assert active_worker_counts
     assert all(isinstance(count, int) and count >= 0 for count in active_worker_counts)
+
+
+def test_catalog_scan_progress_reports_all_dispatched_workers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    uploads = tmp_path / "uploads"
+    for directory in ["a", "b", "c"]:
+        (uploads / directory).mkdir(parents=True, exist_ok=True)
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=3)
+    progress_payloads: list[dict[str, object]] = []
+    service = CatalogInventoryScanService()
+    entered = Event()
+    release = Event()
+    active_lock = Lock()
+    report_holder: dict[str, object] = {}
+
+    def fake_apply_directory_files(
+        self: CatalogStore,
+        settings_arg: AppSettings,
+        *,
+        session_id: str,
+        storage_root_id: int,
+        snapshot_id: int,
+        relative_path: str,
+        file_observations: list[object],
+        error_count: int,
+        bytes_delta: int,
+        last_relative_path: str | None,
+    ) -> None:
+        del (
+            self,
+            settings_arg,
+            session_id,
+            storage_root_id,
+            snapshot_id,
+            relative_path,
+            file_observations,
+            error_count,
+            bytes_delta,
+            last_relative_path,
+        )
+        with active_lock:
+            current = int(report_holder.get("active", 0)) + 1
+            report_holder["active"] = current
+            if current == settings.catalog_scan_workers:
+                entered.set()
+        assert release.wait(timeout=5)
+        with active_lock:
+            report_holder["active"] = int(report_holder.get("active", 1)) - 1
+
+    monkeypatch.setattr(CatalogStore, "apply_directory_files", fake_apply_directory_files)
+
+    def run_scan() -> None:
+        report_holder["report"] = service.run(
+            settings,
+            root_slug="uploads",
+            resume_session_id=None,
+            max_files=None,
+            progress_callback=progress_payloads.append,
+        )
+
+    scan_thread = Thread(target=run_scan)
+    scan_thread.start()
+    assert entered.wait(timeout=5)
+    release.set()
+    scan_thread.join(timeout=5)
+
+    report = report_holder.get("report")
+    assert report is not None
+    assert report.metadata["scan_workers"] == 3
+    scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
+    assert scan_updates
+    assert max(int(payload["activeWorkerCount"]) for payload in scan_updates) == 3
+
+
+def test_catalog_scan_can_pause_during_prepare_and_resume(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "a" / "b").mkdir(parents=True, exist_ok=True)
+    (uploads / "a" / "asset-a.jpg").write_bytes(b"a")
+    (uploads / "a" / "b" / "asset-b.jpg").write_bytes(b"b")
+
+    settings = _settings(tmp_path, uploads=uploads)
+    calls = 0
+
+    def control_state_provider() -> dict[str, bool]:
+        nonlocal calls
+        calls += 1
+        return {"pauseRequested": calls >= 2, "stopRequested": False}
+
+    paused_report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+        control_state_provider=control_state_provider,
+    )
+
+    assert paused_report.overall_status == CheckStatus.WARN
+    paused_session = next(
+        section for section in paused_report.sections if section.name == "SCAN_SESSION"
+    )
+    assert paused_session.rows[0]["status"] == "paused"
+
+    resumed_report = CatalogInventoryScanService().run(
+        settings,
+        root_slug=None,
+        resume_session_id=str(paused_session.rows[0]["id"]),
+        max_files=None,
+    )
+
+    assert resumed_report.overall_status == CheckStatus.PASS
+    resumed_snapshot = next(
+        section for section in resumed_report.sections if section.name == "SCAN_SNAPSHOT"
+    )
+    assert resumed_snapshot.rows[0]["status"] == "committed"
+    assert resumed_snapshot.rows[0]["item_count"] == 2
+
+
+def test_catalog_scan_can_stop_during_prepare(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "a" / "b").mkdir(parents=True, exist_ok=True)
+    (uploads / "a" / "asset-a.jpg").write_bytes(b"a")
+    (uploads / "a" / "b" / "asset-b.jpg").write_bytes(b"b")
+
+    settings = _settings(tmp_path, uploads=uploads)
+    calls = 0
+
+    def control_state_provider() -> dict[str, bool]:
+        nonlocal calls
+        calls += 1
+        return {"pauseRequested": False, "stopRequested": calls >= 2}
+
+    stopped_report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+        control_state_provider=control_state_provider,
+    )
+
+    assert stopped_report.overall_status == CheckStatus.WARN
+    stopped_session = next(
+        section for section in stopped_report.sections if section.name == "SCAN_SESSION"
+    )
+    assert stopped_session.rows[0]["status"] == "stopped"

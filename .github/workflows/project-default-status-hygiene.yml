@@ -1,12 +1,16 @@
-name: Project In-Progress Hygiene
+name: Project Default Status Hygiene
 
 on:
+  issues:
+    types: [opened, reopened]
+  pull_request:
+    types: [opened, reopened]
   schedule:
     - cron: "0 21 * * 6,0"
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Evaluate only and do not change project state or post comments"
+        description: "Evaluate only and do not change project state"
         required: false
         type: boolean
         default: true
@@ -24,7 +28,7 @@ on:
         type: string
 
 concurrency:
-  group: project-inprogress-hygiene-${{ github.workflow }}-${{ github.ref }}
+  group: project-default-status-hygiene-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -34,9 +38,9 @@ permissions:
   repository-projects: write
 
 jobs:
-  audit:
+  hygiene:
     runs-on: ubuntu-latest
-    name: Audit In-Progress Items
+    name: Backfill Empty Status to Planned
 
     steps:
       - name: Check out repository
@@ -47,7 +51,7 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Resolve audit mode
+      - name: Resolve mode and content scope
         id: mode
         shell: bash
         run: |
@@ -57,11 +61,20 @@ jobs:
             echo "dry_run=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run in-progress hygiene audit
+          content_url=""
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            content_url="${{ github.event.issue.html_url }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            content_url="${{ github.event.pull_request.html_url }}"
+          fi
+          echo "content_url=$content_url" >> "$GITHUB_OUTPUT"
+
+      - name: Run default status hygiene
         env:
           PROJECT_STATUS_AUDIT_TOKEN: ${{ secrets.PROJECT_STATUS_AUDIT_TOKEN || github.token }}
           PROJECT_STATUS_AUDIT_OWNER: ${{ inputs.project_owner || vars.PROJECT_STATUS_AUDIT_OWNER || github.repository_owner }}
           PROJECT_STATUS_AUDIT_PROJECT_TITLE: ${{ inputs.project_title || vars.PROJECT_STATUS_AUDIT_TITLE || 'Backup-Doctor Projekt' }}
           PROJECT_STATUS_AUDIT_PROJECT_NUMBER: ${{ inputs.project_number || vars.PROJECT_STATUS_AUDIT_NUMBER || '3' }}
           PROJECT_STATUS_AUDIT_DRY_RUN: ${{ steps.mode.outputs.dry_run }}
-        run: python scripts/project_inprogress_hygiene.py --repo "${{ github.repository }}"
+          PROJECT_STATUS_AUDIT_CONTENT_URL: ${{ steps.mode.outputs.content_url }}
+        run: python scripts/project_default_status_hygiene.py --repo "${{ github.repository }}"

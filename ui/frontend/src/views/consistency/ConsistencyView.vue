@@ -20,7 +20,7 @@
 
     <template v-else>
       <CatalogConsistencyPanel />
-      <CatalogRemediationPanel />
+      <CatalogRemediationPanel mode="findings" />
     </template>
   </section>
 </template>

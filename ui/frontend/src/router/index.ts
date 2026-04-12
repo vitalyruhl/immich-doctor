@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import BackupView from "@/views/backup/BackupView.vue";
+import ConsistencyIgnoredView from "@/views/consistency/ConsistencyIgnoredView.vue";
+import ConsistencyQuarantineView from "@/views/consistency/ConsistencyQuarantineView.vue";
 import ConsistencyView from "@/views/consistency/ConsistencyView.vue";
 import DashboardView from "@/views/dashboard/DashboardView.vue";
 import DatabaseView from "@/views/database/DatabaseView.vue";
@@ -31,12 +33,6 @@ const routes: RouteRecordRaw[] = [
     meta: { title: "Runtime / Health", section: "Runtime", risk: "read-only" },
   },
   {
-    path: "/consistency",
-    name: "consistency",
-    component: ConsistencyView,
-    meta: { title: "Consistency", section: "Consistency", risk: "mixed" },
-  },
-  {
     path: "/database",
     name: "database",
     component: DatabaseView,
@@ -47,6 +43,24 @@ const routes: RouteRecordRaw[] = [
     name: "storage",
     component: StorageView,
     meta: { title: "Storage", section: "Storage", risk: "mixed" },
+  },
+  {
+    path: "/consistency",
+    name: "consistency",
+    component: ConsistencyView,
+    meta: { title: "Consistency", section: "Consistency", risk: "mixed" },
+  },
+  {
+    path: "/consistency/quarantine",
+    name: "consistency-quarantine",
+    component: ConsistencyQuarantineView,
+    meta: { title: "Quarantine", section: "Consistency", risk: "mutation" },
+  },
+  {
+    path: "/consistency/ignored",
+    name: "consistency-ignored",
+    component: ConsistencyIgnoredView,
+    meta: { title: "Ignored Findings", section: "Consistency", risk: "mixed" },
   },
   {
     path: "/backup",

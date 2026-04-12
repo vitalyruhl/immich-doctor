@@ -15,6 +15,7 @@ const catalogStore: {
   isLoading: boolean;
   isScanning: boolean;
   isLifecycleTransitioning: boolean;
+  isActorTransitioning: ReturnType<typeof vi.fn>;
   error: string | null;
   scanError: string | null;
   load: ReturnType<typeof vi.fn>;
@@ -24,6 +25,9 @@ const catalogStore: {
   pauseScan: ReturnType<typeof vi.fn>;
   resumeScan: ReturnType<typeof vi.fn>;
   stopScan: ReturnType<typeof vi.fn>;
+  pauseScanActor: ReturnType<typeof vi.fn>;
+  resumeScanActor: ReturnType<typeof vi.fn>;
+  stopScanActor: ReturnType<typeof vi.fn>;
   requestScanWorkers: ReturnType<typeof vi.fn>;
   setSelectedRoot: ReturnType<typeof vi.fn>;
 } = {
@@ -124,6 +128,26 @@ const catalogStore: {
         scanState: "completed",
         configuredWorkerCount: 4,
         activeWorkerCount: 0,
+        actors: [
+          {
+            actorId: "collector",
+            role: "collector",
+            state: "completed",
+            currentRelativePath: null,
+          },
+          {
+            actorId: "worker-1",
+            role: "worker",
+            state: "running",
+            currentRelativePath: "26eef001-a2a1-4a88-a980-04ae572e2de0/00",
+          },
+          {
+            actorId: "worker-2",
+            role: "worker",
+            state: "paused",
+            currentRelativePath: null,
+          },
+        ],
         workerResize: {
           supported: false,
           semantics: "next_run_only",
@@ -141,6 +165,26 @@ const catalogStore: {
     scanState: "completed",
     configuredWorkerCount: 4,
     activeWorkerCount: 0,
+    actors: [
+      {
+        actorId: "collector",
+        role: "collector",
+        state: "completed",
+        currentRelativePath: null,
+      },
+      {
+        actorId: "worker-1",
+        role: "worker",
+        state: "running",
+        currentRelativePath: "26eef001-a2a1-4a88-a980-04ae572e2de0/00",
+      },
+      {
+        actorId: "worker-2",
+        role: "worker",
+        state: "paused",
+        currentRelativePath: null,
+      },
+    ],
     workerResize: {
       supported: false,
       semantics: "next_run_only",
@@ -151,6 +195,7 @@ const catalogStore: {
   isLoading: false,
   isScanning: false,
   isLifecycleTransitioning: false,
+  isActorTransitioning: vi.fn(() => false),
   error: null,
   scanError: null,
   load: vi.fn().mockResolvedValue(undefined),
@@ -160,6 +205,9 @@ const catalogStore: {
   pauseScan: vi.fn().mockResolvedValue(undefined),
   resumeScan: vi.fn().mockResolvedValue(undefined),
   stopScan: vi.fn().mockResolvedValue(undefined),
+  pauseScanActor: vi.fn().mockResolvedValue(undefined),
+  resumeScanActor: vi.fn().mockResolvedValue(undefined),
+  stopScanActor: vi.fn().mockResolvedValue(undefined),
   requestScanWorkers: vi.fn().mockResolvedValue(undefined),
   setSelectedRoot: vi.fn((root: string | null) => {
     catalogStore.selectedRoot = root;
@@ -193,6 +241,9 @@ describe("StorageView", () => {
     expect(wrapper.text()).toContain("Directories: 4 / 4");
     expect(wrapper.text()).toContain("Configured workers: 4");
     expect(wrapper.text()).toContain("Active workers: 0");
+    expect(wrapper.text()).toContain("Runtime actors");
+    expect(wrapper.text()).toContain("Collector");
+    expect(wrapper.text()).toContain("Worker 1");
     expect(wrapper.text()).not.toContain("Configured roots");
     expect(wrapper.text()).not.toContain("Zero-byte files");
 
@@ -220,6 +271,27 @@ describe("StorageView", () => {
 
     const stopButton = wrapper.findAll("button").find((button) => button.text() === "Stop");
     expect(stopButton).toBeTruthy();
+
+    const actorCards = wrapper.findAll(".runtime-actor-card");
+    expect(actorCards.length).toBeGreaterThanOrEqual(3);
+
+    const runningWorkerCard = actorCards.find((card) => card.text().includes("Worker 1"));
+    expect(runningWorkerCard).toBeTruthy();
+    const workerPauseButton = runningWorkerCard!.findAll("button").find((button) => button.text() === "Pause");
+    expect(workerPauseButton).toBeTruthy();
+    await workerPauseButton!.trigger("click");
+    expect(catalogStore.pauseScanActor).toHaveBeenCalledWith("worker-1");
+    const workerStopButton = runningWorkerCard!.findAll("button").find((button) => button.text() === "Stop");
+    expect(workerStopButton).toBeTruthy();
+    await workerStopButton!.trigger("click");
+    expect(catalogStore.stopScanActor).toHaveBeenCalledWith("worker-1");
+
+    const pausedWorkerCard = actorCards.find((card) => card.text().includes("Worker 2"));
+    expect(pausedWorkerCard).toBeTruthy();
+    const workerResumeButton = pausedWorkerCard!.findAll("button").find((button) => button.text() === "Resume");
+    expect(workerResumeButton).toBeTruthy();
+    await workerResumeButton!.trigger("click");
+    expect(catalogStore.resumeScanActor).toHaveBeenCalledWith("worker-2");
   });
 
   it("keeps cached storage status visible when a later request error exists", async () => {

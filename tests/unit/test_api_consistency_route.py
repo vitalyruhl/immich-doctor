@@ -198,24 +198,18 @@ def test_catalog_consistency_job_routes_return_expected_shape(monkeypatch) -> No
 def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     monkeypatch.setattr(
         consistency_routes.CatalogRemediationService,
-        "scan",
-        lambda self, settings, **kwargs: _Result(
-            {
-                "domain": "consistency.catalog_remediation",
-                "action": "scan",
-                "status": "WARN",
-                "summary": "Catalog remediation findings loaded.",
-                "broken_db_originals": [
-                    {"asset_id": "asset-1", "classification": "missing_confirmed"}
-                ],
-                "zero_byte_findings": [
-                    {"finding_id": "zero-1", "classification": "zero_byte_upload_orphan"}
-                ],
-                "fuse_hidden_orphans": [
-                    {"finding_id": "fuse-1", "classification": "deletable_orphan"}
-                ],
-            }
-        ),
+        "load_cached_findings",
+        lambda self, settings: {
+            "domain": "consistency.catalog_remediation",
+            "action": "scan",
+            "status": "WARN",
+            "summary": "Catalog remediation findings loaded.",
+            "broken_db_originals": [{"asset_id": "asset-1", "classification": "missing_confirmed"}],
+            "zero_byte_findings": [
+                {"finding_id": "zero-1", "classification": "zero_byte_upload_orphan"}
+            ],
+            "fuse_hidden_orphans": [{"finding_id": "fuse-1", "classification": "deletable_orphan"}],
+        },
     )
     monkeypatch.setattr(
         consistency_routes.CatalogRemediationService,
@@ -320,6 +314,23 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
         "/api/consistency/catalog-remediation/apply",
         json={"repair_run_id": "repair-run-fuse"},
     )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "execute_storage_finding_action",
+        lambda self, settings, **kwargs: {
+            "domain": "consistency.catalog_remediation",
+            "action": "apply",
+            "status": "PASS",
+            "finding_kind": "fuse_hidden_orphan",
+            "action_kind": "fuse_hidden_delete",
+            "summary": "Applied 1 direct remediation item.",
+            "items": [{"finding_id": "fuse-1", "status": "applied"}],
+        },
+    )
+    direct_apply_response = client.post(
+        "/api/consistency/catalog-remediation/findings/apply-direct",
+        json={"finding_ids": ["fuse-1"], "action_kind": "fuse_hidden_delete"},
+    )
 
     assert scan_response.status_code == 200
     assert (
@@ -340,3 +351,66 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     assert fuse_preview_response.json()["data"]["repair_run_id"] == "repair-run-fuse"
     assert apply_response.status_code == 200
     assert apply_response.json()["data"]["items"][0]["status"] == "applied"
+    assert direct_apply_response.status_code == 200
+    assert direct_apply_response.json()["data"]["items"][0]["status"] == "applied"
+
+
+def test_catalog_remediation_group_routes_return_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "load_group_overview",
+        lambda self, settings: {
+            "summary": "Catalog remediation findings loaded.",
+            "groups": [
+                {
+                    "key": "broken-db",
+                    "title": "DB originals missing in storage",
+                    "description": "Broken original references.",
+                    "count": 12,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "list_group_findings",
+        lambda self, settings, **kwargs: {
+            "group_key": kwargs["group_key"],
+            "offset": kwargs["offset"],
+            "limit": kwargs["limit"],
+            "total": 12,
+            "items": [
+                {
+                    "finding_id": "broken-1",
+                    "group_key": "broken-db",
+                    "title": "missing.jpg",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "get_finding_detail",
+        lambda self, settings, **kwargs: {
+            "group_key": kwargs["group_key"],
+            "finding_id": kwargs["finding_id"],
+            "title": "missing.jpg",
+            "details": [{"label": "Expected DB path", "value": "/upload/missing.jpg"}],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    overview_response = client.get("/api/consistency/catalog-remediation/groups")
+    list_response = client.get(
+        "/api/consistency/catalog-remediation/groups/broken-db?limit=20&offset=0"
+    )
+    detail_response = client.get(
+        "/api/consistency/catalog-remediation/groups/broken-db/items/broken-1"
+    )
+
+    assert overview_response.status_code == 200
+    assert overview_response.json()["data"]["groups"][0]["count"] == 12
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["items"][0]["finding_id"] == "broken-1"
+    assert detail_response.status_code == 200
+    assert detail_response.json()["data"]["details"][0]["label"] == "Expected DB path"

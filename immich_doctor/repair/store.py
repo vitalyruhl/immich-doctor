@@ -80,18 +80,22 @@ class RepairJournalStore:
         settings: AppSettings,
         repair_run_id: str,
     ) -> list[QuarantineItem]:
-        return [
-            QuarantineItem.from_dict(payload)
-            for payload in self._read_json_lines(
-                repair_quarantine_items_file(settings, repair_run_id)
-            )
-        ]
+        return self._collapse_quarantine_items(
+            [
+                QuarantineItem.from_dict(payload)
+                for payload in self._read_json_lines(
+                    repair_quarantine_items_file(settings, repair_run_id)
+                )
+            ]
+        )
 
     def load_quarantine_index(self, settings: AppSettings) -> list[QuarantineItem]:
-        return [
-            QuarantineItem.from_dict(payload)
-            for payload in self._read_json_lines(quarantine_index_file(settings))
-        ]
+        return self._collapse_quarantine_items(
+            [
+                QuarantineItem.from_dict(payload)
+                for payload in self._read_json_lines(quarantine_index_file(settings))
+            ]
+        )
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,3 +123,9 @@ class RepairJournalStore:
                     continue
                 rows.append(json.loads(line))
         return rows
+
+    def _collapse_quarantine_items(self, items: list[QuarantineItem]) -> list[QuarantineItem]:
+        latest_by_id: dict[str, QuarantineItem] = {}
+        for item in items:
+            latest_by_id[item.quarantine_item_id] = item
+        return list(latest_by_id.values())

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,6 +9,9 @@ from immich_doctor.core.models import CheckResult, CheckStatus
 
 
 class ExternalToolsAdapter:
+    def _is_container_runtime(self) -> bool:
+        return Path("/.dockerenv").exists() or bool(os.environ.get("container"))
+
     def validate_required_tools(self, tools: list[str]) -> list[CheckResult]:
         checks: list[CheckResult] = []
         for tool in tools:
@@ -96,6 +100,15 @@ class ExternalToolsAdapter:
         )
 
     def inspect_open_file_handles(self, path: Path) -> dict[str, object]:
+        if self._is_container_runtime():
+            return {
+                "status": "skipped",
+                "reason": (
+                    "Open-file inspection is skipped in container runtimes because host-managed "
+                    "FUSE locks are not visible from inside the container."
+                ),
+            }
+
         tool = "lsof"
         location = shutil.which(tool)
         if not location:

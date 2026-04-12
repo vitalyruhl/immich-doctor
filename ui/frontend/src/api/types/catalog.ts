@@ -52,6 +52,13 @@ export interface CatalogJobWorkerResizeRequest {
   workers: number;
 }
 
+export interface CatalogScanRuntimeActor {
+  actorId: string;
+  role: string;
+  state: string;
+  currentRelativePath?: string | null;
+}
+
 export interface CatalogScanRuntimeDetails {
   scanState:
     | "idle"
@@ -65,6 +72,7 @@ export interface CatalogScanRuntimeDetails {
     | "failed";
   configuredWorkerCount: number;
   activeWorkerCount: number;
+  actors?: CatalogScanRuntimeActor[];
   workerResize?: {
     supported: boolean;
     semantics: "next_run_only" | string;

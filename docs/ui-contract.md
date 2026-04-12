@@ -179,16 +179,16 @@ Zero-byte rules:
 - `.immich` must not be rendered as a remediation candidate
 - show `zero_byte_upload_orphan`, `zero_byte_upload_critical`, `zero_byte_video_derivative`, and `zero_byte_thumb_derivative` as distinct badges
 - explain that `zero_byte_upload_critical` is still referenced as an original and therefore not deletable by default
-- expose explicit delete apply only for orphan or derivative classes
-- make clear that derivative deletion is a cleanup step, not an implicit regenerate step
+- expose `quarantine` and `ignore` actions for zero-byte rows; do not present direct delete apply from the remediation table
+- make clear that any final deletion must go through explicit quarantine lifecycle decisions, not implicit regenerate behavior
 
 `.fuse_hidden*` orphan rules:
 
 - `.immich` must not be rendered as a repair candidate
 - show `blocked_in_use`, `deletable_orphan`, and `check_failed` as distinct badges
 - explain that `blocked_in_use` cannot be removed safely yet
-- expose delete apply only for `deletable_orphan`
-- if the in-use check is unavailable, surface the backend reason instead of faking readiness
+- expose delete apply for `deletable_orphan` and `check_failed`; keep `blocked_in_use` inspect-only
+- if the in-use check is unavailable, surface the backend reason and warn that direct deletion may still fail when the file is locked
 
 ## Backup contract
 
