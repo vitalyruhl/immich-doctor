@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { ApiClientError } from "@/api/client";
 import {
   applyCatalogBrokenDbActionDirect,
+  applyCatalogFindingActionDirect,
   deleteCatalogQuarantine,
   fetchCatalogConsistencyJob,
   fetchCatalogIgnoredFindings,
@@ -407,6 +408,31 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
+  async function applyFindingAction(
+    findingIds: string[],
+    actionKind: "zero_byte_delete" | "fuse_hidden_delete",
+  ): Promise<void> {
+    isApplyingAction.value = true;
+    actionError.value = null;
+    lastActionSummary.value = null;
+    try {
+      const response = await applyCatalogFindingActionDirect({
+        finding_ids: findingIds,
+        action_kind: actionKind,
+      });
+      lastActionSummary.value =
+        typeof response.data.summary === "string"
+          ? response.data.summary
+          : "Action completed.";
+      actionError.value = summarizeActionFailures(response.data);
+      await Promise.all([loadCatalogJob(), loadIgnored(), loadQuarantine(), refreshRemediation()]);
+    } catch (caughtError) {
+      actionError.value = toErrorMessage(caughtError);
+    } finally {
+      isApplyingAction.value = false;
+    }
+  }
+
   const brokenDbOriginals = computed<BrokenDbOriginalFinding[]>(
     () => remediationScanResult.value?.broken_db_originals ?? [],
   );
@@ -446,6 +472,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
 
   return {
     actionError,
+    applyFindingAction,
     applyBrokenDbAction,
     brokenDbOriginals,
     catalogJob,

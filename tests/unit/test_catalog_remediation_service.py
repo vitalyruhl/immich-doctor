@@ -152,6 +152,7 @@ def _build_scanned_settings(tmp_path: Path) -> tuple[AppSettings, str]:
     (settings.immich_uploads_path / "user-a" / ".immich").write_bytes(b"marker")
     (settings.immich_uploads_path / "user-a" / ".fuse_hidden0001").write_bytes(b"blocked")
     (settings.immich_uploads_path / "user-b" / ".fuse_hidden0002").write_bytes(b"free")
+    (settings.immich_uploads_path / "user-b" / ".fuse_hidden0003").write_bytes(b"unknown")
     (settings.immich_uploads_path / "user-b" / "relocated.jpg").write_bytes(b"relocated")
     (settings.immich_uploads_path / "user-b" / "orphan-zero.jpg").write_bytes(b"")
     (settings.immich_thumbs_path / "user-a" / "thumb-zero.webp").write_bytes(b"")
@@ -226,6 +227,11 @@ def test_catalog_remediation_classifies_broken_zero_byte_and_fuse_hidden_finding
         for item in result.fuse_hidden_orphans
         if item.relative_path == "user-b/.fuse_hidden0002"
     )
+    check_failed = next(
+        item
+        for item in result.fuse_hidden_orphans
+        if item.relative_path == "user-b/.fuse_hidden0003"
+    )
 
     assert confirmed.classification.value == "missing_confirmed"
     assert confirmed.eligible_actions == (CatalogRemediationActionKind.BROKEN_DB_CLEANUP,)
@@ -235,15 +241,21 @@ def test_catalog_remediation_classifies_broken_zero_byte_and_fuse_hidden_finding
     assert hash_match.checksum_match is True
     assert hash_match.eligible_actions == (CatalogRemediationActionKind.BROKEN_DB_PATH_FIX,)
     assert upload_orphan.classification.value == "zero_byte_upload_orphan"
-    assert upload_orphan.action_eligible is True
+    assert upload_orphan.action_eligible is False
     assert upload_critical.classification.value == "zero_byte_upload_critical"
     assert upload_critical.action_eligible is False
     assert thumb_derivative.classification.value == "zero_byte_thumb_derivative"
+    assert thumb_derivative.action_eligible is False
     assert video_derivative.classification.value == "zero_byte_video_derivative"
+    assert video_derivative.action_eligible is False
     assert blocked.classification.value == "blocked_in_use"
     assert blocked.action_eligible is False
     assert deletable.classification.value == "deletable_orphan"
     assert deletable.action_eligible is True
+    assert deletable.eligible_actions == (CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,)
+    assert check_failed.classification.value == "check_failed"
+    assert check_failed.action_eligible is True
+    assert check_failed.eligible_actions == (CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,)
     assert all(item.file_name != ".immich" for item in result.fuse_hidden_orphans)
     assert all(item.file_name != ".immich" for item in result.zero_byte_findings)
 
@@ -278,11 +290,8 @@ def test_catalog_remediation_bulk_preview_filters_to_eligible_items(tmp_path: Pa
         "asset-missing-confirmed"
     ]
     assert [item["asset_id"] for item in path_fix_preview.selected_items] == ["asset-path-fix"]
-    assert sorted(item["classification"] for item in zero_byte_preview.selected_items) == [
-        "zero_byte_thumb_derivative",
-        "zero_byte_upload_orphan",
-        "zero_byte_video_derivative",
-    ]
-    assert [item["relative_path"] for item in fuse_preview.selected_items] == [
-        "user-b/.fuse_hidden0002"
+    assert zero_byte_preview.selected_items == []
+    assert sorted(item["relative_path"] for item in fuse_preview.selected_items) == [
+        "user-b/.fuse_hidden0002",
+        "user-b/.fuse_hidden0003",
     ]

@@ -80,6 +80,11 @@ class CatalogRemediationDirectBrokenApplyRequest(BaseModel):
     action_kind: str
 
 
+class CatalogRemediationDirectFindingApplyRequest(BaseModel):
+    finding_ids: list[str] = Field(default_factory=list)
+    action_kind: str
+
+
 class CatalogRemediationStateItemRequest(BaseModel):
     finding_id: str
     category_key: str
@@ -345,6 +350,21 @@ def apply_catalog_broken_db_action_direct(
     data = CatalogRemediationService().execute_broken_db_action(
         load_settings(),
         asset_ids=tuple(payload.asset_ids),
+        action_kind=payload.action_kind,  # type: ignore[arg-type]
+    )
+    return CatalogRemediationApplyApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/findings/apply-direct",
+    response_model=CatalogRemediationApplyApiResponse,
+)
+def apply_catalog_finding_action_direct(
+    payload: CatalogRemediationDirectFindingApplyRequest,
+) -> CatalogRemediationApplyApiResponse:
+    data = CatalogRemediationService().execute_storage_finding_action(
+        load_settings(),
+        finding_ids=tuple(payload.finding_ids),
         action_kind=payload.action_kind,  # type: ignore[arg-type]
     )
     return CatalogRemediationApplyApiResponse(data=data)

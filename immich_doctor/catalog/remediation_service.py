@@ -475,6 +475,28 @@ class CatalogRemediationService:
             )
         return self.apply(settings, repair_run_id=preview.repair_run_id).to_dict()
 
+    def execute_storage_finding_action(
+        self,
+        settings: AppSettings,
+        *,
+        finding_ids: tuple[str, ...],
+        action_kind: CatalogRemediationActionKind | str,
+    ) -> dict[str, object]:
+        normalized_action = CatalogRemediationActionKind(str(action_kind))
+        if normalized_action == CatalogRemediationActionKind.ZERO_BYTE_DELETE:
+            preview = self.preview_zero_byte_files(
+                settings,
+                finding_ids=finding_ids,
+                select_all=False,
+            )
+        else:
+            preview = self.preview_fuse_hidden_orphans(
+                settings,
+                finding_ids=finding_ids,
+                select_all=False,
+            )
+        return self.apply(settings, repair_run_id=preview.repair_run_id).to_dict()
+
     def preview_broken_db_cleanup(
         self,
         settings: AppSettings,
@@ -1212,7 +1234,7 @@ class CatalogRemediationService:
         if uploads_root is None:
             return []
         findings: list[FuseHiddenOrphanFinding] = []
-        for row in state.storage_missing_rows:
+        for row in state.uploads_rows:
             file_name = str(row["file_name"])
             if file_name == ".immich" or not file_name.startswith(".fuse_hidden"):
                 continue
@@ -1255,16 +1277,14 @@ class CatalogRemediationService:
                         classification=FuseHiddenOrphanClassification.DELETABLE_ORPHAN,
                         owner_id=None,
                         owner_label=self._owner_label_from_relative_path(str(row["relative_path"])),
-                        eligible_actions=(),
+                        eligible_actions=(CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,),
                         action_reason=(
-                            "The orphan artifact is not reported as in use and should be "
-                            "quarantined before any final delete."
+                            "The orphan artifact is not reported as in use. "
+                            "Try deleting it directly."
                         ),
                         in_use_check_tool=tool,
                         in_use_check_reason=reason,
-                        message=(
-                            "The orphan artifact is safe for quarantine-first handling."
-                        ),
+                        message="The orphan artifact can be deleted directly.",
                     )
                 )
                 continue
@@ -1280,11 +1300,14 @@ class CatalogRemediationService:
                     classification=FuseHiddenOrphanClassification.CHECK_FAILED,
                     owner_id=None,
                     owner_label=self._owner_label_from_relative_path(str(row["relative_path"])),
-                    eligible_actions=(),
-                    action_reason="The in-use check was unavailable or failed.",
+                    eligible_actions=(CatalogRemediationActionKind.FUSE_HIDDEN_DELETE,),
+                    action_reason=(
+                        "The in-use check is unavailable from the current runtime. "
+                        "Try deleting the artifact directly; if it is still locked, deletion will fail."
+                    ),
                     in_use_check_tool=tool,
                     in_use_check_reason=reason,
-                    message="The in-use check could not be completed safely.",
+                    message="The in-use check could not be completed safely, but a direct delete can still be attempted.",
                 )
             )
         return findings

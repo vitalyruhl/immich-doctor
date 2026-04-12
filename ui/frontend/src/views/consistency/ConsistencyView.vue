@@ -39,6 +39,5 @@ const consistencyStore = useConsistencyStore();
 
 onMounted(async () => {
   await consistencyStore.load();
-  await consistencyStore.ensureRemediationLoaded();
 });
 </script>

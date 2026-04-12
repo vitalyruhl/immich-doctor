@@ -114,6 +114,14 @@
 
         <section v-if="group.actionableRows.length" class="runtime-actions catalog-remediation-group__actions">
           <button
+            v-if="group.supportedActions.includes('delete')"
+            type="button"
+            class="runtime-action runtime-action--secondary"
+            @click="stageGroupAction(group.key, 'delete')"
+          >
+            {{ group.key === 'fuse-hidden' ? "Try delete all" : "Delete all" }}
+          </button>
+          <button
             v-if="group.supportedActions.includes('quarantine')"
             type="button"
             class="runtime-action runtime-action--secondary"
@@ -385,6 +393,7 @@ type RowActionId =
   | "inspect"
   | "ignore"
   | "quarantine"
+  | "delete"
   | "mark_removed"
   | "repair_path";
 
@@ -471,12 +480,20 @@ function makeRowAction(
   return { id, label, helpText, disabledReason };
 }
 
+function isStorageNoiseRow(row: Record<string, unknown>): boolean {
+  const fileName = String(row.file_name ?? "");
+  const relativePath = String(row.relative_path ?? "");
+  return fileName === ".immich" || fileName.startsWith(".fuse_hidden") || relativePath.includes("/.fuse_hidden");
+}
+
 function stagedLabel(actionId: RowActionId): string {
   switch (actionId) {
     case "ignore":
       return "Ignore";
     case "quarantine":
       return "Quarantine";
+    case "delete":
+      return "Try delete";
     case "mark_removed":
       return "Mark removed";
     case "repair_path":
@@ -654,7 +671,7 @@ function fuseHiddenRow(finding: FuseHiddenOrphanFinding): FindingRowModel {
     finding.classification === "blocked_in_use"
       ? [makeRowAction("ignore", "Ignore", "Keep this in-use artifact out of the active list.")]
       : [
-          makeRowAction("quarantine", "Quarantine", "Move the artifact into quarantine."),
+          makeRowAction("delete", "Try delete", "Try deleting the artifact directly from storage."),
           makeRowAction("ignore", "Ignore", "Hide this row from active findings."),
         ];
   return {
@@ -672,8 +689,7 @@ function fuseHiddenRow(finding: FuseHiddenOrphanFinding): FindingRowModel {
       pathLine("Check", finding.in_use_check_reason),
     ],
     statusReason: finding.action_reason,
-    blockedReason:
-      finding.classification === "check_failed" ? finding.action_reason : null,
+    blockedReason: null,
     actions,
     payload: {
       finding_id: finding.finding_id,
@@ -727,6 +743,7 @@ const brokenRows = computed(() =>
 );
 const storageMissingRows = computed(() =>
   consistencyStore.storageOriginalsMissingInDb
+    .filter((row) => !isStorageNoiseRow(row))
     .map(storageMissingRow)
     .filter((row) => !hiddenFindingIds.value.has(row.id)),
 );
@@ -779,7 +796,7 @@ const rawGroups = computed(() => [
   {
     key: "fuse-hidden",
     title: "`.fuse_hidden*` artifacts",
-    description: "FUSE/Unraid artifacts handled with quarantine-first policy.",
+    description: "FUSE/Unraid artifacts that should be deleted directly when safe.",
     rows: fuseHiddenRows.value,
   },
   {
@@ -903,6 +920,9 @@ async function performGroupActions(group: FindingGroupModel): Promise<void> {
   const quarantineItems = rows
     .filter((row) => stagedActionByRowId.value[row.id] === "quarantine")
     .map((row) => row.payload);
+  const deleteFindingIds = rows
+    .filter((row) => stagedActionByRowId.value[row.id] === "delete")
+    .map((row) => row.id);
   const markRemovedAssetIds = rows
     .filter((row) => stagedActionByRowId.value[row.id] === "mark_removed" && row.payload.asset_id)
     .map((row) => String(row.payload.asset_id));
@@ -918,6 +938,9 @@ async function performGroupActions(group: FindingGroupModel): Promise<void> {
   }
   if (quarantineItems.length) {
     await consistencyStore.quarantineItems(quarantineItems);
+  }
+  if (deleteFindingIds.length && group.key === "fuse-hidden") {
+    await consistencyStore.applyFindingAction(deleteFindingIds, "fuse_hidden_delete");
   }
   if (ignoreItems.length) {
     await consistencyStore.ignoreItems(ignoreItems);

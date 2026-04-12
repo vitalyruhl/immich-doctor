@@ -24,7 +24,6 @@ function createStore(): any {
     catalogJobError: null,
     isLoading: false,
     load: vi.fn().mockResolvedValue(undefined),
-    ensureRemediationLoaded: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -65,7 +64,6 @@ describe("ConsistencyView", () => {
     await settle();
 
     expect(store.load).toHaveBeenCalled();
-    expect(store.ensureRemediationLoaded).toHaveBeenCalled();
     expect(wrapper.text()).toContain("catalog-panel");
     expect(wrapper.text()).toContain("remediation-panel");
     expect(wrapper.text()).not.toContain("Scan summary");

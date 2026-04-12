@@ -20,6 +20,8 @@ UNMAPPED_SECTION = "UNMAPPED_DATABASE_PATHS"
 SOURCE_ROOT_SLUG = "uploads"
 DERIVATIVE_ROOT_SLUGS = {"thumbs", "profile", "video"}
 SIDECAR_EXTENSION = ".xmp"
+FUSE_HIDDEN_PREFIX = ".fuse_hidden"
+IMMICH_MARKER_FILE = ".immich"
 
 
 def truthy_path(value: object) -> str | None:
@@ -577,7 +579,10 @@ class CatalogConsistencyStateCollector:
     def _is_original_candidate(self, row: dict[str, object]) -> bool:
         extension = str(row.get("extension") or "").lower()
         relative_path = str(row.get("relative_path") or "")
+        file_name = str(row.get("file_name") or "")
         if extension == SIDECAR_EXTENSION:
+            return False
+        if file_name == IMMICH_MARKER_FILE or file_name.startswith(FUSE_HIDDEN_PREFIX):
             return False
         return not relative_path.endswith(SIDECAR_EXTENSION)
 

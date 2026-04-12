@@ -56,6 +56,20 @@ export async function applyCatalogBrokenDbActionDirect(payload: {
   );
 }
 
+export async function applyCatalogFindingActionDirect(payload: {
+  finding_ids: string[];
+  action_kind: string;
+}): Promise<ApiResponse<Record<string, unknown>>> {
+  return request<Record<string, unknown>>(
+    "/consistency/catalog-remediation/findings/apply-direct",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    REMEDIATION_TIMEOUT_MS,
+  );
+}
+
 export async function fetchCatalogIgnoredFindings(): Promise<
   ApiResponse<CatalogIgnoredFindingsResponse>
 > {

@@ -6,6 +6,7 @@ import CatalogRemediationPanel from "./CatalogRemediationPanel.vue";
 function createStore(): any {
   return {
     actionError: null,
+    applyFindingAction: vi.fn().mockResolvedValue(undefined),
     applyBrokenDbAction: vi.fn().mockResolvedValue(undefined),
     brokenDbOriginals: [
       {
@@ -51,6 +52,13 @@ function createStore(): any {
               file_name: "orphan.jpg",
               size_bytes: 123,
             },
+            {
+              root_slug: "uploads",
+              relative_path: "delta/.fuse_hidden0001",
+              absolute_path: "/upload/delta/.fuse_hidden0001",
+              file_name: ".fuse_hidden0001",
+              size_bytes: 456,
+            },
           ],
         },
         {
@@ -91,9 +99,9 @@ function createStore(): any {
         owner_id: null,
         owner_label: "delta",
         classification: "deletable_orphan",
-        action_reason: "Safe for quarantine-first handling.",
+        action_reason: "Try deleting the artifact directly.",
         in_use_check_reason: "No open file handles",
-        message: "Safe to quarantine.",
+        message: "Can be deleted directly.",
       },
     ],
     hiddenFindingIds: new Set<string>(),
@@ -149,6 +157,13 @@ function createStore(): any {
         absolute_path: "/upload/charlie/orphan.jpg",
         file_name: "orphan.jpg",
         size_bytes: 123,
+      },
+      {
+        root_slug: "uploads",
+        relative_path: "delta/.fuse_hidden0001",
+        absolute_path: "/upload/delta/.fuse_hidden0001",
+        file_name: ".fuse_hidden0001",
+        size_bytes: 456,
       },
     ],
     ignoreItems: vi.fn().mockResolvedValue(undefined),
@@ -214,7 +229,7 @@ describe("CatalogRemediationPanel", () => {
     expect(wrapper.text()).toContain("DB originals missing in storage");
     expect(wrapper.text()).toContain("Storage originals missing in DB");
     expect(wrapper.text()).toContain("Alice");
-    expect(wrapper.text()).toContain("Quarantine all");
+    expect(wrapper.text()).toContain("Try delete all");
     expect(wrapper.text()).toContain("Ignore unselected");
     expect(wrapper.text()).not.toContain("Select all visible");
   });
@@ -245,6 +260,34 @@ describe("CatalogRemediationPanel", () => {
     await performButton!.trigger("click");
 
     expect(store.applyBrokenDbAction).toHaveBeenCalledWith(["asset-1"], "broken_db_cleanup");
+  });
+
+  it("routes fuse-hidden deletions through the direct finding action", async () => {
+    const wrapper = mount(CatalogRemediationPanel, {
+      props: {
+        mode: "findings",
+      },
+      global: {
+        stubs: {
+          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
+          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
+        },
+      },
+    });
+    await nextTick();
+
+    const tryDeleteButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Try delete");
+    await tryDeleteButton!.trigger("click");
+    await nextTick();
+
+    const performButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Perform staged actions (1)");
+    await performButton!.trigger("click");
+
+    expect(store.applyFindingAction).toHaveBeenCalledWith(["fuse-1"], "fuse_hidden_delete");
   });
 
   it("renders the quarantine workspace with dedicated operations", async () => {

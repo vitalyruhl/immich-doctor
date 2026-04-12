@@ -112,6 +112,8 @@ def test_catalog_consistency_reports_db_storage_and_orphan_findings(tmp_path: Pa
     (settings.immich_uploads_path / "user-a" / "keep.jpg").write_bytes(b"ok")
     (settings.immich_uploads_path / "user-a" / "lonely.jpg").write_bytes(b"lonely")
     (settings.immich_uploads_path / "user-a" / "missing.jpg.xmp").write_bytes(b"<xmp />")
+    (settings.immich_uploads_path / "user-a" / ".fuse_hidden0001").write_bytes(b"fuse")
+    (settings.immich_uploads_path / "user-a" / ".immich").write_bytes(b"marker")
     (settings.immich_uploads_path / "user-a" / "zero.jpg").write_bytes(b"")
     (settings.immich_thumbs_path / "user-a" / "missing_preview.webp").write_bytes(b"preview")
     (settings.immich_thumbs_path / "user-a" / "missing_thumbnail.webp").write_bytes(b"thumb")

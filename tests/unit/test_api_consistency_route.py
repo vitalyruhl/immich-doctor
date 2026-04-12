@@ -318,6 +318,23 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
         "/api/consistency/catalog-remediation/apply",
         json={"repair_run_id": "repair-run-fuse"},
     )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "execute_storage_finding_action",
+        lambda self, settings, **kwargs: {
+            "domain": "consistency.catalog_remediation",
+            "action": "apply",
+            "status": "PASS",
+            "finding_kind": "fuse_hidden_orphan",
+            "action_kind": "fuse_hidden_delete",
+            "summary": "Applied 1 direct remediation item.",
+            "items": [{"finding_id": "fuse-1", "status": "applied"}],
+        },
+    )
+    direct_apply_response = client.post(
+        "/api/consistency/catalog-remediation/findings/apply-direct",
+        json={"finding_ids": ["fuse-1"], "action_kind": "fuse_hidden_delete"},
+    )
 
     assert scan_response.status_code == 200
     assert (
@@ -338,3 +355,5 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     assert fuse_preview_response.json()["data"]["repair_run_id"] == "repair-run-fuse"
     assert apply_response.status_code == 200
     assert apply_response.json()["data"]["items"][0]["status"] == "applied"
+    assert direct_apply_response.status_code == 200
+    assert direct_apply_response.json()["data"]["items"][0]["status"] == "applied"
