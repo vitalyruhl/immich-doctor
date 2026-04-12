@@ -295,3 +295,48 @@ def test_catalog_remediation_bulk_preview_filters_to_eligible_items(tmp_path: Pa
         "user-b/.fuse_hidden0002",
         "user-b/.fuse_hidden0003",
     ]
+
+
+def test_catalog_remediation_group_overview_and_detail_only_return_requested_page(
+    tmp_path: Path,
+) -> None:
+    settings, checksum_value = _build_scanned_settings(tmp_path)
+    service = CatalogRemediationService(
+        postgres=_FakePostgres(checksum_value=checksum_value),
+        external_tools=_FakeExternalTools(responses={}),
+    )
+
+    scan_result = service.refresh_cached_findings(settings)
+    initial_broken_count = len(scan_result["broken_db_originals"])
+    hidden_finding_id = str(scan_result["broken_db_originals"][0]["finding_id"])
+    service.ignore_findings(
+        settings,
+        items=(
+            {
+                "finding_id": hidden_finding_id,
+                "category_key": "broken-db",
+                "title": "hidden item",
+            },
+        ),
+    )
+
+    overview = service.load_group_overview(settings)
+    broken_group = next(group for group in overview["groups"] if group["key"] == "broken-db")
+    assert broken_group["count"] == initial_broken_count - 1
+
+    first_page = service.list_group_findings(
+        settings,
+        group_key="broken-db",
+        limit=1,
+        offset=0,
+    )
+    assert first_page["total"] == initial_broken_count - 1
+    assert len(first_page["items"]) == 1
+
+    detail = service.get_finding_detail(
+        settings,
+        group_key="broken-db",
+        finding_id=str(first_page["items"][0]["finding_id"]),
+    )
+    assert detail["finding_id"] == first_page["items"][0]["finding_id"]
+    assert any(item["label"] == "Expected DB path" for item in detail["details"])

@@ -4,6 +4,13 @@ export type CatalogRemediationFindingKind =
   | "broken_db_original"
   | "zero_byte_file"
   | "fuse_hidden_orphan";
+export type CatalogRemediationGroupKey = "broken-db" | "zero-byte" | "fuse-hidden";
+export type CatalogRemediationRowActionId =
+  | "ignore"
+  | "quarantine"
+  | "delete"
+  | "mark_removed"
+  | "repair_path";
 export type CatalogRemediationActionKind =
   | "broken_db_cleanup"
   | "broken_db_path_fix"
@@ -104,6 +111,62 @@ export interface CatalogRemediationScanResponse {
   fuse_hidden_orphans: FuseHiddenOrphanFinding[];
   metadata: Record<string, unknown>;
   recommendations: string[];
+}
+
+export interface CatalogRemediationOverviewGroup {
+  key: CatalogRemediationGroupKey;
+  title: string;
+  description: string;
+  count: number;
+}
+
+export interface CatalogRemediationOverviewResponse {
+  summary: string;
+  generated_at: string | null;
+  metadata: Record<string, unknown>;
+  recommendations: string[];
+  groups: CatalogRemediationOverviewGroup[];
+}
+
+export interface CatalogRemediationListItem {
+  finding_id: string;
+  group_key: CatalogRemediationGroupKey;
+  title: string;
+  subtitle: string;
+  owner_label: string | null;
+  owner_hint: string | null;
+  classification: string;
+  message: string;
+  summary_path: string | null;
+  summary_context: string | null;
+  status_reason: string;
+  blocked_reason: string | null;
+  actions: CatalogRemediationRowActionId[];
+  payload: CatalogRemediationStateItemPayload;
+}
+
+export interface CatalogRemediationGroupPageResponse {
+  group_key: CatalogRemediationGroupKey;
+  title: string;
+  description: string;
+  generated_at: string | null;
+  offset: number;
+  limit: number | null;
+  total: number;
+  items: CatalogRemediationListItem[];
+}
+
+export interface CatalogRemediationFindingDetailLine {
+  label: string;
+  value: string;
+}
+
+export interface CatalogRemediationFindingDetailResponse {
+  group_key: CatalogRemediationGroupKey;
+  finding_id: string;
+  title: string;
+  message: string;
+  details: CatalogRemediationFindingDetailLine[];
 }
 
 export interface CatalogRemediationStateItemPayload {

@@ -8,10 +8,12 @@ import {
   fetchCatalogConsistencyJob,
   fetchCatalogIgnoredFindings,
   fetchCatalogQuarantine,
-  fetchCatalogRemediationFindings,
+  fetchCatalogRemediationFindingDetail,
+  fetchCatalogRemediationGroupPage,
+  fetchCatalogRemediationOverview,
   ignoreCatalogFindings,
   quarantineCatalogFindings,
-  refreshCatalogRemediationFindings,
+  refreshCatalogRemediationOverview,
   releaseCatalogIgnoredFindings,
   restoreCatalogQuarantine,
   startCatalogConsistencyJob,
@@ -21,16 +23,17 @@ import type {
   CatalogWorkflowJobRecord,
 } from "@/api/types/catalog";
 import type {
-  BrokenDbOriginalFinding,
   CatalogIgnoredFindingsResponse,
   CatalogQuarantineResponse,
   CatalogRemediationActionResponse,
-  CatalogRemediationScanResponse,
+  CatalogRemediationFindingDetailResponse,
+  CatalogRemediationGroupKey,
+  CatalogRemediationGroupPageResponse,
+  CatalogRemediationListItem,
+  CatalogRemediationOverviewResponse,
   CatalogRemediationStateItemPayload,
-  FuseHiddenOrphanFinding,
   IgnoredFindingItem,
   QuarantineItemView,
-  ZeroByteFinding,
 } from "@/api/types/consistency";
 
 function toErrorMessage(caughtError: unknown): string {
@@ -62,17 +65,6 @@ function summarizeActionFailures(result: unknown): string | null {
   return details + suffix;
 }
 
-function hasReadyRemediationCache(candidate: unknown): boolean {
-  if (!candidate || typeof candidate !== "object") {
-    return false;
-  }
-  const metadata =
-    "metadata" in candidate && candidate.metadata && typeof candidate.metadata === "object"
-      ? (candidate.metadata as Record<string, unknown>)
-      : {};
-  return metadata.cacheState !== "missing";
-}
-
 type CatalogReadinessState =
   | "ready"
   | "indexing"
@@ -80,6 +72,22 @@ type CatalogReadinessState =
   | "rebuilding"
   | "compare_running"
   | "error";
+
+type RemediationGroupPageState = {
+  error: string | null;
+  isLoading: boolean;
+  items: CatalogRemediationListItem[];
+  limit: number | null;
+  loaded: boolean;
+  offset: number;
+  total: number;
+};
+
+type RemediationDetailState = {
+  data: CatalogRemediationFindingDetailResponse | null;
+  error: string | null;
+  isLoading: boolean;
+};
 
 function catalogBlockedBy(
   job: CatalogWorkflowJobRecord | null,
@@ -110,12 +118,29 @@ function sectionRows(
   return section ? (section.rows as Array<Record<string, unknown>>) : [];
 }
 
+function createEmptyGroupPageState(): RemediationGroupPageState {
+  return {
+    error: null,
+    isLoading: false,
+    items: [],
+    limit: 20,
+    loaded: false,
+    offset: 0,
+    total: 0,
+  };
+}
+
 export const useConsistencyStore = defineStore("consistency", () => {
-  const remediationScanResult = ref<CatalogRemediationScanResponse | null>(null);
+  const remediationOverview = ref<CatalogRemediationOverviewResponse | null>(null);
+  const remediationGroupPages = ref<
+    Partial<Record<CatalogRemediationGroupKey, RemediationGroupPageState>>
+  >({});
+  const remediationFindingDetails = ref<
+    Record<string, RemediationDetailState>
+  >({});
   const catalogJob = ref<CatalogWorkflowJobRecord | null>(null);
   const ignoredState = ref<CatalogIgnoredFindingsResponse | null>(null);
   const quarantineState = ref<CatalogQuarantineResponse | null>(null);
-  const remediationLoaded = ref(false);
 
   const isLoading = ref(false);
   const isCatalogLoading = ref(false);
@@ -203,6 +228,45 @@ export const useConsistencyStore = defineStore("consistency", () => {
     return "Consistency findings become current after the catalog-backed storage index is ready.";
   });
 
+  const remediationLoaded = computed(() => remediationOverview.value !== null);
+  const remediationGroups = computed(() => remediationOverview.value?.groups ?? []);
+
+  function detailStateKey(groupKey: CatalogRemediationGroupKey, findingId: string): string {
+    return `${groupKey}:${findingId}`;
+  }
+
+  function getGroupPageState(groupKey: CatalogRemediationGroupKey): RemediationGroupPageState {
+    return remediationGroupPages.value[groupKey] ?? createEmptyGroupPageState();
+  }
+
+  function updateGroupPageState(
+    groupKey: CatalogRemediationGroupKey,
+    updater: (current: RemediationGroupPageState) => RemediationGroupPageState,
+  ): void {
+    const current = remediationGroupPages.value[groupKey] ?? createEmptyGroupPageState();
+    remediationGroupPages.value = {
+      ...remediationGroupPages.value,
+      [groupKey]: updater(current),
+    };
+  }
+
+  function updateFindingDetailState(
+    groupKey: CatalogRemediationGroupKey,
+    findingId: string,
+    updater: (current: RemediationDetailState) => RemediationDetailState,
+  ): void {
+    const key = detailStateKey(groupKey, findingId);
+    const current = remediationFindingDetails.value[key] ?? {
+      data: null,
+      error: null,
+      isLoading: false,
+    };
+    remediationFindingDetails.value = {
+      ...remediationFindingDetails.value,
+      [key]: updater(current),
+    };
+  }
+
   async function load(): Promise<void> {
     isLoading.value = true;
     try {
@@ -210,6 +274,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
         loadCatalogJob(),
         loadIgnored(),
         loadQuarantine(),
+        loadRemediationOverview(),
       ]);
     } finally {
       isLoading.value = false;
@@ -231,9 +296,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function startCatalog(
-    force = true,
-  ): Promise<CatalogWorkflowJobRecord | null> {
+  async function startCatalog(force = true): Promise<CatalogWorkflowJobRecord | null> {
     isCatalogStarting.value = true;
     catalogJobError.value = null;
     try {
@@ -248,13 +311,12 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function loadRemediation(): Promise<CatalogRemediationScanResponse | null> {
+  async function loadRemediationOverview(): Promise<CatalogRemediationOverviewResponse | null> {
     isLoadingRemediation.value = true;
     remediationError.value = null;
     try {
-      const response = await fetchCatalogRemediationFindings();
-      remediationScanResult.value = response.data;
-      remediationLoaded.value = hasReadyRemediationCache(response.data);
+      const response = await fetchCatalogRemediationOverview();
+      remediationOverview.value = response.data;
       return response.data;
     } catch (caughtError) {
       remediationError.value = toErrorMessage(caughtError);
@@ -264,13 +326,95 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function refreshRemediation(): Promise<CatalogRemediationScanResponse | null> {
+  async function loadRemediationGroupPage(
+    groupKey: CatalogRemediationGroupKey,
+    options: {
+      limit?: number | null;
+      offset?: number;
+    } = {},
+  ): Promise<CatalogRemediationGroupPageResponse | null> {
+    const current = getGroupPageState(groupKey);
+    const limit = options.limit !== undefined ? options.limit : current.limit;
+    const offset = options.offset !== undefined ? options.offset : current.offset;
+    updateGroupPageState(groupKey, (state) => ({
+      ...state,
+      error: null,
+      isLoading: true,
+      limit,
+      offset,
+    }));
+    try {
+      const response = await fetchCatalogRemediationGroupPage(groupKey, { limit, offset });
+      updateGroupPageState(groupKey, () => ({
+        error: null,
+        isLoading: false,
+        items: response.data.items,
+        limit: response.data.limit,
+        loaded: true,
+        offset: response.data.offset,
+        total: response.data.total,
+      }));
+      return response.data;
+    } catch (caughtError) {
+      updateGroupPageState(groupKey, (state) => ({
+        ...state,
+        error: toErrorMessage(caughtError),
+        isLoading: false,
+      }));
+      return null;
+    }
+  }
+
+  async function loadRemediationFindingDetail(
+    groupKey: CatalogRemediationGroupKey,
+    findingId: string,
+  ): Promise<CatalogRemediationFindingDetailResponse | null> {
+    const current = remediationFindingDetails.value[detailStateKey(groupKey, findingId)];
+    if (current?.data && !current.error) {
+      return current.data;
+    }
+    updateFindingDetailState(groupKey, findingId, (state) => ({
+      ...state,
+      error: null,
+      isLoading: true,
+    }));
+    try {
+      const response = await fetchCatalogRemediationFindingDetail(groupKey, findingId);
+      updateFindingDetailState(groupKey, findingId, () => ({
+        data: response.data,
+        error: null,
+        isLoading: false,
+      }));
+      return response.data;
+    } catch (caughtError) {
+      updateFindingDetailState(groupKey, findingId, (state) => ({
+        ...state,
+        error: toErrorMessage(caughtError),
+        isLoading: false,
+      }));
+      return null;
+    }
+  }
+
+  async function refreshRemediation(): Promise<CatalogRemediationOverviewResponse | null> {
     isRefreshingRemediation.value = true;
     remediationError.value = null;
     try {
-      const response = await refreshCatalogRemediationFindings();
-      remediationScanResult.value = response.data;
-      remediationLoaded.value = true;
+      const response = await refreshCatalogRemediationOverview();
+      remediationOverview.value = response.data;
+      const loadedGroups = Object.entries(remediationGroupPages.value)
+        .filter(([, state]) => state?.loaded)
+        .map(([groupKey, state]) => ({
+          groupKey: groupKey as CatalogRemediationGroupKey,
+          limit: state?.limit ?? 20,
+          offset: state?.offset ?? 0,
+        }));
+      remediationFindingDetails.value = {};
+      await Promise.all(
+        loadedGroups.map(({ groupKey, limit, offset }) =>
+          loadRemediationGroupPage(groupKey, { limit, offset }),
+        ),
+      );
       return response.data;
     } catch (caughtError) {
       remediationError.value = toErrorMessage(caughtError);
@@ -280,15 +424,19 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  async function ensureRemediationLoaded(): Promise<CatalogRemediationScanResponse | null> {
-    const cached = await loadRemediation();
-    if (cached && hasReadyRemediationCache(cached)) {
-      return cached;
-    }
-    if (catalogJobError.value || isWaitingOnCatalog.value) {
-      return cached;
-    }
-    return refreshRemediation();
+  async function refreshLoadedRemediationData(): Promise<void> {
+    await loadRemediationOverview();
+    remediationFindingDetails.value = {};
+    await Promise.all(
+      Object.entries(remediationGroupPages.value)
+        .filter(([, state]) => state?.loaded)
+        .map(([groupKey, state]) =>
+          loadRemediationGroupPage(groupKey as CatalogRemediationGroupKey, {
+            limit: state?.limit ?? 20,
+            offset: state?.offset ?? 0,
+          }),
+        ),
+    );
   }
 
   async function loadIgnored(): Promise<CatalogIgnoredFindingsResponse | null> {
@@ -322,7 +470,9 @@ export const useConsistencyStore = defineStore("consistency", () => {
   }
 
   async function runWorkspaceAction(
-    runner: () => Promise<CatalogRemediationActionResponse | CatalogIgnoredFindingsResponse | Record<string, unknown>>,
+    runner: () => Promise<
+      CatalogIgnoredFindingsResponse | CatalogRemediationActionResponse | Record<string, unknown>
+    >,
   ): Promise<void> {
     isApplyingAction.value = true;
     actionError.value = null;
@@ -334,7 +484,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
           ? String(result.summary)
           : "Action completed.";
       actionError.value = summarizeActionFailures(result);
-      await Promise.all([loadIgnored(), loadQuarantine(), loadRemediation()]);
+      await Promise.all([loadIgnored(), loadQuarantine(), refreshLoadedRemediationData()]);
     } catch (caughtError) {
       actionError.value = toErrorMessage(caughtError);
     } finally {
@@ -433,15 +583,6 @@ export const useConsistencyStore = defineStore("consistency", () => {
     }
   }
 
-  const brokenDbOriginals = computed<BrokenDbOriginalFinding[]>(
-    () => remediationScanResult.value?.broken_db_originals ?? [],
-  );
-  const zeroByteFindings = computed<ZeroByteFinding[]>(
-    () => remediationScanResult.value?.zero_byte_findings ?? [],
-  );
-  const fuseHiddenOrphans = computed<FuseHiddenOrphanFinding[]>(
-    () => remediationScanResult.value?.fuse_hidden_orphans ?? [],
-  );
   const storageOriginalsMissingInDb = computed(() =>
     sectionRows(catalogReport.value, "STORAGE_ORIGINALS_MISSING_IN_DB"),
   );
@@ -474,7 +615,6 @@ export const useConsistencyStore = defineStore("consistency", () => {
     actionError,
     applyFindingAction,
     applyBrokenDbAction,
-    brokenDbOriginals,
     catalogJob,
     catalogJobError,
     catalogReadinessMessage,
@@ -482,7 +622,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
     catalogReadinessTitle,
     catalogReport,
     deleteQuarantineItemsPermanently,
-    fuseHiddenOrphans,
+    getGroupPageState,
     hiddenFindingIds,
     ignoreItems,
     ignoredError,
@@ -500,24 +640,26 @@ export const useConsistencyStore = defineStore("consistency", () => {
     lastActionSummary,
     load,
     loadCatalogJob,
-    ensureRemediationLoaded,
     loadIgnored,
     loadQuarantine,
-    loadRemediation,
+    loadRemediationFindingDetail,
+    loadRemediationGroupPage,
+    loadRemediationOverview,
     orphanDerivatives,
     quarantineError,
     quarantineItems,
     quarantineState,
     quarantinedItems,
-    remediationError,
-    remediationLoaded,
-    remediationScanResult,
     refreshRemediation,
+    remediationError,
+    remediationFindingDetails,
+    remediationGroups,
+    remediationLoaded,
+    remediationOverview,
     releaseIgnoredItems,
     restoreQuarantineItems,
     startCatalog,
     storageOriginalsMissingInDb,
     unmappedDatabasePaths,
-    zeroByteFindings,
   };
 });

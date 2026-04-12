@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AliasChoices, BaseModel, Field
 
 from immich_doctor.api.models import (
@@ -243,6 +243,64 @@ def scan_catalog_remediation_findings(
 )
 def refresh_catalog_remediation_findings() -> CatalogRemediationScanApiResponse:
     data = CatalogRemediationService().refresh_cached_findings(load_settings())
+    return CatalogRemediationScanApiResponse(data=data)
+
+
+@consistency_router.get(
+    "/catalog-remediation/groups",
+    response_model=CatalogRemediationScanApiResponse,
+)
+def list_catalog_remediation_groups() -> CatalogRemediationScanApiResponse:
+    data = CatalogRemediationService().load_group_overview(load_settings())
+    return CatalogRemediationScanApiResponse(data=data)
+
+
+@consistency_router.post(
+    "/catalog-remediation/groups/refresh",
+    response_model=CatalogRemediationScanApiResponse,
+)
+def refresh_catalog_remediation_groups() -> CatalogRemediationScanApiResponse:
+    data = CatalogRemediationService().refresh_group_overview(load_settings())
+    return CatalogRemediationScanApiResponse(data=data)
+
+
+@consistency_router.get(
+    "/catalog-remediation/groups/{group_key}",
+    response_model=CatalogRemediationScanApiResponse,
+)
+def list_catalog_remediation_group_findings(
+    group_key: str,
+    limit: int | None = Query(default=20, ge=0),
+    offset: int = Query(default=0, ge=0),
+) -> CatalogRemediationScanApiResponse:
+    try:
+        data = CatalogRemediationService().list_group_findings(
+            load_settings(),
+            group_key=group_key,
+            limit=limit,
+            offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return CatalogRemediationScanApiResponse(data=data)
+
+
+@consistency_router.get(
+    "/catalog-remediation/groups/{group_key}/items/{finding_id}",
+    response_model=CatalogRemediationScanApiResponse,
+)
+def get_catalog_remediation_group_finding_detail(
+    group_key: str,
+    finding_id: str,
+) -> CatalogRemediationScanApiResponse:
+    try:
+        data = CatalogRemediationService().get_finding_detail(
+            load_settings(),
+            group_key=group_key,
+            finding_id=finding_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CatalogRemediationScanApiResponse(data=data)
 
 

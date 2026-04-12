@@ -5,16 +5,15 @@
         <div>
           <h3>Catalog findings workspace</h3>
           <p>
-            Review cached findings, stage explicit operator actions on the right side,
-            and separate active findings from quarantine and ignored state.
+            Review findings in smaller server-backed pages, stage explicit operator actions,
+            and open `...more info` only for the exact item you want to inspect.
           </p>
         </div>
         <StatusTag :status="panelStatus" />
       </div>
 
-      <section class="runtime-actions">
+      <section v-if="mode === 'findings'" class="runtime-actions">
         <button
-          v-if="mode === 'findings'"
           type="button"
           class="runtime-action"
           :disabled="consistencyStore.isLoadingRemediation || consistencyStore.isRefreshingRemediation"
@@ -48,52 +47,10 @@
     </section>
 
     <template v-if="mode === 'findings'">
-      <section v-if="!consistencyStore.remediationLoaded" class="panel catalog-remediation-group">
-        <div class="settings-section__header">
-          <div>
-            <h4>Cached findings</h4>
-            <p>Detailed findings load on demand to keep the consistency page responsive on large datasets.</p>
-          </div>
-          <StatusTag status="unknown" />
-        </div>
-
-        <p class="health-card__summary">The cached findings view is not loaded yet.</p>
-        <p class="health-card__details">
-          Load the cached findings when needed, or rebuild them explicitly after a finished storage scan.
-        </p>
-
-        <section class="runtime-actions">
-          <button
-            type="button"
-            class="runtime-action runtime-action--secondary"
-            :disabled="consistencyStore.isLoadingRemediation || consistencyStore.isRefreshingRemediation"
-            @click="void loadCachedFindings()"
-          >
-            {{
-              consistencyStore.isLoadingRemediation
-                ? "Loading cached findings..."
-                : "Load cached findings"
-            }}
-          </button>
-          <button
-            type="button"
-            class="runtime-action"
-            :disabled="consistencyStore.isRefreshingRemediation"
-            @click="void refreshPanel()"
-          >
-            {{
-              consistencyStore.isRefreshingRemediation
-                ? "Refreshing..."
-                : "Refresh detailed findings"
-            }}
-          </button>
-        </section>
-      </section>
-
       <EmptyState
-        v-else-if="!findingGroups.length"
+        v-if="!findingGroups.length && !consistencyStore.isLoadingRemediation"
         title="No grouped findings available"
-        message="Load the cached findings or run an explicit refresh to review operator actions here."
+        message="No active catalog findings are currently visible."
       />
 
       <article
@@ -108,9 +65,46 @@
           </div>
           <div class="catalog-remediation-group__meta">
             <StatusTag :status="group.status" />
-            <span class="catalog-remediation-group__count">{{ group.rows.length }}</span>
+            <span class="catalog-remediation-group__count">{{ group.totalCount }}</span>
           </div>
         </div>
+
+        <section class="catalog-remediation-pagination">
+          <label class="catalog-remediation-pagination__size">
+            <span>Rows</span>
+            <select
+              :value="pageSizeValue(group.limit)"
+              @change="onPageSizeChange(group, ($event.target as HTMLSelectElement).value)"
+            >
+              <option
+                v-for="option in pageSizeOptions"
+                :key="option.value"
+                :value="String(option.value)"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <div class="catalog-remediation-pagination__controls">
+            <button
+              type="button"
+              class="runtime-action runtime-action--secondary"
+              :disabled="group.offset === 0 || group.isLoading"
+              @click="void changePage(group, 'prev')"
+            >
+              Previous
+            </button>
+            <span>{{ pageLabel(group) }}</span>
+            <button
+              type="button"
+              class="runtime-action runtime-action--secondary"
+              :disabled="!canGoNext(group) || group.isLoading"
+              @click="void changePage(group, 'next')"
+            >
+              Next
+            </button>
+          </div>
+        </section>
 
         <section v-if="group.actionableRows.length" class="runtime-actions catalog-remediation-group__actions">
           <button
@@ -119,7 +113,7 @@
             class="runtime-action runtime-action--secondary"
             @click="stageGroupAction(group.key, 'delete')"
           >
-            {{ group.key === 'fuse-hidden' ? "Try delete all" : "Delete all" }}
+            Delete visible
           </button>
           <button
             v-if="group.supportedActions.includes('quarantine')"
@@ -127,7 +121,7 @@
             class="runtime-action runtime-action--secondary"
             @click="stageGroupAction(group.key, 'quarantine')"
           >
-            {{ group.key === 'fuse-hidden' ? "Quarantine all artifacts" : "Quarantine all" }}
+            Quarantine visible
           </button>
           <button
             v-if="group.supportedActions.includes('ignore')"
@@ -135,7 +129,7 @@
             class="runtime-action runtime-action--secondary"
             @click="stageGroupAction(group.key, 'ignore')"
           >
-            Ignore all
+            Ignore visible
           </button>
           <button
             v-if="group.supportedActions.includes('ignore')"
@@ -143,7 +137,7 @@
             class="runtime-action runtime-action--secondary"
             @click="stageUnstagedIgnore(group.key)"
           >
-            Ignore unselected
+            Ignore unstaged visible
           </button>
           <button
             type="button"
@@ -163,7 +157,12 @@
           </button>
         </section>
 
-        <div class="catalog-remediation-table-wrapper">
+        <p v-if="group.error" class="runtime-blocking-message">{{ group.error }}</p>
+        <p v-if="group.isLoading && !group.rows.length" class="health-card__details">
+          Loading this card...
+        </p>
+
+        <div v-else-if="group.rows.length" class="catalog-remediation-table-wrapper">
           <table class="catalog-table">
             <thead>
               <tr>
@@ -176,69 +175,103 @@
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="row in group.rows"
-                :key="row.id"
-                :class="{ 'catalog-remediation-row--staged': Boolean(stagedActionByRowId[row.id]) }"
-              >
-                <td>
-                  <div class="catalog-remediation-cell">
-                    <strong>{{ row.title }}</strong>
-                    <small class="catalog-remediation-muted">{{ row.subtitle }}</small>
-                  </div>
-                </td>
-                <td>
-                  <div class="catalog-remediation-cell">
-                    <span>{{ row.ownerLabel ?? "Unknown owner" }}</span>
-                    <small class="catalog-remediation-muted">{{ row.ownerHint }}</small>
-                  </div>
-                </td>
-                <td>
-                  <div class="catalog-remediation-cell">
-                    <span :class="row.badgeClass" class="consistency-chip">
-                      {{ row.badgeLabel }}
-                    </span>
-                    <small class="catalog-remediation-muted">{{ row.message }}</small>
-                  </div>
-                </td>
-                <td class="catalog-remediation-mono">
-                  <div class="catalog-remediation-cell">
-                    <span v-for="detail in row.pathDetails" :key="detail">{{ detail }}</span>
-                  </div>
-                </td>
-                <td>
-                  <div class="catalog-remediation-cell">
-                    <span v-if="row.blockedReason" class="catalog-remediation-blocked">
-                      {{ row.blockedReason }}
-                    </span>
-                    <span v-else>{{ row.statusReason }}</span>
-                    <small v-if="stagedActionByRowId[row.id]" class="catalog-remediation-muted">
-                      Staged: {{ stagedLabel(stagedActionByRowId[row.id]) }}
-                    </small>
-                  </div>
-                </td>
-                <td>
-                  <div class="runtime-actions catalog-remediation-row-actions">
-                    <button
-                      v-for="action in row.actions"
-                      :key="`${row.id}:${action.id}`"
-                      type="button"
-                      class="runtime-action runtime-action--secondary"
-                      :disabled="Boolean(action.disabledReason)"
-                      :title="action.disabledReason ?? action.helpText"
-                      @click="stageRowAction(row.id, action.id)"
-                    >
-                      {{ action.label }}
-                    </button>
-                    <span v-if="!row.actions.length" class="catalog-remediation-muted">
-                      No explicit action available
-                    </span>
-                  </div>
-                </td>
-              </tr>
+              <template v-for="row in group.rows" :key="row.id">
+                <tr :class="{ 'catalog-remediation-row--staged': Boolean(stagedActionByRowId[row.id]) }">
+                  <td>
+                    <div class="catalog-remediation-cell">
+                      <strong>{{ row.title }}</strong>
+                      <small class="catalog-remediation-muted">{{ row.subtitle }}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="catalog-remediation-cell">
+                      <span>{{ row.ownerLabel ?? "Unknown owner" }}</span>
+                      <small class="catalog-remediation-muted">{{ row.ownerHint }}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="catalog-remediation-cell">
+                      <span :class="row.badgeClass" class="consistency-chip">
+                        {{ row.badgeLabel }}
+                      </span>
+                      <small class="catalog-remediation-muted">{{ row.message }}</small>
+                    </div>
+                  </td>
+                  <td class="catalog-remediation-mono">
+                    <div class="catalog-remediation-cell">
+                      <span>{{ row.summaryPath ?? "Unavailable" }}</span>
+                      <small class="catalog-remediation-muted">
+                        {{ row.summaryContext ?? "No extra context" }}
+                      </small>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="catalog-remediation-cell">
+                      <span v-if="row.blockedReason" class="catalog-remediation-blocked">
+                        {{ row.blockedReason }}
+                      </span>
+                      <span v-else>{{ row.statusReason }}</span>
+                      <small v-if="stagedActionByRowId[row.id]" class="catalog-remediation-muted">
+                        Staged: {{ stagedLabel(stagedActionByRowId[row.id]) }}
+                      </small>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="runtime-actions catalog-remediation-row-actions">
+                      <button
+                        v-for="action in row.actions"
+                        :key="`${row.id}:${action.id}`"
+                        type="button"
+                        class="runtime-action runtime-action--secondary"
+                        :disabled="Boolean(action.disabledReason)"
+                        :title="action.disabledReason ?? action.helpText"
+                        @click="stageRowAction(row.id, action.id)"
+                      >
+                        {{ action.label }}
+                      </button>
+                      <button
+                        type="button"
+                        class="runtime-action runtime-action--secondary"
+                        @click="void toggleMoreInfo(row)"
+                      >
+                        {{ expandedRowIds[row.id] ? "Less info" : "...more info" }}
+                      </button>
+                      <span v-if="!row.actions.length" class="catalog-remediation-muted">
+                        No explicit action available
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="expandedRowIds[row.id]" class="catalog-remediation-detail-row">
+                  <td colspan="6">
+                    <div v-if="isDetailLoading(row)" class="health-card__details">
+                      Loading item details...
+                    </div>
+                    <div v-else-if="detailError(row)" class="runtime-blocking-message">
+                      {{ detailError(row) }}
+                    </div>
+                    <div v-else class="catalog-remediation-detail-grid">
+                      <div
+                        v-for="detail in detailLines(row)"
+                        :key="`${row.id}:${detail.label}:${detail.value}`"
+                        class="catalog-remediation-detail-item"
+                      >
+                        <strong>{{ detail.label }}</strong>
+                        <span class="catalog-remediation-mono">{{ detail.value }}</span>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
+
+        <EmptyState
+          v-else
+          title="No findings in this card"
+          message="Nothing is currently visible in this category."
+        />
       </article>
     </template>
 
@@ -375,27 +408,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import StatusTag from "@/components/common/StatusTag.vue";
 import { useConsistencyStore } from "@/stores/consistency";
 import type { CatalogValidationReport } from "@/api/types/catalog";
 import type {
-  BrokenDbOriginalFinding,
+  CatalogRemediationFindingDetailLine,
+  CatalogRemediationGroupKey,
+  CatalogRemediationListItem,
+  CatalogRemediationRowActionId,
   CatalogRemediationStateItemPayload,
-  FuseHiddenOrphanFinding,
-  ZeroByteFinding,
 } from "@/api/types/consistency";
 
 type HealthTag = "ok" | "warning" | "error" | "unknown";
 type PanelMode = "findings" | "quarantine" | "ignored";
-type RowActionId =
-  | "inspect"
-  | "ignore"
-  | "quarantine"
-  | "delete"
-  | "mark_removed"
-  | "repair_path";
+type RowActionId = CatalogRemediationRowActionId;
 
 interface RowActionModel {
   id: RowActionId;
@@ -414,11 +442,14 @@ interface FindingRowModel {
   badgeLabel: string;
   badgeClass: string;
   message: string;
-  pathDetails: string[];
+  summaryPath: string | null;
+  summaryContext: string | null;
   statusReason: string;
   blockedReason: string | null;
   actions: RowActionModel[];
   payload: CatalogRemediationStateItemPayload;
+  detailLines: CatalogRemediationFindingDetailLine[];
+  detailGroupKey: CatalogRemediationGroupKey | null;
 }
 
 interface FindingGroupModel {
@@ -430,10 +461,25 @@ interface FindingGroupModel {
   actionableRows: FindingRowModel[];
   supportedActions: RowActionId[];
   stagedCount: number;
+  totalCount: number;
+  limit: number | null;
+  offset: number;
+  isLoading: boolean;
+  error: string | null;
+  serverGroupKey: CatalogRemediationGroupKey | null;
 }
+
+const pageSizeOptions = [
+  { label: "20", value: 20 },
+  { label: "100", value: 100 },
+  { label: "200", value: 200 },
+  { label: "All", value: -1 },
+];
 
 const consistencyStore = useConsistencyStore();
 const stagedActionByRowId = ref<Record<string, RowActionId>>({});
+const expandedRowIds = ref<Record<string, boolean>>({});
+const localPagination = ref<Record<string, { limit: number | null; offset: number }>>({});
 
 const props = withDefaults(
   defineProps<{
@@ -463,14 +509,6 @@ function toTitleCase(value: string): string {
   return value.replace(/_/g, " ");
 }
 
-function pathLine(label: string, value: string | null | undefined): string {
-  return value ? `${label}: ${value}` : `${label}: Unavailable`;
-}
-
-function ownerHint(value: string | null | undefined): string | null {
-  return value ? `Source owner key: ${value}` : null;
-}
-
 function makeRowAction(
   id: RowActionId,
   label: string,
@@ -478,6 +516,10 @@ function makeRowAction(
   disabledReason: string | null = null,
 ): RowActionModel {
   return { id, label, helpText, disabledReason };
+}
+
+function pageSizeValue(limit: number | null): string {
+  return limit === null ? "-1" : String(limit);
 }
 
 function isStorageNoiseRow(row: Record<string, unknown>): boolean {
@@ -498,58 +540,60 @@ function stagedLabel(actionId: RowActionId): string {
       return "Mark removed";
     case "repair_path":
       return "Repair path";
-    default:
-      return "Inspect";
   }
 }
 
-function brokenDbRow(finding: BrokenDbOriginalFinding): FindingRowModel {
-  const actions: RowActionModel[] = [makeRowAction("ignore", "Ignore", "Hide this row from active findings.")];
-  if (finding.classification === "missing_confirmed") {
-    actions.unshift(
-      makeRowAction(
-        "mark_removed",
-        "Mark removed",
-        "Apply DB cleanup for a confirmed missing original.",
-      ),
-    );
-  }
-  if (finding.classification === "found_with_hash_match") {
-    actions.unshift(
-      makeRowAction(
-        "repair_path",
-        "Repair path",
-        "Apply a DB path correction for the verified relocation.",
-      ),
-    );
-  }
+function localGroupPage(key: string): { limit: number | null; offset: number } {
+  return localPagination.value[key] ?? { limit: 20, offset: 0 };
+}
+
+function updateLocalGroupPage(
+  key: string,
+  updater: (current: { limit: number | null; offset: number }) => { limit: number | null; offset: number },
+): void {
+  const current = localGroupPage(key);
+  localPagination.value = {
+    ...localPagination.value,
+    [key]: updater(current),
+  };
+}
+
+function serverItemActions(item: CatalogRemediationListItem): RowActionModel[] {
+  return item.actions.map((actionId) => {
+    switch (actionId) {
+      case "ignore":
+        return makeRowAction("ignore", "Ignore", "Hide this row from active findings.");
+      case "quarantine":
+        return makeRowAction("quarantine", "Quarantine", "Move the file into quarantine.");
+      case "delete":
+        return makeRowAction("delete", "Try delete", "Try deleting the artifact directly from storage.");
+      case "mark_removed":
+        return makeRowAction("mark_removed", "Mark removed", "Apply DB cleanup for a confirmed missing original.");
+      case "repair_path":
+        return makeRowAction("repair_path", "Repair path", "Apply a DB path correction for the verified relocation.");
+    }
+  });
+}
+
+function serverFindingRow(item: CatalogRemediationListItem): FindingRowModel {
   return {
-    id: finding.finding_id,
-    groupKey: "broken-db",
-    title: finding.asset_name ?? finding.asset_id,
-    subtitle: finding.asset_id,
-    ownerLabel: finding.owner_label,
-    ownerHint: ownerHint(finding.owner_id),
-    badgeLabel: toTitleCase(finding.classification),
-    badgeClass: badgeClass(finding.classification),
-    message: finding.message,
-    pathDetails: [
-      pathLine("Expected", finding.expected_database_path),
-      pathLine("Found", finding.found_absolute_path),
-    ],
-    statusReason: finding.action_reason,
-    blockedReason: null,
-    actions,
-    payload: {
-      finding_id: finding.finding_id,
-      category_key: "broken-db",
-      title: finding.asset_name ?? finding.asset_id,
-      asset_id: finding.asset_id,
-      owner_id: finding.owner_id,
-      owner_label: finding.owner_label,
-      source_path: finding.expected_absolute_path,
-      relative_path: finding.expected_relative_path,
-    },
+    id: item.finding_id,
+    groupKey: item.group_key,
+    title: item.title,
+    subtitle: item.subtitle,
+    ownerLabel: item.owner_label,
+    ownerHint: item.owner_hint,
+    badgeLabel: toTitleCase(item.classification),
+    badgeClass: badgeClass(item.classification),
+    message: item.message,
+    summaryPath: item.summary_path,
+    summaryContext: item.summary_context,
+    statusReason: item.status_reason,
+    blockedReason: item.blocked_reason,
+    actions: serverItemActions(item),
+    payload: item.payload,
+    detailLines: [],
+    detailGroupKey: item.group_key,
   };
 }
 
@@ -566,10 +610,8 @@ function storageMissingRow(row: Record<string, unknown>): FindingRowModel {
     badgeLabel: "Storage orphan",
     badgeClass: badgeClass("found_elsewhere"),
     message: "A storage original exists without a matching DB original reference.",
-    pathDetails: [
-      pathLine("Path", String(row.absolute_path ?? relativePath)),
-      pathLine("Size", String(row.size_bytes ?? "Unavailable")),
-    ],
+    summaryPath: String(row.absolute_path ?? relativePath),
+    summaryContext: `Size: ${String(row.size_bytes ?? "Unavailable")}`,
     statusReason: "Quarantine or ignore can be staged explicitly.",
     blockedReason: null,
     actions: [
@@ -586,6 +628,12 @@ function storageMissingRow(row: Record<string, unknown>): FindingRowModel {
       relative_path: relativePath,
       size_bytes: Number(row.size_bytes ?? 0),
     },
+    detailLines: [
+      { label: "Path", value: String(row.absolute_path ?? relativePath) },
+      { label: "Root", value: String(row.root_slug ?? "uploads") },
+      { label: "Size", value: String(row.size_bytes ?? "Unavailable") },
+    ],
+    detailGroupKey: null,
   };
 }
 
@@ -603,10 +651,8 @@ function orphanDerivativeRow(row: Record<string, unknown>): FindingRowModel {
     badgeLabel: "Orphan derivative",
     badgeClass: badgeClass("deletable_orphan"),
     message: "A derivative file exists without the original file.",
-    pathDetails: [
-      pathLine("Path", String(row.absolute_path ?? relativePath)),
-      pathLine("Original", originalRelativePath || "Unavailable"),
-    ],
+    summaryPath: String(row.absolute_path ?? relativePath),
+    summaryContext: originalRelativePath || "Original unavailable",
     statusReason: "Quarantine or ignore can be staged explicitly.",
     blockedReason: null,
     actions: [
@@ -624,84 +670,13 @@ function orphanDerivativeRow(row: Record<string, unknown>): FindingRowModel {
       relative_path: relativePath,
       original_relative_path: originalRelativePath,
     },
-  };
-}
-
-function zeroByteRow(finding: ZeroByteFinding): FindingRowModel {
-  return {
-    id: finding.finding_id,
-    groupKey: "zero-byte",
-    title: finding.file_name,
-    subtitle: finding.asset_name ?? finding.asset_id ?? finding.root_slug,
-    ownerLabel: finding.owner_label,
-    ownerHint: ownerHint(finding.owner_id ?? finding.db_reference_kind),
-    badgeLabel: toTitleCase(finding.classification),
-    badgeClass: badgeClass(finding.classification),
-    message: finding.message,
-    pathDetails: [
-      pathLine("Path", finding.absolute_path),
-      pathLine("DB wiring", finding.db_reference_kind),
-      pathLine("Original", finding.original_relative_path),
+    detailLines: [
+      { label: "Path", value: String(row.absolute_path ?? relativePath) },
+      { label: "Root", value: String(row.root_slug ?? "") },
+      { label: "Original", value: originalRelativePath || "Unavailable" },
+      { label: "Asset id", value: String(row.asset_id ?? "Unavailable") },
     ],
-    statusReason: finding.action_reason,
-    blockedReason: null,
-    actions: [
-      makeRowAction("quarantine", "Quarantine", "Move the zero-byte file into quarantine."),
-      makeRowAction("ignore", "Ignore", "Hide this row from active findings."),
-    ],
-    payload: {
-      finding_id: finding.finding_id,
-      category_key: "zero-byte",
-      title: finding.file_name,
-      asset_id: finding.asset_id,
-      owner_id: finding.owner_id,
-      owner_label: finding.owner_label,
-      source_path: finding.absolute_path,
-      root_slug: finding.root_slug,
-      relative_path: finding.relative_path,
-      original_relative_path: finding.original_relative_path,
-      db_reference_kind: finding.db_reference_kind,
-      size_bytes: finding.size_bytes,
-    },
-  };
-}
-
-function fuseHiddenRow(finding: FuseHiddenOrphanFinding): FindingRowModel {
-  const actions =
-    finding.classification === "blocked_in_use"
-      ? [makeRowAction("ignore", "Ignore", "Keep this in-use artifact out of the active list.")]
-      : [
-          makeRowAction("delete", "Try delete", "Try deleting the artifact directly from storage."),
-          makeRowAction("ignore", "Ignore", "Hide this row from active findings."),
-        ];
-  return {
-    id: finding.finding_id,
-    groupKey: "fuse-hidden",
-    title: finding.file_name,
-    subtitle: finding.root_slug,
-    ownerLabel: finding.owner_label,
-    ownerHint: ownerHint(finding.owner_id),
-    badgeLabel: toTitleCase(finding.classification),
-    badgeClass: badgeClass(finding.classification),
-    message: finding.message,
-    pathDetails: [
-      pathLine("Path", finding.absolute_path),
-      pathLine("Check", finding.in_use_check_reason),
-    ],
-    statusReason: finding.action_reason,
-    blockedReason: null,
-    actions,
-    payload: {
-      finding_id: finding.finding_id,
-      category_key: "fuse-hidden",
-      title: finding.file_name,
-      owner_id: finding.owner_id,
-      owner_label: finding.owner_label,
-      source_path: finding.absolute_path,
-      root_slug: finding.root_slug,
-      relative_path: finding.relative_path,
-      size_bytes: finding.size_bytes,
-    },
+    detailGroupKey: null,
   };
 }
 
@@ -716,10 +691,8 @@ function unmappedRow(row: Record<string, unknown>): FindingRowModel {
     badgeLabel: toTitleCase(String(row.mapping_status ?? "unexpected_root")),
     badgeClass: badgeClass(String(row.mapping_status ?? "unexpected_root")),
     message: "This DB path needs manual inspection before any action is chosen.",
-    pathDetails: [
-      pathLine("Database path", String(row.database_path ?? "Unavailable")),
-      pathLine("Path kind", String(row.path_kind ?? "original")),
-    ],
+    summaryPath: String(row.database_path ?? "Unavailable"),
+    summaryContext: String(row.path_kind ?? "original"),
     statusReason: "Inspect only.",
     blockedReason: "No safe action is available from the catalog-only model.",
     actions: [],
@@ -728,6 +701,35 @@ function unmappedRow(row: Record<string, unknown>): FindingRowModel {
       category_key: "path-warning",
       title: String(row.asset_name ?? row.asset_id ?? "Unknown asset"),
     },
+    detailLines: [
+      { label: "Database path", value: String(row.database_path ?? "Unavailable") },
+      { label: "Path kind", value: String(row.path_kind ?? "original") },
+      { label: "Mapping status", value: String(row.mapping_status ?? "unexpected_root") },
+    ],
+    detailGroupKey: null,
+  };
+}
+
+function paginateRows(rows: FindingRowModel[], key: string): {
+  rows: FindingRowModel[];
+  totalCount: number;
+  limit: number | null;
+  offset: number;
+} {
+  const { limit, offset } = localGroupPage(key);
+  if (limit === null) {
+    return {
+      rows: rows.slice(offset),
+      totalCount: rows.length,
+      limit,
+      offset,
+    };
+  }
+  return {
+    rows: rows.slice(offset, offset + limit),
+    totalCount: rows.length,
+    limit,
+    offset,
   };
 }
 
@@ -736,97 +738,119 @@ const hiddenFindingIds = computed<Set<string>>(
   () => consistencyStore.hiddenFindingIds ?? new Set<string>(),
 );
 
-const brokenRows = computed(() =>
-  consistencyStore.brokenDbOriginals
-    .map(brokenDbRow)
-    .filter((row) => !hiddenFindingIds.value.has(row.id)),
-);
-const storageMissingRows = computed(() =>
-  consistencyStore.storageOriginalsMissingInDb
+const localGroups = computed(() => {
+  const storageMissingRows = consistencyStore.storageOriginalsMissingInDb
     .filter((row) => !isStorageNoiseRow(row))
     .map(storageMissingRow)
-    .filter((row) => !hiddenFindingIds.value.has(row.id)),
-);
-const orphanDerivativeRows = computed(() =>
-  consistencyStore.orphanDerivatives
+    .filter((row) => !hiddenFindingIds.value.has(row.id));
+  const orphanRows = consistencyStore.orphanDerivatives
     .map(orphanDerivativeRow)
-    .filter((row) => !hiddenFindingIds.value.has(row.id)),
-);
-const zeroByteRows = computed(() =>
-  consistencyStore.zeroByteFindings
-    .map(zeroByteRow)
-    .filter((row) => !hiddenFindingIds.value.has(row.id)),
-);
-const fuseHiddenRows = computed(() =>
-  consistencyStore.fuseHiddenOrphans
-    .map(fuseHiddenRow)
-    .filter((row) => !hiddenFindingIds.value.has(row.id)),
-);
-const unmappedRows = computed(() =>
-  sectionRows(report.value, "UNMAPPED_DATABASE_PATHS")
+    .filter((row) => !hiddenFindingIds.value.has(row.id));
+  const unmappedRows = sectionRows(report.value, "UNMAPPED_DATABASE_PATHS")
     .map(unmappedRow)
-    .filter((row) => !hiddenFindingIds.value.has(row.id)),
-);
+    .filter((row) => !hiddenFindingIds.value.has(row.id));
 
-const rawGroups = computed(() => [
-  {
-    key: "broken-db",
-    title: "DB originals missing in storage",
-    description: "Broken original references, relocations, and verified path mismatches.",
-    rows: brokenRows.value,
-  },
-  {
-    key: "storage-missing",
-    title: "Storage originals missing in DB",
-    description: "Files on storage without a matching original DB row.",
-    rows: storageMissingRows.value,
-  },
-  {
-    key: "orphan-derivative",
-    title: "Orphan derivatives",
-    description: "Derivative files that remain after the original disappeared.",
-    rows: orphanDerivativeRows.value,
-  },
-  {
-    key: "zero-byte",
-    title: "Zero-byte files",
-    description: "Zero-byte originals and derivatives with DB-wiring context.",
-    rows: zeroByteRows.value,
-  },
-  {
-    key: "fuse-hidden",
-    title: "`.fuse_hidden*` artifacts",
-    description: "FUSE/Unraid artifacts that should be deleted directly when safe.",
-    rows: fuseHiddenRows.value,
-  },
-  {
-    key: "path-warning",
-    title: "Path warnings",
-    description: "DB paths that mapped unclearly and remain inspect-only.",
-    rows: unmappedRows.value,
-  },
-]);
+  return [
+    {
+      key: "storage-missing",
+      title: "Storage originals missing in DB",
+      description: "Files on storage without a matching original DB row.",
+      rows: storageMissingRows,
+    },
+    {
+      key: "orphan-derivative",
+      title: "Orphan derivatives",
+      description: "Derivative files that remain after the original disappeared.",
+      rows: orphanRows,
+    },
+    {
+      key: "path-warning",
+      title: "Path warnings",
+      description: "DB paths that mapped unclearly and remain inspect-only.",
+      rows: unmappedRows,
+    },
+  ];
+});
 
-const findingGroups = computed<FindingGroupModel[]>(() =>
-  rawGroups.value
-    .filter((group) => group.rows.length > 0)
+const findingGroups = computed<FindingGroupModel[]>(() => {
+  const serverGroups = consistencyStore.remediationGroups
+    .filter((group) => group.count > 0)
     .map((group) => {
-      const actionableRows = group.rows.filter((row) => row.actions.length > 0);
+      const pageState = consistencyStore.getGroupPageState(group.key);
+      const rows = pageState.items.map(serverFindingRow);
+      const actionableRows = rows.filter((row) => row.actions.length > 0);
       const supportedActions = [
         ...new Set(actionableRows.flatMap((row) => row.actions.map((action) => action.id))),
       ];
-      const stagedCount = group.rows.filter((row) => Boolean(stagedActionByRowId.value[row.id])).length;
+      const stagedCount = rows.filter((row) => Boolean(stagedActionByRowId.value[row.id])).length;
       return {
         key: group.key,
         title: group.title,
         description: group.description,
         status: actionableRows.length ? "warning" : "ok",
-        rows: group.rows,
+        rows,
         actionableRows,
         supportedActions,
         stagedCount,
-      };
-    }),
+        totalCount: group.count,
+        limit: pageState.limit,
+        offset: pageState.offset,
+        isLoading: pageState.isLoading,
+        error: pageState.error,
+        serverGroupKey: group.key,
+      } satisfies FindingGroupModel;
+    });
+
+  const paginatedLocalGroups = localGroups.value
+    .map((group) => {
+      const page = paginateRows(group.rows, group.key);
+      const actionableRows = page.rows.filter((row) => row.actions.length > 0);
+      const supportedActions = [
+        ...new Set(actionableRows.flatMap((row) => row.actions.map((action) => action.id))),
+      ];
+      const stagedCount = page.rows.filter((row) => Boolean(stagedActionByRowId.value[row.id])).length;
+      return {
+        key: group.key,
+        title: group.title,
+        description: group.description,
+        status: actionableRows.length ? "warning" : "ok",
+        rows: page.rows,
+        actionableRows,
+        supportedActions,
+        stagedCount,
+        totalCount: page.totalCount,
+        limit: page.limit,
+        offset: page.offset,
+        isLoading: false,
+        error: null,
+        serverGroupKey: null,
+      } satisfies FindingGroupModel;
+    })
+    .filter((group) => group.totalCount > 0);
+
+  return [...serverGroups, ...paginatedLocalGroups];
+});
+
+watch(
+  () => ({
+    mode: props.mode,
+    groups: consistencyStore.remediationGroups.map((group) => `${group.key}:${group.count}`).join("|"),
+  }),
+  ({ mode }) => {
+    if (mode !== "findings") {
+      return;
+    }
+    for (const group of consistencyStore.remediationGroups) {
+      if (group.count <= 0) {
+        continue;
+      }
+      const state = consistencyStore.getGroupPageState(group.key);
+      if (!state.loaded && !state.isLoading) {
+        void consistencyStore.loadRemediationGroupPage(group.key);
+      }
+    }
+  },
+  { immediate: true },
 );
 
 const workspaceSummary = computed(() => {
@@ -836,8 +860,8 @@ const workspaceSummary = computed(() => {
   if (props.mode === "ignored") {
     return consistencyStore.ignoredState?.summary ?? "Active ignore decisions are listed here.";
   }
-  if (consistencyStore.remediationScanResult?.summary) {
-    return consistencyStore.remediationScanResult.summary;
+  if (consistencyStore.remediationOverview?.summary) {
+    return consistencyStore.remediationOverview.summary;
   }
   if (report.value?.summary) {
     return report.value.summary;
@@ -847,7 +871,7 @@ const workspaceSummary = computed(() => {
 
 const workspaceDetails = computed(() => {
   if (props.mode === "findings") {
-    return "Nothing mutates automatically here. Detailed findings only rebuild after explicit refresh or directly after a finished storage scan.";
+    return "Each card now loads only the requested page. Extra detail is fetched per item only when you open `...more info`.";
   }
   if (props.mode === "quarantine") {
     return "Final deletion is only available from this quarantine view.";
@@ -948,12 +972,93 @@ async function performGroupActions(group: FindingGroupModel): Promise<void> {
   clearGroupStage(group.key);
 }
 
-async function refreshPanel(): Promise<void> {
-  await consistencyStore.refreshRemediation();
+function canGoNext(group: FindingGroupModel): boolean {
+  if (group.limit === null) {
+    return false;
+  }
+  return group.offset + group.limit < group.totalCount;
 }
 
-async function loadCachedFindings(): Promise<void> {
-  await consistencyStore.loadRemediation();
+async function changePage(group: FindingGroupModel, direction: "prev" | "next"): Promise<void> {
+  const pageSize = group.limit;
+  if (pageSize === null) {
+    return;
+  }
+  const delta = direction === "next" ? pageSize : -pageSize;
+  const nextOffset = Math.max(0, group.offset + delta);
+  if (group.serverGroupKey) {
+    await consistencyStore.loadRemediationGroupPage(group.serverGroupKey, {
+      limit: pageSize,
+      offset: nextOffset,
+    });
+    return;
+  }
+  updateLocalGroupPage(group.key, (current) => ({
+    ...current,
+    offset: nextOffset,
+  }));
+}
+
+function onPageSizeChange(group: FindingGroupModel, rawValue: string): void {
+  const parsed = Number(rawValue);
+  const nextLimit = parsed < 0 ? null : parsed;
+  if (group.serverGroupKey) {
+    void consistencyStore.loadRemediationGroupPage(group.serverGroupKey, {
+      limit: nextLimit,
+      offset: 0,
+    });
+    return;
+  }
+  updateLocalGroupPage(group.key, () => ({
+    limit: nextLimit,
+    offset: 0,
+  }));
+}
+
+function pageLabel(group: FindingGroupModel): string {
+  if (!group.totalCount) {
+    return "0-0";
+  }
+  const start = group.offset + 1;
+  const end = group.limit === null ? group.totalCount : Math.min(group.totalCount, group.offset + group.limit);
+  return `${start}-${end} of ${group.totalCount}`;
+}
+
+function detailState(row: FindingRowModel) {
+  if (!row.detailGroupKey) {
+    return null;
+  }
+  return consistencyStore.remediationFindingDetails[`${row.detailGroupKey}:${row.id}`] ?? null;
+}
+
+function detailLines(row: FindingRowModel): CatalogRemediationFindingDetailLine[] {
+  if (!row.detailGroupKey) {
+    return row.detailLines;
+  }
+  return detailState(row)?.data?.details ?? [];
+}
+
+function isDetailLoading(row: FindingRowModel): boolean {
+  return Boolean(row.detailGroupKey && detailState(row)?.isLoading);
+}
+
+function detailError(row: FindingRowModel): string | null {
+  return row.detailGroupKey ? detailState(row)?.error ?? null : null;
+}
+
+async function toggleMoreInfo(row: FindingRowModel): Promise<void> {
+  const expanded = Boolean(expandedRowIds.value[row.id]);
+  expandedRowIds.value = {
+    ...expandedRowIds.value,
+    [row.id]: !expanded,
+  };
+  if (!expanded && row.detailGroupKey) {
+    await consistencyStore.loadRemediationFindingDetail(row.detailGroupKey, row.id);
+  }
+}
+
+async function refreshPanel(): Promise<void> {
+  await consistencyStore.refreshRemediation();
 }
 </script>
 
@@ -1008,4 +1113,38 @@ async function loadCachedFindings(): Promise<void> {
   background: #f8fbfd;
 }
 
+.catalog-remediation-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.catalog-remediation-pagination__size {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.catalog-remediation-pagination__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.catalog-remediation-detail-row td {
+  background: #fbfcfd;
+}
+
+.catalog-remediation-detail-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.catalog-remediation-detail-item {
+  display: grid;
+  gap: 0.25rem;
+}
 </style>

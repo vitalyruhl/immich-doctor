@@ -4,40 +4,105 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CatalogRemediationPanel from "./CatalogRemediationPanel.vue";
 
 function createStore(): any {
+  const pageStateByGroup: Record<string, any> = {
+    "broken-db": {
+      loaded: true,
+      isLoading: false,
+      error: null,
+      limit: 20,
+      offset: 0,
+      total: 2,
+      items: [
+        {
+          finding_id: "broken-1",
+          group_key: "broken-db",
+          title: "missing.jpg",
+          subtitle: "asset-1",
+          owner_label: "Alice",
+          owner_hint: "Source owner key: owner-1",
+          classification: "missing_confirmed",
+          message: "Missing confirmed.",
+          summary_path: "/upload/alice/missing.jpg",
+          summary_context: null,
+          status_reason: "Eligible for cleanup",
+          blocked_reason: null,
+          actions: ["mark_removed", "ignore"],
+          payload: {
+            finding_id: "broken-1",
+            category_key: "broken-db",
+            title: "missing.jpg",
+            asset_id: "asset-1",
+          },
+        },
+      ],
+    },
+    "zero-byte": {
+      loaded: true,
+      isLoading: false,
+      error: null,
+      limit: 20,
+      offset: 0,
+      total: 1,
+      items: [
+        {
+          finding_id: "zero-1",
+          group_key: "zero-byte",
+          title: "zero.jpg",
+          subtitle: "asset-3",
+          owner_label: "Echo",
+          owner_hint: "Source owner key: owner-3",
+          classification: "zero_byte_upload_critical",
+          message: "DB-linked zero-byte original.",
+          summary_path: "/upload/echo/zero.jpg",
+          summary_context: "original_path",
+          status_reason: "Only quarantine is allowed.",
+          blocked_reason: null,
+          actions: ["quarantine", "ignore"],
+          payload: {
+            finding_id: "zero-1",
+            category_key: "zero-byte",
+            title: "zero.jpg",
+            asset_id: "asset-3",
+          },
+        },
+      ],
+    },
+    "fuse-hidden": {
+      loaded: true,
+      isLoading: false,
+      error: null,
+      limit: 20,
+      offset: 0,
+      total: 1,
+      items: [
+        {
+          finding_id: "fuse-1",
+          group_key: "fuse-hidden",
+          title: ".fuse_hidden0001",
+          subtitle: "uploads",
+          owner_label: "delta",
+          owner_hint: null,
+          classification: "deletable_orphan",
+          message: "Can be deleted directly.",
+          summary_path: "/upload/delta/.fuse_hidden0001",
+          summary_context: "No open file handles",
+          status_reason: "Try deleting the artifact directly.",
+          blocked_reason: null,
+          actions: ["delete", "ignore"],
+          payload: {
+            finding_id: "fuse-1",
+            category_key: "fuse-hidden",
+            title: ".fuse_hidden0001",
+          },
+        },
+      ],
+    },
+  };
+
   return {
     actionError: null,
     applyFindingAction: vi.fn().mockResolvedValue(undefined),
     applyBrokenDbAction: vi.fn().mockResolvedValue(undefined),
-    brokenDbOriginals: [
-      {
-        finding_id: "broken-1",
-        asset_id: "asset-1",
-        asset_name: "missing.jpg",
-        owner_id: "owner-1",
-        owner_label: "Alice",
-        classification: "missing_confirmed",
-        expected_database_path: "/upload/alice/missing.jpg",
-        expected_absolute_path: "/upload/alice/missing.jpg",
-        expected_relative_path: "alice/missing.jpg",
-        found_absolute_path: null,
-        action_reason: "Eligible for cleanup",
-        message: "Missing confirmed.",
-      },
-      {
-        finding_id: "broken-2",
-        asset_id: "asset-2",
-        asset_name: "path-fix.jpg",
-        owner_id: "owner-2",
-        owner_label: "Bob",
-        classification: "found_with_hash_match",
-        expected_database_path: "/upload/bob/path-fix.jpg",
-        expected_absolute_path: "/upload/bob/path-fix.jpg",
-        expected_relative_path: "bob/path-fix.jpg",
-        found_absolute_path: "/upload/bob-relocated/path-fix.jpg",
-        action_reason: "Eligible for path fix",
-        message: "Hash match.",
-      },
-    ],
     catalogJobError: null,
     catalogReport: {
       summary: "Catalog report loaded.",
@@ -88,23 +153,18 @@ function createStore(): any {
         },
       ],
     },
-    fuseHiddenOrphans: [
-      {
-        finding_id: "fuse-1",
-        root_slug: "uploads",
-        relative_path: "delta/.fuse_hidden0001",
-        absolute_path: "/upload/delta/.fuse_hidden0001",
-        file_name: ".fuse_hidden0001",
-        size_bytes: 456,
-        owner_id: null,
-        owner_label: "delta",
-        classification: "deletable_orphan",
-        action_reason: "Try deleting the artifact directly.",
-        in_use_check_reason: "No open file handles",
-        message: "Can be deleted directly.",
-      },
-    ],
+    deleteQuarantineItemsPermanently: vi.fn().mockResolvedValue(undefined),
+    getGroupPageState: vi.fn((groupKey: string) => pageStateByGroup[groupKey] ?? {
+      loaded: false,
+      isLoading: false,
+      error: null,
+      limit: 20,
+      offset: 0,
+      total: 0,
+      items: [],
+    }),
     hiddenFindingIds: new Set<string>(),
+    ignoreItems: vi.fn().mockResolvedValue(undefined),
     ignoredError: null,
     ignoredFindings: [
       {
@@ -124,8 +184,23 @@ function createStore(): any {
     isLoadingRemediation: false,
     isRefreshingRemediation: false,
     lastActionSummary: null,
+    loadRemediationFindingDetail: vi.fn().mockResolvedValue(undefined),
+    loadRemediationGroupPage: vi.fn().mockResolvedValue(undefined),
+    orphanDerivatives: [
+      {
+        asset_id: "asset-9",
+        derivative_type: "preview",
+        root_slug: "thumbs",
+        relative_path: "charlie/orphan-preview.webp",
+        absolute_path: "/thumbs/charlie/orphan-preview.webp",
+        original_relative_path: "charlie/original.jpg",
+      },
+    ],
     quarantineError: null,
     quarantineItems: vi.fn().mockResolvedValue(undefined),
+    quarantineState: {
+      summary: "1 quarantined finding is currently active.",
+    },
     quarantinedItems: [
       {
         quarantine_item_id: "quarantine-1",
@@ -138,17 +213,33 @@ function createStore(): any {
         reason: "Operator quarantined the finding.",
       },
     ],
-    quarantineState: {
-      summary: "1 quarantined finding is currently active.",
-    },
-    loadRemediation: vi.fn().mockResolvedValue(undefined),
     refreshRemediation: vi.fn().mockResolvedValue(undefined),
-    releaseIgnoredItems: vi.fn().mockResolvedValue(undefined),
     remediationError: null,
-    remediationLoaded: true,
-    remediationScanResult: {
+    remediationFindingDetails: {},
+    remediationGroups: [
+      {
+        key: "broken-db",
+        title: "DB originals missing in storage",
+        description: "Broken original references.",
+        count: 1,
+      },
+      {
+        key: "zero-byte",
+        title: "Zero-byte files",
+        description: "Zero-byte originals and derivatives.",
+        count: 1,
+      },
+      {
+        key: "fuse-hidden",
+        title: "`.fuse_hidden*` artifacts",
+        description: "FUSE artifacts.",
+        count: 1,
+      },
+    ],
+    remediationOverview: {
       summary: "Detailed findings loaded.",
     },
+    releaseIgnoredItems: vi.fn().mockResolvedValue(undefined),
     restoreQuarantineItems: vi.fn().mockResolvedValue(undefined),
     storageOriginalsMissingInDb: [
       {
@@ -166,37 +257,6 @@ function createStore(): any {
         size_bytes: 456,
       },
     ],
-    ignoreItems: vi.fn().mockResolvedValue(undefined),
-    orphanDerivatives: [
-      {
-        asset_id: "asset-9",
-        derivative_type: "preview",
-        root_slug: "thumbs",
-        relative_path: "charlie/orphan-preview.webp",
-        absolute_path: "/thumbs/charlie/orphan-preview.webp",
-        original_relative_path: "charlie/original.jpg",
-      },
-    ],
-    zeroByteFindings: [
-      {
-        finding_id: "zero-1",
-        root_slug: "uploads",
-        relative_path: "echo/zero.jpg",
-        absolute_path: "/upload/echo/zero.jpg",
-        file_name: "zero.jpg",
-        size_bytes: 0,
-        classification: "zero_byte_upload_critical",
-        asset_id: "asset-3",
-        asset_name: "zero.jpg",
-        owner_id: "owner-3",
-        owner_label: "Echo",
-        db_reference_kind: "original_path",
-        original_relative_path: "echo/zero.jpg",
-        action_reason: "Only quarantine is allowed.",
-        message: "DB-linked zero-byte original.",
-      },
-    ],
-    deleteQuarantineItemsPermanently: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -212,11 +272,9 @@ describe("CatalogRemediationPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders findings with category-local actions and owner labels", async () => {
-    const wrapper = mount(CatalogRemediationPanel, {
-      props: {
-        mode: "findings",
-      },
+  function mountPanel(mode: "findings" | "quarantine" | "ignored" = "findings") {
+    return mount(CatalogRemediationPanel, {
+      props: { mode },
       global: {
         stubs: {
           EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
@@ -224,28 +282,21 @@ describe("CatalogRemediationPanel", () => {
         },
       },
     });
+  }
+
+  it("renders findings with server-backed and local cards", async () => {
+    const wrapper = mountPanel();
     await nextTick();
 
     expect(wrapper.text()).toContain("DB originals missing in storage");
     expect(wrapper.text()).toContain("Storage originals missing in DB");
     expect(wrapper.text()).toContain("Alice");
-    expect(wrapper.text()).toContain("Try delete all");
-    expect(wrapper.text()).toContain("Ignore unselected");
-    expect(wrapper.text()).not.toContain("Select all visible");
+    expect(wrapper.text()).toContain("Delete visible");
+    expect(wrapper.text()).toContain("Ignore unstaged visible");
   });
 
-  it("stages and applies category actions without checkbox selection", async () => {
-    const wrapper = mount(CatalogRemediationPanel, {
-      props: {
-        mode: "findings",
-      },
-      global: {
-        stubs: {
-          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
-          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
-        },
-      },
-    });
+  it("stages and applies actions from the visible page", async () => {
+    const wrapper = mountPanel();
     await nextTick();
 
     const markRemovedButton = wrapper
@@ -262,88 +313,29 @@ describe("CatalogRemediationPanel", () => {
     expect(store.applyBrokenDbAction).toHaveBeenCalledWith(["asset-1"], "broken_db_cleanup");
   });
 
-  it("routes fuse-hidden deletions through the direct finding action", async () => {
-    const wrapper = mount(CatalogRemediationPanel, {
-      props: {
-        mode: "findings",
-      },
-      global: {
-        stubs: {
-          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
-          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
-        },
-      },
-    });
+  it("loads item detail only when more info is opened", async () => {
+    const wrapper = mountPanel();
     await nextTick();
 
-    const tryDeleteButton = wrapper
+    const moreInfoButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === "Try delete");
-    await tryDeleteButton!.trigger("click");
-    await nextTick();
+      .find((button) => button.text() === "...more info");
+    await moreInfoButton!.trigger("click");
 
-    const performButton = wrapper
-      .findAll("button")
-      .find((button) => button.text() === "Perform staged actions (1)");
-    await performButton!.trigger("click");
-
-    expect(store.applyFindingAction).toHaveBeenCalledWith(["fuse-1"], "fuse_hidden_delete");
+    expect(store.loadRemediationFindingDetail).toHaveBeenCalledWith("broken-db", "broken-1");
   });
 
   it("renders the quarantine workspace with dedicated operations", async () => {
-    const wrapper = mount(CatalogRemediationPanel, {
-      props: {
-        mode: "quarantine",
-      },
-      global: {
-        stubs: {
-          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
-          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
-        },
-      },
-    });
+    const wrapper = mountPanel("quarantine");
     await nextTick();
 
     expect(wrapper.text()).toContain("Delete permanently");
   });
 
   it("renders the ignored workspace with release actions", async () => {
-    const wrapper = mount(CatalogRemediationPanel, {
-      props: {
-        mode: "ignored",
-      },
-      global: {
-        stubs: {
-          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
-          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
-        },
-      },
-    });
+    const wrapper = mountPanel("ignored");
     await nextTick();
 
     expect(wrapper.text()).toContain("Release ignore");
   });
-
-  it("supports lazy loading of cached findings", async () => {
-    store.remediationLoaded = false;
-
-    const wrapper = mount(CatalogRemediationPanel, {
-      props: {
-        mode: "findings",
-      },
-      global: {
-        stubs: {
-          EmptyState: { template: "<div>{{ title }} {{ message }}</div>", props: ["title", "message"] },
-          StatusTag: { template: "<span>{{ status }}</span>", props: ["status"] },
-        },
-      },
-    });
-    await nextTick();
-
-    const loadButton = wrapper.findAll("button").find((button) => button.text() === "Load cached findings");
-    expect(loadButton).toBeTruthy();
-    await loadButton!.trigger("click");
-    expect(store.loadRemediation).toHaveBeenCalled();
-  });
-
 });

@@ -357,3 +357,60 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
     assert apply_response.json()["data"]["items"][0]["status"] == "applied"
     assert direct_apply_response.status_code == 200
     assert direct_apply_response.json()["data"]["items"][0]["status"] == "applied"
+
+
+def test_catalog_remediation_group_routes_return_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "load_group_overview",
+        lambda self, settings: {
+            "summary": "Catalog remediation findings loaded.",
+            "groups": [
+                {
+                    "key": "broken-db",
+                    "title": "DB originals missing in storage",
+                    "description": "Broken original references.",
+                    "count": 12,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "list_group_findings",
+        lambda self, settings, **kwargs: {
+            "group_key": kwargs["group_key"],
+            "offset": kwargs["offset"],
+            "limit": kwargs["limit"],
+            "total": 12,
+            "items": [
+                {
+                    "finding_id": "broken-1",
+                    "group_key": "broken-db",
+                    "title": "missing.jpg",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        consistency_routes.CatalogRemediationService,
+        "get_finding_detail",
+        lambda self, settings, **kwargs: {
+            "group_key": kwargs["group_key"],
+            "finding_id": kwargs["finding_id"],
+            "title": "missing.jpg",
+            "details": [{"label": "Expected DB path", "value": "/upload/missing.jpg"}],
+        },
+    )
+    client = TestClient(create_api_app())
+
+    overview_response = client.get("/api/consistency/catalog-remediation/groups")
+    list_response = client.get("/api/consistency/catalog-remediation/groups/broken-db?limit=20&offset=0")
+    detail_response = client.get("/api/consistency/catalog-remediation/groups/broken-db/items/broken-1")
+
+    assert overview_response.status_code == 200
+    assert overview_response.json()["data"]["groups"][0]["count"] == 12
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["items"][0]["finding_id"] == "broken-1"
+    assert detail_response.status_code == 200
+    assert detail_response.json()["data"]["details"][0]["label"] == "Expected DB path"

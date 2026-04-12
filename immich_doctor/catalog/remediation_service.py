@@ -67,6 +67,25 @@ class _LocatedFile:
     size_bytes: int
 
 
+_REMEDIATION_GROUP_DEFINITIONS: dict[str, dict[str, str]] = {
+    "broken-db": {
+        "cache_key": "broken_db_originals",
+        "title": "DB originals missing in storage",
+        "description": "Broken original references, relocations, and verified path mismatches.",
+    },
+    "zero-byte": {
+        "cache_key": "zero_byte_findings",
+        "title": "Zero-byte files",
+        "description": "Zero-byte originals and derivatives with DB-wiring context.",
+    },
+    "fuse-hidden": {
+        "cache_key": "fuse_hidden_orphans",
+        "title": "`.fuse_hidden*` artifacts",
+        "description": "FUSE/Unraid artifacts that should be deleted directly when safe.",
+    },
+}
+
+
 @dataclass(slots=True)
 class CatalogRemediationService:
     postgres: PostgresAdapter = field(default_factory=PostgresAdapter)
@@ -208,6 +227,99 @@ class CatalogRemediationService:
         }
         self.state_store.save_cached_findings(settings, result)
         return result
+
+    def load_group_overview(self, settings: AppSettings) -> dict[str, object]:
+        payload = self._cached_findings_payload(settings)
+        hidden_ids = self._hidden_catalog_finding_ids(settings)
+        groups = []
+        for group_key, definition in _REMEDIATION_GROUP_DEFINITIONS.items():
+            rows = self._group_items_from_payload(payload, group_key=group_key)
+            visible_rows = [
+                item
+                for item in rows
+                if str(item.get("finding_id") or "").strip() not in hidden_ids
+            ]
+            groups.append(
+                {
+                    "key": group_key,
+                    "title": definition["title"],
+                    "description": definition["description"],
+                    "count": len(visible_rows),
+                }
+            )
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        return {
+            "summary": str(payload.get("summary") or "Catalog remediation findings are ready."),
+            "generated_at": payload.get("generated_at"),
+            "metadata": {
+                **metadata,
+                "cacheState": str(metadata.get("cacheState") or "ready"),
+            },
+            "recommendations": list(payload.get("recommendations") or []),
+            "groups": groups,
+        }
+
+    def refresh_group_overview(self, settings: AppSettings) -> dict[str, object]:
+        self.refresh_cached_findings(settings)
+        return self.load_group_overview(settings)
+
+    def list_group_findings(
+        self,
+        settings: AppSettings,
+        *,
+        group_key: str,
+        limit: int | None = 20,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        payload = self._cached_findings_payload(settings)
+        group_definition = self._group_definition(group_key)
+        hidden_ids = self._hidden_catalog_finding_ids(settings)
+        rows = [
+            item
+            for item in self._group_items_from_payload(payload, group_key=group_key)
+            if str(item.get("finding_id") or "").strip() not in hidden_ids
+        ]
+        total = len(rows)
+        normalized_limit = None if limit is None or limit <= 0 else limit
+        page_rows = (
+            rows[offset:]
+            if normalized_limit is None
+            else rows[offset : offset + normalized_limit]
+        )
+        return {
+            "group_key": group_key,
+            "title": group_definition["title"],
+            "description": group_definition["description"],
+            "generated_at": payload.get("generated_at"),
+            "offset": offset,
+            "limit": normalized_limit,
+            "total": total,
+            "items": [
+                self._serialize_group_row(group_key=group_key, payload=item)
+                for item in page_rows
+            ],
+        }
+
+    def get_finding_detail(
+        self,
+        settings: AppSettings,
+        *,
+        group_key: str,
+        finding_id: str,
+    ) -> dict[str, object]:
+        payload = self._cached_findings_payload(settings)
+        for item in self._group_items_from_payload(payload, group_key=group_key):
+            if str(item.get("finding_id") or "").strip() != finding_id:
+                continue
+            row = self._serialize_group_row(group_key=group_key, payload=item)
+            return {
+                "group_key": group_key,
+                "finding_id": finding_id,
+                "title": row["title"],
+                "message": row["message"],
+                "details": self._serialize_group_detail(group_key=group_key, payload=item),
+            }
+        raise KeyError(f"Catalog remediation finding `{finding_id}` was not found in `{group_key}`.")
 
     def list_ignored_findings(self, settings: AppSettings) -> dict[str, object]:
         items = [
@@ -1681,6 +1793,240 @@ class CatalogRemediationService:
             message=result.message,
             details=result.details,
         )
+
+    def _cached_findings_payload(self, settings: AppSettings) -> dict[str, object]:
+        cached = self.state_store.load_cached_findings(settings)
+        if cached is not None:
+            return cached
+        return self.refresh_cached_findings(settings)
+
+    def _group_definition(self, group_key: str) -> dict[str, str]:
+        if group_key not in _REMEDIATION_GROUP_DEFINITIONS:
+            raise KeyError(f"Unsupported catalog remediation group `{group_key}`.")
+        return _REMEDIATION_GROUP_DEFINITIONS[group_key]
+
+    def _group_items_from_payload(
+        self,
+        payload: dict[str, object],
+        *,
+        group_key: str,
+    ) -> list[dict[str, object]]:
+        definition = self._group_definition(group_key)
+        rows = payload.get(definition["cache_key"])
+        if not isinstance(rows, list):
+            return []
+        return [item for item in rows if isinstance(item, dict)]
+
+    def _hidden_catalog_finding_ids(self, settings: AppSettings) -> set[str]:
+        hidden_ids = {
+            item.finding_id
+            for item in self.state_store.load_ignored_findings(settings)
+            if item.state == "active"
+        }
+        hidden_ids.update(
+            item.finding_id or ""
+            for item in self.repair_store.load_quarantine_index(settings)
+            if item.state == "active" and item.category_key and item.finding_id
+        )
+        hidden_ids.discard("")
+        return hidden_ids
+
+    def _serialize_group_row(
+        self,
+        *,
+        group_key: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        if group_key == "broken-db":
+            return self._serialize_broken_db_group_row(payload)
+        if group_key == "zero-byte":
+            return self._serialize_zero_byte_group_row(payload)
+        if group_key == "fuse-hidden":
+            return self._serialize_fuse_hidden_group_row(payload)
+        raise KeyError(f"Unsupported catalog remediation group `{group_key}`.")
+
+    def _serialize_group_detail(
+        self,
+        *,
+        group_key: str,
+        payload: dict[str, object],
+    ) -> list[dict[str, str]]:
+        if group_key == "broken-db":
+            return self._serialize_detail_lines(
+                (
+                    ("Expected DB path", payload.get("expected_database_path")),
+                    ("Expected relative path", payload.get("expected_relative_path")),
+                    ("Expected absolute path", payload.get("expected_absolute_path")),
+                    ("Found root", payload.get("found_root_slug")),
+                    ("Found relative path", payload.get("found_relative_path")),
+                    ("Found absolute path", payload.get("found_absolute_path")),
+                    ("Expected size", payload.get("expected_size_bytes")),
+                    ("Found size", payload.get("found_size_bytes")),
+                    ("Asset type", payload.get("asset_type")),
+                    ("Checksum algorithm", payload.get("checksum_algorithm")),
+                    ("Checksum value", payload.get("checksum_value")),
+                    ("Checksum match", payload.get("checksum_match")),
+                    ("Search error", payload.get("search_error")),
+                )
+            )
+        if group_key == "zero-byte":
+            return self._serialize_detail_lines(
+                (
+                    ("Root", payload.get("root_slug")),
+                    ("Relative path", payload.get("relative_path")),
+                    ("Absolute path", payload.get("absolute_path")),
+                    ("Asset id", payload.get("asset_id")),
+                    ("DB wiring", payload.get("db_reference_kind")),
+                    ("Original relative path", payload.get("original_relative_path")),
+                    ("Size", payload.get("size_bytes")),
+                )
+            )
+        if group_key == "fuse-hidden":
+            return self._serialize_detail_lines(
+                (
+                    ("Root", payload.get("root_slug")),
+                    ("Relative path", payload.get("relative_path")),
+                    ("Absolute path", payload.get("absolute_path")),
+                    ("Size", payload.get("size_bytes")),
+                    ("Check tool", payload.get("in_use_check_tool")),
+                    ("Check result", payload.get("in_use_check_reason")),
+                )
+            )
+        raise KeyError(f"Unsupported catalog remediation group `{group_key}`.")
+
+    def _serialize_broken_db_group_row(self, payload: dict[str, object]) -> dict[str, object]:
+        finding_id = str(payload.get("finding_id") or "")
+        asset_id = str(payload.get("asset_id") or "")
+        title = self._optional_text(payload.get("asset_name")) or asset_id
+        classification = str(payload.get("classification") or "unknown")
+        actions = ["ignore"]
+        if classification == "missing_confirmed":
+            actions.insert(0, "mark_removed")
+        if classification == "found_with_hash_match":
+            actions.insert(0, "repair_path")
+        owner_id = self._optional_text(payload.get("owner_id"))
+        owner_label = self._optional_text(payload.get("owner_label"))
+        return {
+            "finding_id": finding_id,
+            "group_key": "broken-db",
+            "title": title,
+            "subtitle": asset_id,
+            "owner_label": owner_label,
+            "owner_hint": f"Source owner key: {owner_id}" if owner_id else None,
+            "classification": classification,
+            "message": str(payload.get("message") or ""),
+            "summary_path": self._optional_text(payload.get("expected_database_path")),
+            "summary_context": self._optional_text(payload.get("found_absolute_path")),
+            "status_reason": self._optional_text(payload.get("action_reason")) or "Inspect only.",
+            "blocked_reason": None,
+            "actions": actions,
+            "payload": {
+                "finding_id": finding_id,
+                "category_key": "broken-db",
+                "title": title,
+                "asset_id": asset_id,
+                "owner_id": owner_id,
+                "owner_label": owner_label,
+                "source_path": self._optional_text(payload.get("expected_absolute_path")),
+                "relative_path": self._optional_text(payload.get("expected_relative_path")),
+            },
+        }
+
+    def _serialize_zero_byte_group_row(self, payload: dict[str, object]) -> dict[str, object]:
+        finding_id = str(payload.get("finding_id") or "")
+        title = self._optional_text(payload.get("file_name")) or finding_id
+        owner_id = self._optional_text(payload.get("owner_id"))
+        owner_label = self._optional_text(payload.get("owner_label"))
+        db_reference_kind = self._optional_text(payload.get("db_reference_kind"))
+        asset_id = self._optional_text(payload.get("asset_id"))
+        asset_name = self._optional_text(payload.get("asset_name"))
+        root_slug = self._optional_text(payload.get("root_slug"))
+        return {
+            "finding_id": finding_id,
+            "group_key": "zero-byte",
+            "title": title,
+            "subtitle": asset_name or asset_id or root_slug or "uploads",
+            "owner_label": owner_label,
+            "owner_hint": (
+                f"Source owner key: {owner_id}"
+                if owner_id
+                else f"Source owner key: {db_reference_kind}"
+                if db_reference_kind
+                else None
+            ),
+            "classification": str(payload.get("classification") or "unknown"),
+            "message": str(payload.get("message") or ""),
+            "summary_path": self._optional_text(payload.get("absolute_path")),
+            "summary_context": db_reference_kind or self._optional_text(payload.get("original_relative_path")),
+            "status_reason": self._optional_text(payload.get("action_reason")) or "Inspect only.",
+            "blocked_reason": None,
+            "actions": ["quarantine", "ignore"],
+            "payload": {
+                "finding_id": finding_id,
+                "category_key": "zero-byte",
+                "title": title,
+                "asset_id": asset_id,
+                "owner_id": owner_id,
+                "owner_label": owner_label,
+                "source_path": self._optional_text(payload.get("absolute_path")),
+                "root_slug": root_slug,
+                "relative_path": self._optional_text(payload.get("relative_path")),
+                "original_relative_path": self._optional_text(payload.get("original_relative_path")),
+                "db_reference_kind": db_reference_kind,
+                "size_bytes": int(payload["size_bytes"]) if payload.get("size_bytes") is not None else None,
+            },
+        }
+
+    def _serialize_fuse_hidden_group_row(self, payload: dict[str, object]) -> dict[str, object]:
+        finding_id = str(payload.get("finding_id") or "")
+        title = self._optional_text(payload.get("file_name")) or finding_id
+        owner_id = self._optional_text(payload.get("owner_id"))
+        owner_label = self._optional_text(payload.get("owner_label"))
+        classification = str(payload.get("classification") or "unknown")
+        actions = ["ignore"] if classification == "blocked_in_use" else ["delete", "ignore"]
+        return {
+            "finding_id": finding_id,
+            "group_key": "fuse-hidden",
+            "title": title,
+            "subtitle": self._optional_text(payload.get("root_slug")) or "uploads",
+            "owner_label": owner_label,
+            "owner_hint": f"Source owner key: {owner_id}" if owner_id else None,
+            "classification": classification,
+            "message": str(payload.get("message") or ""),
+            "summary_path": self._optional_text(payload.get("absolute_path")),
+            "summary_context": self._optional_text(payload.get("in_use_check_reason")),
+            "status_reason": self._optional_text(payload.get("action_reason")) or "Inspect only.",
+            "blocked_reason": None,
+            "actions": actions,
+            "payload": {
+                "finding_id": finding_id,
+                "category_key": "fuse-hidden",
+                "title": title,
+                "owner_id": owner_id,
+                "owner_label": owner_label,
+                "source_path": self._optional_text(payload.get("absolute_path")),
+                "root_slug": self._optional_text(payload.get("root_slug")),
+                "relative_path": self._optional_text(payload.get("relative_path")),
+                "size_bytes": int(payload["size_bytes"]) if payload.get("size_bytes") is not None else None,
+            },
+        }
+
+    def _serialize_detail_lines(
+        self,
+        entries: tuple[tuple[str, object], ...],
+    ) -> list[dict[str, str]]:
+        lines: list[dict[str, str]] = []
+        for label, value in entries:
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                rendered = "true" if value else "false"
+            else:
+                rendered = str(value).strip()
+            if not rendered:
+                continue
+            lines.append({"label": label, "value": rendered})
+        return lines
 
     def _record_db_path_fix_journal(
         self,

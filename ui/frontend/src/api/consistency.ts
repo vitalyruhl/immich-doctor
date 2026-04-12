@@ -8,6 +8,10 @@ import type {
   CatalogIgnoredFindingsResponse,
   CatalogQuarantineResponse,
   CatalogRemediationActionResponse,
+  CatalogRemediationFindingDetailResponse,
+  CatalogRemediationGroupKey,
+  CatalogRemediationGroupPageResponse,
+  CatalogRemediationOverviewResponse,
   CatalogRemediationScanResponse,
   CatalogRemediationStateItemPayload,
 } from "./types/consistency";
@@ -38,6 +42,61 @@ export async function refreshCatalogRemediationFindings(): Promise<
     {
       method: "POST",
     },
+    REMEDIATION_TIMEOUT_MS,
+  );
+}
+
+export async function fetchCatalogRemediationOverview(): Promise<
+  ApiResponse<CatalogRemediationOverviewResponse>
+> {
+  return request<CatalogRemediationOverviewResponse>(
+    "/consistency/catalog-remediation/groups",
+    undefined,
+    REMEDIATION_TIMEOUT_MS,
+  );
+}
+
+export async function refreshCatalogRemediationOverview(): Promise<
+  ApiResponse<CatalogRemediationOverviewResponse>
+> {
+  return request<CatalogRemediationOverviewResponse>(
+    "/consistency/catalog-remediation/groups/refresh",
+    {
+      method: "POST",
+    },
+    REMEDIATION_TIMEOUT_MS,
+  );
+}
+
+export async function fetchCatalogRemediationGroupPage(
+  groupKey: CatalogRemediationGroupKey,
+  payload: {
+    limit?: number | null;
+    offset?: number;
+  } = {},
+): Promise<ApiResponse<CatalogRemediationGroupPageResponse>> {
+  const query = new URLSearchParams();
+  if (payload.limit !== undefined && payload.limit !== null) {
+    query.set("limit", String(payload.limit));
+  }
+  if (payload.offset !== undefined) {
+    query.set("offset", String(payload.offset));
+  }
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return request<CatalogRemediationGroupPageResponse>(
+    `/consistency/catalog-remediation/groups/${groupKey}${suffix}`,
+    undefined,
+    REMEDIATION_TIMEOUT_MS,
+  );
+}
+
+export async function fetchCatalogRemediationFindingDetail(
+  groupKey: CatalogRemediationGroupKey,
+  findingId: string,
+): Promise<ApiResponse<CatalogRemediationFindingDetailResponse>> {
+  return request<CatalogRemediationFindingDetailResponse>(
+    `/consistency/catalog-remediation/groups/${groupKey}/items/${encodeURIComponent(findingId)}`,
+    undefined,
     REMEDIATION_TIMEOUT_MS,
   );
 }
