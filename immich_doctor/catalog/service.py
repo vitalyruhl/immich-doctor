@@ -780,6 +780,11 @@ class CatalogInventoryScanService:
                 controller=controller,
             )
 
+        emit_progress(
+            "scan",
+            f"Scanning files for root `{root_row['slug']}` completed.",
+            force=True,
+        )
         controller.mark_scan_completed()
         return self._finalize_completed_incremental_scan(
             settings,
