@@ -38,6 +38,29 @@ function toErrorMessage(caughtError: unknown): string {
     : "Unknown error.";
 }
 
+function summarizeActionFailures(result: unknown): string | null {
+  if (!result || typeof result !== "object" || !("items" in result)) {
+    return null;
+  }
+  const items = Array.isArray(result.items) ? result.items : [];
+  const failedItems = items.filter((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+    const status = String((item as Record<string, unknown>).status ?? "").toLowerCase();
+    return status === "failed";
+  });
+  if (!failedItems.length) {
+    return null;
+  }
+  const details = failedItems
+    .slice(0, 3)
+    .map((item) => String((item as Record<string, unknown>).message ?? "Unknown failure."))
+    .join(" ");
+  const suffix = failedItems.length > 3 ? ` (${failedItems.length} failed items total)` : "";
+  return details + suffix;
+}
+
 type CatalogReadinessState =
   | "ready"
   | "indexing"
@@ -287,6 +310,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
         typeof result === "object" && result !== null && "summary" in result
           ? String(result.summary)
           : "Action completed.";
+      actionError.value = summarizeActionFailures(result);
       await Promise.all([loadIgnored(), loadQuarantine(), loadRemediation()]);
     } catch (caughtError) {
       actionError.value = toErrorMessage(caughtError);
@@ -352,6 +376,7 @@ export const useConsistencyStore = defineStore("consistency", () => {
         typeof response.data.summary === "string"
           ? response.data.summary
           : "Action completed.";
+      actionError.value = summarizeActionFailures(response.data);
       await Promise.all([loadCatalogJob(), loadIgnored(), loadQuarantine(), refreshRemediation()]);
     } catch (caughtError) {
       actionError.value = toErrorMessage(caughtError);

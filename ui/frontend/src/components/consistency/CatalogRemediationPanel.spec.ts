@@ -241,7 +241,7 @@ describe("CatalogRemediationPanel", () => {
 
     const performButton = wrapper
       .findAll("button")
-      .find((button) => button.text().includes("Perform staged actions"));
+      .find((button) => button.text() === "Perform staged actions (1)");
     await performButton!.trigger("click");
 
     expect(store.applyBrokenDbAction).toHaveBeenCalledWith(["asset-1"], "broken_db_cleanup");
@@ -302,4 +302,5 @@ describe("CatalogRemediationPanel", () => {
     await loadButton!.trigger("click");
     expect(store.loadRemediation).toHaveBeenCalled();
   });
+
 });
