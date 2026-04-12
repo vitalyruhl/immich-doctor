@@ -204,15 +204,11 @@ def test_catalog_remediation_routes_return_expected_shape(monkeypatch) -> None:
             "action": "scan",
             "status": "WARN",
             "summary": "Catalog remediation findings loaded.",
-            "broken_db_originals": [
-                {"asset_id": "asset-1", "classification": "missing_confirmed"}
-            ],
+            "broken_db_originals": [{"asset_id": "asset-1", "classification": "missing_confirmed"}],
             "zero_byte_findings": [
                 {"finding_id": "zero-1", "classification": "zero_byte_upload_orphan"}
             ],
-            "fuse_hidden_orphans": [
-                {"finding_id": "fuse-1", "classification": "deletable_orphan"}
-            ],
+            "fuse_hidden_orphans": [{"finding_id": "fuse-1", "classification": "deletable_orphan"}],
         },
     )
     monkeypatch.setattr(

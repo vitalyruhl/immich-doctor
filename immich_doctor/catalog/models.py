@@ -52,9 +52,7 @@ class CatalogFileObservation:
             extension=str(payload["extension"]) if payload.get("extension") is not None else None,
             size_bytes=int(payload.get("size_bytes") or 0),
             created_at_fs=(
-                str(payload["created_at_fs"])
-                if payload.get("created_at_fs") is not None
-                else None
+                str(payload["created_at_fs"]) if payload.get("created_at_fs") is not None else None
             ),
             modified_at_fs=(
                 str(payload["modified_at_fs"])

@@ -1136,9 +1136,7 @@ class CatalogInventoryScanService:
                             continue
                     except OSError:
                         continue
-                    child_relative_paths.append(
-                        self._relative_path(root_path, Path(entry.path))
-                    )
+                    child_relative_paths.append(self._relative_path(root_path, Path(entry.path)))
         except OSError:
             return []
         child_relative_paths.sort()

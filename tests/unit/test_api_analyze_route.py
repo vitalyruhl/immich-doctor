@@ -176,7 +176,7 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
             "jobType": "catalog_inventory_scan",
             "state": "running",
             "summary": f"Pause requested for {actor_id}.",
-            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}} ,
+            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}},
         },
     )
     monkeypatch.setattr(
@@ -187,7 +187,7 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
             "jobType": "catalog_inventory_scan",
             "state": "running",
             "summary": f"Resume requested for {actor_id}.",
-            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}} ,
+            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}},
         },
     )
     monkeypatch.setattr(
@@ -198,7 +198,7 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
             "jobType": "catalog_inventory_scan",
             "state": "running",
             "summary": f"Stop requested for {actor_id}.",
-            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}} ,
+            "result": {"runtime": {"scanState": "running", "actors": [{"actorId": actor_id}]}},
         },
     )
     monkeypatch.setattr(

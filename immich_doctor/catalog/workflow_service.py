@@ -792,11 +792,7 @@ class CatalogWorkflowService:
             default=None,
         )
         comparison_window_started_at = min(
-            (
-                str(row["started_at"])
-                for row in current_rows
-                if row.get("started_at") is not None
-            ),
+            (str(row["started_at"]) for row in current_rows if row.get("started_at") is not None),
             default=None,
         )
         return {

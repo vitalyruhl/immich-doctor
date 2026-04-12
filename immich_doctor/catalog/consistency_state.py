@@ -122,16 +122,12 @@ class CatalogConsistencyStateCollector:
             )
         ]
         current_snapshots = [
-            snapshot_by_slug[slug]
-            for slug in effective_root_slugs
-            if slug in snapshot_by_slug
+            snapshot_by_slug[slug] for slug in effective_root_slugs if slug in snapshot_by_slug
         ]
         comparison_window_started_at_dt = min(
             (
                 value
-                for value in (
-                    parse_timestamp(row.get("started_at")) for row in current_snapshots
-                )
+                for value in (parse_timestamp(row.get("started_at")) for row in current_snapshots)
                 if value is not None
             ),
             default=None,
@@ -139,9 +135,7 @@ class CatalogConsistencyStateCollector:
         comparison_window_committed_at_dt = max(
             (
                 value
-                for value in (
-                    parse_timestamp(row.get("committed_at")) for row in current_snapshots
-                )
+                for value in (parse_timestamp(row.get("committed_at")) for row in current_snapshots)
                 if value is not None
             ),
             default=None,

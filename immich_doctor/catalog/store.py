@@ -563,9 +563,7 @@ class CatalogStore:
             for row in collected_rows:
                 relative_path = str(row["relative_path"])
                 child_relative_paths = sorted(set(row.get("child_relative_paths") or []))
-                file_observations = [
-                    item.to_dict() for item in row.get("file_observations", [])
-                ]
+                file_observations = [item.to_dict() for item in row.get("file_observations", [])]
                 payload_json = json.dumps(file_observations, separators=(",", ":"))
                 payload_file_count = len(file_observations)
                 payload_error_count = int(row.get("error_count") or 0)
@@ -1065,13 +1063,9 @@ class CatalogStore:
             for row in connection.execute("PRAGMA table_info(scan_directory_queue);").fetchall()
         }
         if "worker_id" not in directory_columns:
-            connection.execute(
-                "ALTER TABLE scan_directory_queue ADD COLUMN worker_id TEXT;"
-            )
+            connection.execute("ALTER TABLE scan_directory_queue ADD COLUMN worker_id TEXT;")
         if "payload_json" not in directory_columns:
-            connection.execute(
-                "ALTER TABLE scan_directory_queue ADD COLUMN payload_json TEXT;"
-            )
+            connection.execute("ALTER TABLE scan_directory_queue ADD COLUMN payload_json TEXT;")
         if "payload_file_count" not in directory_columns:
             connection.execute(
                 "ALTER TABLE scan_directory_queue "

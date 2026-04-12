@@ -230,10 +230,14 @@ def scan_catalog_remediation_findings(
 ) -> CatalogRemediationScanApiResponse:
     data = CatalogRemediationService().load_cached_findings(load_settings())
     if classification:
-        data = CatalogRemediationService().scan(
-            load_settings(),
-            classifications=tuple(classification or []),
-        ).to_dict()
+        data = (
+            CatalogRemediationService()
+            .scan(
+                load_settings(),
+                classifications=tuple(classification or []),
+            )
+            .to_dict()
+        )
     return CatalogRemediationScanApiResponse(data=data)
 
 

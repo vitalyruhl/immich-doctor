@@ -235,9 +235,7 @@ class CatalogRemediationService:
         for group_key, definition in _REMEDIATION_GROUP_DEFINITIONS.items():
             rows = self._group_items_from_payload(payload, group_key=group_key)
             visible_rows = [
-                item
-                for item in rows
-                if str(item.get("finding_id") or "").strip() not in hidden_ids
+                item for item in rows if str(item.get("finding_id") or "").strip() not in hidden_ids
             ]
             groups.append(
                 {
@@ -282,9 +280,7 @@ class CatalogRemediationService:
         total = len(rows)
         normalized_limit = None if limit is None or limit <= 0 else limit
         page_rows = (
-            rows[offset:]
-            if normalized_limit is None
-            else rows[offset : offset + normalized_limit]
+            rows[offset:] if normalized_limit is None else rows[offset : offset + normalized_limit]
         )
         return {
             "group_key": group_key,
@@ -295,8 +291,7 @@ class CatalogRemediationService:
             "limit": normalized_limit,
             "total": total,
             "items": [
-                self._serialize_group_row(group_key=group_key, payload=item)
-                for item in page_rows
+                self._serialize_group_row(group_key=group_key, payload=item) for item in page_rows
             ],
         }
 
@@ -532,7 +527,9 @@ class CatalogRemediationService:
                     source_kind="catalog_remediation",
                     root_slug=self._optional_text(payload.get("root_slug")),
                     relative_path=self._optional_text(payload.get("relative_path")),
-                    original_relative_path=self._optional_text(payload.get("original_relative_path")),
+                    original_relative_path=self._optional_text(
+                        payload.get("original_relative_path")
+                    ),
                     db_reference_kind=self._optional_text(payload.get("db_reference_kind")),
                     state="active",
                     state_changed_at=datetime.now(UTC).isoformat(),
@@ -1999,8 +1996,7 @@ class CatalogRemediationService:
             "message": str(payload.get("message") or ""),
             "summary_path": self._optional_text(payload.get("absolute_path")),
             "summary_context": (
-                db_reference_kind
-                or self._optional_text(payload.get("original_relative_path"))
+                db_reference_kind or self._optional_text(payload.get("original_relative_path"))
             ),
             "status_reason": self._optional_text(payload.get("action_reason")) or "Inspect only.",
             "blocked_reason": None,
@@ -2020,9 +2016,7 @@ class CatalogRemediationService:
                 ),
                 "db_reference_kind": db_reference_kind,
                 "size_bytes": (
-                    int(payload["size_bytes"])
-                    if payload.get("size_bytes") is not None
-                    else None
+                    int(payload["size_bytes"]) if payload.get("size_bytes") is not None else None
                 ),
             },
         }
@@ -2058,9 +2052,7 @@ class CatalogRemediationService:
                 "root_slug": self._optional_text(payload.get("root_slug")),
                 "relative_path": self._optional_text(payload.get("relative_path")),
                 "size_bytes": (
-                    int(payload["size_bytes"])
-                    if payload.get("size_bytes") is not None
-                    else None
+                    int(payload["size_bytes"]) if payload.get("size_bytes") is not None else None
                 ),
             },
         }

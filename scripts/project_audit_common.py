@@ -129,9 +129,10 @@ class GitHubClient:
             for project in projects:
                 if project["number"] == project_number:
                     return project
-            available = ", ".join(
-                f"#{project['number']} {project['title']}" for project in projects
-            ) or "none"
+            available = (
+                ", ".join(f"#{project['number']} {project['title']}" for project in projects)
+                or "none"
+            )
             raise RuntimeError(
                 f"Project number {project_number} not found for owner {owner}. "
                 f"Available projects: {available}"
