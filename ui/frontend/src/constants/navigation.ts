@@ -33,6 +33,12 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     description: "Storage paths, mounts, and readiness.",
   },
   {
+    label: "Empty Folders",
+    icon: "pi pi-folder-open",
+    to: { name: "storage-empty-folders" },
+    description: "Detect empty directories and quarantine them safely.",
+  },
+  {
     label: "Consistency",
     icon: "pi pi-check-square",
     to: { name: "consistency" },

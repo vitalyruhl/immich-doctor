@@ -107,6 +107,18 @@ class CatalogScanJobApiResponse(BaseModel):
     mocked: bool = False
 
 
+class EmptyFolderScanApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
+class EmptyFolderActionApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class CatalogConsistencyJobApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

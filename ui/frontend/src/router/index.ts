@@ -8,6 +8,8 @@ import DatabaseView from "@/views/database/DatabaseView.vue";
 import ReportsView from "@/views/reports/ReportsView.vue";
 import RuntimeView from "@/views/runtime/RuntimeView.vue";
 import SettingsView from "@/views/settings/SettingsView.vue";
+import StorageEmptyFoldersQuarantineView from "@/views/storage/StorageEmptyFoldersQuarantineView.vue";
+import StorageEmptyFoldersView from "@/views/storage/StorageEmptyFoldersView.vue";
 import StorageView from "@/views/storage/StorageView.vue";
 
 declare module "vue-router" {
@@ -43,6 +45,18 @@ const routes: RouteRecordRaw[] = [
     name: "storage",
     component: StorageView,
     meta: { title: "Storage", section: "Storage", risk: "mixed" },
+  },
+  {
+    path: "/storage/empty-folders",
+    name: "storage-empty-folders",
+    component: StorageEmptyFoldersView,
+    meta: { title: "Empty Folders", section: "Storage", risk: "mixed" },
+  },
+  {
+    path: "/storage/quarantine",
+    name: "storage-empty-folders-quarantine",
+    component: StorageEmptyFoldersQuarantineView,
+    meta: { title: "Storage Quarantine", section: "Storage", risk: "mutation" },
   },
   {
     path: "/consistency",
