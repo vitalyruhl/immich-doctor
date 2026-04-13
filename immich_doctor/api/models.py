@@ -119,6 +119,12 @@ class EmptyFolderActionApiResponse(BaseModel):
     mocked: bool = False
 
 
+class DbCorruptionApiResponse(BaseModel):
+    data: dict[str, Any]
+    source: Literal["backend"] = "backend"
+    mocked: bool = False
+
+
 class CatalogConsistencyJobApiResponse(BaseModel):
     data: dict[str, Any]
     source: Literal["backend"] = "backend"

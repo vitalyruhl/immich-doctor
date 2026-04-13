@@ -336,3 +336,45 @@ def test_empty_folder_quarantine_routes_round_trip(tmp_path, monkeypatch) -> Non
     )
     assert restore_response.status_code == 200
     assert restore_response.json()["data"]["restored_count"] == 1
+
+
+def test_db_corruption_scan_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        analyze_routes.DbCorruptionScanService,
+        "run",
+        lambda self, settings: ValidationReport(
+            domain="db.corruption",
+            action="scan",
+            summary="Database corruption scan detected 1 invalid user indexes.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            sections=[
+                ValidationSection(
+                    name="INVALID_USER_INDEXES",
+                    status=CheckStatus.FAIL,
+                    rows=[
+                        {
+                            "schema_name": "public",
+                            "index_name": "memory_asset_pkey",
+                            "table_name": "memory_asset",
+                            "indisvalid": False,
+                            "indisready": False,
+                        }
+                    ],
+                )
+            ],
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post("/api/analyze/db/corruption/scan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["domain"] == "db.corruption"
+    assert payload["data"]["sections"][0]["rows"][0]["index_name"] == "memory_asset_pkey"

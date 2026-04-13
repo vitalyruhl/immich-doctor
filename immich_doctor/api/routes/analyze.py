@@ -8,6 +8,7 @@ from immich_doctor.api.models import (
     CatalogScanJobApiResponse,
     CatalogStatusApiResponse,
     CatalogZeroByteApiResponse,
+    DbCorruptionApiResponse,
     EmptyFolderActionApiResponse,
     EmptyFolderScanApiResponse,
 )
@@ -18,6 +19,7 @@ from immich_doctor.catalog.service import (
 )
 from immich_doctor.catalog.workflow_service import CatalogWorkflowService
 from immich_doctor.core.config import load_settings
+from immich_doctor.db.corruption import DbCorruptionScanService
 from immich_doctor.storage.empty_folders import (
     EmptyDirQuarantineManager,
     EmptyFolderScanStatusTracker,
@@ -289,3 +291,9 @@ def delete_empty_folders_from_quarantine(
         dry_run=payload.dry_run,
     )
     return EmptyFolderActionApiResponse(data=result.to_dict())
+
+
+@analyze_router.post("/db/corruption/scan", response_model=DbCorruptionApiResponse)
+def scan_db_corruption() -> DbCorruptionApiResponse:
+    report = DbCorruptionScanService().run(load_settings())
+    return DbCorruptionApiResponse(data=report.to_dict())

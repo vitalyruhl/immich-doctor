@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from immich_doctor.api.app import create_api_app
 from immich_doctor.api.routes import repair as repair_routes
+from immich_doctor.core.models import CheckStatus, ValidationReport, ValidationSection
 
 
 def test_repair_runs_route_returns_expected_shape(monkeypatch) -> None:
@@ -212,3 +213,67 @@ def test_repair_undo_execute_route_returns_expected_shape(monkeypatch) -> None:
     payload = response.json()
     assert payload["data"]["repair_run_id"] == "undo-run-1"
     assert payload["data"]["execution_items"][0]["status"] == "applied"
+
+
+def test_db_corruption_preview_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        repair_routes.DbCorruptionRepairService,
+        "preview",
+        lambda self, settings, **kwargs: ValidationReport(
+            domain="db.corruption",
+            action="repair.preview",
+            summary="Database corruption repair preview prepared 2 SQL steps, but apply remains blocked until the preconditions pass.",
+            checks=[],
+            sections=[
+                ValidationSection(
+                    name="PLAN_STEPS",
+                    status=CheckStatus.WARN,
+                    rows=[
+                        {"step_key": "reindex_system"},
+                        {"step_key": "analyze_database"},
+                    ],
+                )
+            ],
+            metadata={"repair_run_id": "repair-run-1", "dry_run": True},
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post("/api/repair/db/corruption/preview", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["metadata"]["repair_run_id"] == "repair-run-1"
+    assert payload["data"]["sections"][0]["rows"][0]["step_key"] == "reindex_system"
+
+
+def test_db_corruption_apply_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        repair_routes.DbCorruptionRepairService,
+        "apply",
+        lambda self, settings, repair_run_id: ValidationReport(
+            domain="db.corruption",
+            action="repair.apply",
+            summary="Database corruption apply completed and re-ran verification.",
+            checks=[],
+            sections=[
+                ValidationSection(
+                    name="BEFORE_AFTER_DIFF",
+                    status=CheckStatus.PASS,
+                    rows=[{"metric": "invalid_system_indexes", "before": 1, "after": 0}],
+                )
+            ],
+            metadata={"repair_run_id": repair_run_id, "dry_run": False},
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post(
+        "/api/repair/db/corruption/apply",
+        json={"repair_run_id": "repair-run-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["metadata"]["repair_run_id"] == "repair-run-1"
+    assert payload["data"]["sections"][0]["rows"][0]["after"] == 0
