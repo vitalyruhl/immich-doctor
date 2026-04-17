@@ -32,7 +32,9 @@ class DbCorruptionScanService:
             return ValidationReport(
                 domain="db.corruption",
                 action="scan",
-                summary="Database corruption scan failed because database access is not configured.",
+                summary=(
+                    "Database corruption scan failed because database access is not configured."
+                ),
                 checks=[
                     CheckResult(
                         name="postgres_connection",
@@ -78,9 +80,12 @@ class DbCorruptionScanService:
             ),
             CheckResult(
                 name="duplicate_asset_checksum_groups",
-                status=CheckStatus.FAIL if snapshot["duplicate_asset_groups"] else CheckStatus.PASS,
+                status=(
+                    CheckStatus.FAIL if snapshot["duplicate_asset_groups"] else CheckStatus.PASS
+                ),
                 message=(
-                    f"Detected {len(snapshot['duplicate_asset_groups'])} duplicate asset checksum groups."
+                    "Detected "
+                    f"{len(snapshot['duplicate_asset_groups'])} duplicate asset checksum groups."
                     if snapshot["duplicate_asset_groups"]
                     else "No duplicate asset checksum groups were detected."
                 ),
@@ -142,7 +147,9 @@ class DbCorruptionScanService:
             return CheckResult(
                 name="pg_statistic_toast_health",
                 status=CheckStatus.FAIL,
-                message="A TOAST/system-catalog read failure was detected while reading pg_statistic.",
+                message=(
+                    "A TOAST/system-catalog read failure was detected while reading pg_statistic."
+                ),
                 details={"exception_text": toast.get("exception_text")},
             )
         return CheckResult(
@@ -162,7 +169,10 @@ class DbCorruptionScanService:
         if snapshot["duplicate_asset_groups"]:
             parts.append(f"{len(snapshot['duplicate_asset_groups'])} duplicate asset groups")
         if not parts:
-            return "Database corruption scan found no confirmed pg_statistic/index/duplicate-checksum issues."
+            return (
+                "Database corruption scan found no confirmed pg_statistic/index/"
+                "duplicate-checksum issues."
+            )
         return "Database corruption scan detected " + ", ".join(parts) + "."
 
     def _scan_sections(self, snapshot: dict[str, Any]) -> list[ValidationSection]:
@@ -194,7 +204,9 @@ class DbCorruptionScanService:
             ),
             ValidationSection(
                 name="ASSET_FK_CONSTRAINTS",
-                status=CheckStatus.PASS if snapshot["fk_constraints_on_asset"] else CheckStatus.SKIP,
+                status=(
+                    CheckStatus.PASS if snapshot["fk_constraints_on_asset"] else CheckStatus.SKIP
+                ),
                 rows=snapshot["fk_constraints_on_asset"],
             ),
         ]
@@ -223,7 +235,10 @@ class DbCorruptionRepairService:
             return ValidationReport(
                 domain="db.corruption",
                 action="repair.preview",
-                summary="Database corruption repair preview failed because scan prerequisites were not met.",
+                summary=(
+                    "Database corruption repair preview failed because scan prerequisites "
+                    "were not met."
+                ),
                 checks=list(scan_report.checks),
                 metadata={"environment": settings.environment, "dry_run": True},
             )
@@ -285,7 +300,9 @@ class DbCorruptionRepairService:
                 message="Preview persisted a repair run and plan token for later apply.",
                 details={
                     "repair_run_id": repair_run.repair_run_id,
-                    "repair_run_path": str(repair_run_directory(settings, repair_run.repair_run_id)),
+                    "repair_run_path": str(
+                        repair_run_directory(settings, repair_run.repair_run_id)
+                    ),
                     "plan_token_id": plan_token.token_id,
                 },
             )
@@ -308,12 +325,18 @@ class DbCorruptionRepairService:
                 ),
                 ValidationSection(
                     name="DUPLICATE_ASSET_GROUPS",
-                    status=CheckStatus.FAIL if snapshot["duplicate_asset_groups"] else CheckStatus.PASS,
+                    status=(
+                        CheckStatus.FAIL if snapshot["duplicate_asset_groups"] else CheckStatus.PASS
+                    ),
                     rows=selection["groups"],
                 ),
                 ValidationSection(
                     name="ASSET_FK_CONSTRAINTS",
-                    status=CheckStatus.PASS if snapshot["fk_constraints_on_asset"] else CheckStatus.SKIP,
+                    status=(
+                        CheckStatus.PASS
+                        if snapshot["fk_constraints_on_asset"]
+                        else CheckStatus.SKIP
+                    ),
                     rows=snapshot["fk_constraints_on_asset"],
                 ),
             ],
@@ -326,8 +349,14 @@ class DbCorruptionRepairService:
                 "database_name": snapshot["database_name"],
             },
             recommendations=[
-                "Review the FK graph and duplicate candidate rows before approving any asset deletions.",
-                "Use the generated repair_run_id with apply only after the preconditions are satisfied.",
+                (
+                    "Review the FK graph and duplicate candidate rows before approving any "
+                    "asset deletions."
+                ),
+                (
+                    "Use the generated repair_run_id with apply only after the preconditions "
+                    "are satisfied."
+                ),
             ],
         )
 
@@ -339,7 +368,9 @@ class DbCorruptionRepairService:
             return ValidationReport(
                 domain="db.corruption",
                 action="repair.apply",
-                summary="Database corruption apply failed because database access is not configured.",
+                summary=(
+                    "Database corruption apply failed because database access is not configured."
+                ),
                 checks=[
                     CheckResult(
                         name="postgres_connection",
@@ -392,7 +423,10 @@ class DbCorruptionRepairService:
             return ValidationReport(
                 domain="db.corruption",
                 action="repair.apply",
-                summary="Database corruption apply stopped before mutation because guards or preconditions failed.",
+                summary=(
+                    "Database corruption apply stopped before mutation because guards or "
+                    "preconditions failed."
+                ),
                 checks=[connection_check, guard_check, *preconditions["checks"]],
                 sections=[
                     ValidationSection(
@@ -415,7 +449,9 @@ class DbCorruptionRepairService:
         plan_rows = self._plan_rows(
             snapshot_before,
             selection,
-            system_index_duplicate_error_text=str(run.scope.get("system_index_duplicate_error_text") or ""),
+            system_index_duplicate_error_text=str(
+                run.scope.get("system_index_duplicate_error_text") or ""
+            ),
             high_risk_clear_pg_statistic_approval=bool(
                 run.scope.get("high_risk_clear_pg_statistic_approval")
             ),
@@ -453,7 +489,10 @@ class DbCorruptionRepairService:
         rows: list[dict[str, object]] = []
         step = 1
         system_issue = bool(snapshot["toast"]["detected"] or snapshot["invalid_system_indexes"])
-        clear_available = bool(snapshot["toast"]["detected"] and (system_index_duplicate_error_text or "").strip())
+        clear_available = bool(
+            snapshot["toast"]["detected"]
+            and (system_index_duplicate_error_text or "").strip()
+        )
         if system_issue:
             if clear_available:
                 rows.append(
@@ -461,9 +500,14 @@ class DbCorruptionRepairService:
                         step,
                         "clear_pg_statistic",
                         "high-risk",
-                        "Exceptional path to clear corrupted pg_statistic rows before rebuilding catalog indexes.",
+                        (
+                            "Exceptional path to clear corrupted pg_statistic rows before "
+                            "rebuilding catalog indexes."
+                        ),
                         "DELETE FROM pg_catalog.pg_statistic;",
-                        execution_state="execute" if high_risk_clear_pg_statistic_approval else "blocked",
+                        execution_state="execute"
+                        if high_risk_clear_pg_statistic_approval
+                        else "blocked",
                         requires_approval=True,
                         message=(
                             "High-risk approval confirmed."
@@ -512,7 +556,10 @@ class DbCorruptionRepairService:
                     step,
                     "present_duplicate_asset_groups",
                     "review",
-                    "Present duplicate asset groups and FK cascade impact before any deletion is offered.",
+                    (
+                        "Present duplicate asset groups and FK cascade impact before any "
+                        "deletion is offered."
+                    ),
                     None,
                     execution_state="review",
                     message=(
@@ -541,7 +588,10 @@ class DbCorruptionRepairService:
                     step,
                     "reindex_database",
                     "database",
-                    "Rebuild database indexes after invalid-user-index repair or explicit operator request.",
+                    (
+                        "Rebuild database indexes after invalid-user-index repair or explicit "
+                        "operator request."
+                    ),
                     f"REINDEX DATABASE {snapshot['database_name']};",
                 )
             )
@@ -596,14 +646,14 @@ class DbCorruptionRepairService:
             {
                 "name": "maintenance_mode",
                 "status": (
-                    "pass"
-                    if maintenance_mode_confirmed and active_sessions == 0
-                    else "fail"
+                    "pass" if maintenance_mode_confirmed and active_sessions == 0 else "fail"
                 ),
                 "message": (
-                    "Maintenance mode confirmation is present and no non-idle peer sessions were found."
+                    "Maintenance mode confirmation is present and no non-idle peer sessions "
+                    "were found."
                     if maintenance_mode_confirmed and active_sessions == 0
-                    else "Maintenance mode is not confirmed or non-idle peer sessions are still active."
+                    else "Maintenance mode is not confirmed or non-idle peer sessions are still "
+                    "active."
                 ),
                 "maintenance_mode_confirmed": maintenance_mode_confirmed,
                 "active_non_idle_sessions": active_sessions,
@@ -614,7 +664,11 @@ class DbCorruptionRepairService:
                 name=str(row["name"]),
                 status=CheckStatus.PASS if row["status"] == "pass" else CheckStatus.FAIL,
                 message=str(row["message"]),
-                details={key: value for key, value in row.items() if key not in {"name", "status", "message"}},
+                details={
+                    key: value
+                    for key, value in row.items()
+                    if key not in {"name", "status", "message"}
+                },
             )
             for row in rows
         ]
@@ -796,7 +850,10 @@ class DbCorruptionRepairService:
                 "dry_run": False,
             },
             recommendations=[
-                "Review the before/after diff and repair journal before performing further database maintenance.",
+                (
+                    "Review the before/after diff and repair journal before performing "
+                    "further database maintenance."
+                ),
             ],
         )
 
@@ -947,10 +1004,14 @@ class DbCorruptionRepairService:
             if row["execution_state"] == "execute" and row.get("sql_preview")
         ]
         if not executable:
-            return "Database corruption repair preview produced only review steps and no executable SQL."
+            return (
+                "Database corruption repair preview produced only review steps and no "
+                "executable SQL."
+            )
         if apply_allowed:
             return (
-                f"Database corruption repair preview prepared {len(executable)} executable SQL steps."
+                "Database corruption repair preview prepared "
+                f"{len(executable)} executable SQL steps."
             )
         return (
             f"Database corruption repair preview prepared {len(executable)} SQL steps, "

@@ -85,32 +85,50 @@ def db_corruption_repair(
         typer.Option("--repair-run-id", help="Existing preview repair run id for apply."),
     ] = None,
     selected_delete_id: Annotated[
-        list[str],
-        typer.Option("--selected-delete-id", help="Asset ids selected for duplicate deletion."),
-    ] = [],
+        list[str] | None,
+        typer.Option(
+            "--selected-delete-id",
+            help="Asset ids selected for duplicate deletion.",
+        ),
+    ] = None,
     backup_confirmed: Annotated[
         bool,
         typer.Option("--backup-confirmed", help="Confirm that a recent backup exists."),
     ] = False,
     override_backup_requirement: Annotated[
         bool,
-        typer.Option("--override-backup-requirement", help="Explicitly override the backup precondition."),
+        typer.Option(
+            "--override-backup-requirement",
+            help="Explicitly override the backup precondition.",
+        ),
     ] = False,
     maintenance_mode_confirmed: Annotated[
         bool,
-        typer.Option("--maintenance-mode-confirmed", help="Confirm the application is in maintenance mode."),
+        typer.Option(
+            "--maintenance-mode-confirmed",
+            help="Confirm the application is in maintenance mode.",
+        ),
     ] = False,
     system_index_duplicate_error_text: Annotated[
         str | None,
-        typer.Option("--system-index-duplicate-error-text", help="Captured duplicate-key evidence from a failed system index rebuild."),
+        typer.Option(
+            "--system-index-duplicate-error-text",
+            help="Captured duplicate-key evidence from a failed system index rebuild.",
+        ),
     ] = None,
     high_risk_clear_pg_statistic_approval: Annotated[
         bool,
-        typer.Option("--high-risk-clear-pg-statistic-approval", help="Separate explicit approval for the exceptional pg_statistic clear step."),
+        typer.Option(
+            "--high-risk-clear-pg-statistic-approval",
+            help="Separate explicit approval for the exceptional pg_statistic clear step.",
+        ),
     ] = False,
     force_reindex_database: Annotated[
         bool,
-        typer.Option("--force-reindex-database", help="Force the conditional REINDEX DATABASE step into the plan."),
+        typer.Option(
+            "--force-reindex-database",
+            help="Force the conditional REINDEX DATABASE step into the plan.",
+        ),
     ] = False,
     apply: Annotated[
         bool,
@@ -131,7 +149,7 @@ def db_corruption_repair(
     else:
         report = service.preview(
             settings,
-            selected_delete_ids=tuple(selected_delete_id),
+            selected_delete_ids=tuple(selected_delete_id or ()),
             backup_confirmed=backup_confirmed,
             override_backup_requirement=override_backup_requirement,
             maintenance_mode_confirmed=maintenance_mode_confirmed,

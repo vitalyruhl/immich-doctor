@@ -84,13 +84,13 @@ def empty_folders_quarantine(
         typer.Option("--env-file", exists=True, file_okay=True),
     ] = None,
     root: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option("--root", help="Select root slugs to quarantine from."),
-    ] = [],
+    ] = None,
     path: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option("--path", help="Select relative paths or absolute paths to quarantine."),
-    ] = [],
+    ] = None,
     all_items: Annotated[
         bool,
         typer.Option("--all", help="Quarantine every empty directory found in the current scan."),
@@ -104,8 +104,8 @@ def empty_folders_quarantine(
     settings = load_settings(env_file=env_file)
     result = EmptyDirQuarantineManager().quarantine(
         settings,
-        root_slugs=tuple(root),
-        paths=tuple(path),
+        root_slugs=tuple(root or ()),
+        paths=tuple(path or ()),
         quarantine_all=all_items,
         dry_run=dry_run,
     )
@@ -148,9 +148,9 @@ def empty_folders_restore(
         typer.Option("--env-file", exists=True, file_okay=True),
     ] = None,
     path: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option("--path", help="Selected quarantined paths or item ids to restore."),
-    ] = [],
+    ] = None,
     all_items: Annotated[
         bool,
         typer.Option("--all", help="Restore every active item from the session."),
@@ -165,7 +165,7 @@ def empty_folders_restore(
     result = EmptyDirQuarantineManager().restore(
         settings,
         session_id=session_id,
-        paths=tuple(path),
+        paths=tuple(path or ()),
         restore_all=all_items,
         dry_run=dry_run,
     )
@@ -183,9 +183,9 @@ def empty_folders_delete(
         typer.Option("--env-file", exists=True, file_okay=True),
     ] = None,
     path: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option("--path", help="Selected quarantined paths or item ids to delete."),
-    ] = [],
+    ] = None,
     all_items: Annotated[
         bool,
         typer.Option("--all", help="Delete every active item from the session."),
@@ -200,7 +200,7 @@ def empty_folders_delete(
     result = EmptyDirQuarantineManager().finalize_delete(
         settings,
         session_id=session_id,
-        paths=tuple(path),
+        paths=tuple(path or ()),
         delete_all=all_items,
         dry_run=dry_run,
     )
@@ -227,9 +227,8 @@ def _emit_action_result(payload: dict[str, object], output_format: str) -> None:
     if isinstance(items, list) and items:
         typer.echo("Items:")
         for item in items[:10]:
-            typer.echo(
-                f"- {item.get('root_slug', '?')}:{item.get('relative_path', item.get('original_path', ''))}"
-            )
+            relative_path = item.get("relative_path", item.get("original_path", ""))
+            typer.echo(f"- {item.get('root_slug', '?')}:{relative_path}")
         if len(items) > 10:
             typer.echo("- ...")
     failed = payload.get("failed") or []

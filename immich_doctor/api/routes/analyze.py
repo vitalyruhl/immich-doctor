@@ -22,8 +22,8 @@ from immich_doctor.core.config import load_settings
 from immich_doctor.db.corruption import DbCorruptionScanService
 from immich_doctor.storage.empty_folders import (
     EmptyDirQuarantineManager,
-    EmptyFolderScanStatusTracker,
     EmptyFolderScanner,
+    EmptyFolderScanStatusTracker,
 )
 
 analyze_router = APIRouter(prefix="/analyze", tags=["analyze"])
