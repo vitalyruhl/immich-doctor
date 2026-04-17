@@ -189,7 +189,11 @@ class EmptyDirQuarantineItem:
                 if payload.get("state_changed_at") is not None
                 else None
             ),
-            deleted_at=str(payload["deleted_at"]) if payload.get("deleted_at") is not None else None,
+            deleted_at=(
+                str(payload["deleted_at"])
+                if payload.get("deleted_at") is not None
+                else None
+            ),
         )
 
     def mark_restored(self) -> EmptyDirQuarantineItem:

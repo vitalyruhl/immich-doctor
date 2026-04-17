@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from immich_doctor.adapters.filesystem import FilesystemAdapter
 from immich_doctor.core.config import AppSettings

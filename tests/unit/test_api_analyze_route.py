@@ -264,7 +264,18 @@ def test_empty_folder_scan_route_returns_expected_shape(tmp_path, monkeypatch) -
     reports = tmp_path / "reports"
     logs = tmp_path / "logs"
     tmp_dir = tmp_path / "tmp"
-    for path in [storage, uploads, thumbs, profile, video, quarantine, manifests, reports, logs, tmp_dir]:
+    for path in [
+        storage,
+        uploads,
+        thumbs,
+        profile,
+        video,
+        quarantine,
+        manifests,
+        reports,
+        logs,
+        tmp_dir,
+    ]:
         path.mkdir(parents=True, exist_ok=True)
     (uploads / "empty-dir").mkdir()
 
@@ -301,7 +312,18 @@ def test_empty_folder_quarantine_routes_round_trip(tmp_path, monkeypatch) -> Non
     reports = tmp_path / "reports"
     logs = tmp_path / "logs"
     tmp_dir = tmp_path / "tmp"
-    for path in [storage, uploads, thumbs, profile, video, quarantine, manifests, reports, logs, tmp_dir]:
+    for path in [
+        storage,
+        uploads,
+        thumbs,
+        profile,
+        video,
+        quarantine,
+        manifests,
+        reports,
+        logs,
+        tmp_dir,
+    ]:
         path.mkdir(parents=True, exist_ok=True)
     (uploads / "empty-dir").mkdir()
 

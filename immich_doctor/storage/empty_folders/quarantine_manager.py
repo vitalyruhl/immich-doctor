@@ -299,9 +299,17 @@ class EmptyDirQuarantineManager:
     def _quarantine_root(self, settings: AppSettings) -> Path:
         return settings.quarantine_path / "empty-folders"
 
-    def _quarantine_destination(self, settings: AppSettings, session_id: str, finding) -> Path:
+    def _quarantine_destination(
+        self, settings: AppSettings, session_id: str, finding
+    ) -> Path:
         relative = Path(finding.relative_path) if finding.relative_path else Path("_root")
-        return self._quarantine_root(settings) / "sessions" / session_id / finding.root_slug / relative
+        return (
+            self._quarantine_root(settings)
+            / "sessions"
+            / session_id
+            / finding.root_slug
+            / relative
+        )
 
     def _session_file(self, settings: AppSettings, session_id: str) -> Path:
         return self._quarantine_root(settings) / "session-index" / f"{session_id}.json"

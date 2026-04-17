@@ -17,7 +17,18 @@ def _settings(tmp_path: Path) -> AppSettings:
     reports = tmp_path / "reports"
     logs = tmp_path / "logs"
     tmp_dir = tmp_path / "tmp"
-    for path in [storage, uploads, thumbs, profile, video, quarantine, manifests, reports, logs, tmp_dir]:
+    for path in [
+        storage,
+        uploads,
+        thumbs,
+        profile,
+        video,
+        quarantine,
+        manifests,
+        reports,
+        logs,
+        tmp_dir,
+    ]:
         path.mkdir(parents=True, exist_ok=True)
     return AppSettings(
         immich_library_root=storage,

@@ -40,7 +40,9 @@ class FakePostgresAdapter:
     def read_pg_statistic_toast_health(self, dsn: str, timeout_seconds: int) -> dict[str, object]:
         return dict(self.toast)
 
-    def list_invalid_system_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
+    def list_invalid_system_indexes(
+        self, dsn: str, timeout_seconds: int
+    ) -> list[dict[str, object]]:
         return [dict(item) for item in self.invalid_system_indexes]
 
     def list_invalid_user_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
@@ -142,7 +144,8 @@ class FakePostgresAdapter:
             matching = [
                 row
                 for row in self.duplicate_rows
-                if row["owner_id"] == group["owner_id"] and row["checksum_hex"] == group["checksum_hex"]
+                if row["owner_id"] == group["owner_id"]
+                and row["checksum_hex"] == group["checksum_hex"]
             ]
             if len(matching) > 1:
                 remaining_groups.append(
@@ -237,7 +240,9 @@ def test_scan_detects_toast_invalid_indexes_and_duplicate_groups(tmp_path: Path)
     assert report.sections[3].rows[0]["candidate_rows"][0]["id"] == "asset-1"
 
 
-def test_preview_does_not_offer_clear_pg_statistic_when_only_user_indexes_are_invalid(tmp_path: Path) -> None:
+def test_preview_does_not_offer_clear_pg_statistic_when_only_user_indexes_are_invalid(
+    tmp_path: Path,
+) -> None:
     adapter = FakePostgresAdapter(
         invalid_user_indexes=[
             {
@@ -406,8 +411,14 @@ def test_apply_executes_previewed_steps_and_produces_before_after_diff(tmp_path:
 
     assert apply_report.overall_status in {CheckStatus.PASS, CheckStatus.WARN}
     executed = apply_report.sections[1].rows
-    assert any(row["step_key"] == "clear_pg_statistic" and row["status"] == "applied" for row in executed)
-    assert any(row["step_key"] == "delete_duplicate_assets" and row["status"] == "applied" for row in executed)
+    assert any(
+        row["step_key"] == "clear_pg_statistic" and row["status"] == "applied"
+        for row in executed
+    )
+    assert any(
+        row["step_key"] == "delete_duplicate_assets" and row["status"] == "applied"
+        for row in executed
+    )
     diff_rows = apply_report.sections[2].rows
     assert any(row["metric"] == "invalid_system_indexes" and row["after"] == 0 for row in diff_rows)
     assert any(row["metric"] == "duplicate_asset_groups" and row["after"] == 0 for row in diff_rows)

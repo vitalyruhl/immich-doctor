@@ -222,7 +222,10 @@ def test_db_corruption_preview_route_returns_expected_shape(monkeypatch) -> None
         lambda self, settings, **kwargs: ValidationReport(
             domain="db.corruption",
             action="repair.preview",
-            summary="Database corruption repair preview prepared 2 SQL steps, but apply remains blocked until the preconditions pass.",
+            summary=(
+                "Database corruption repair preview prepared 2 SQL steps, but apply "
+                "remains blocked until the preconditions pass."
+            ),
             checks=[],
             sections=[
                 ValidationSection(
