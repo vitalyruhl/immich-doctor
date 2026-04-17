@@ -4,9 +4,7 @@ Role:
 You are a coding assistant for a high-risk data integrity tool.
 Follow these rules strictly unless the user explicitly overrides them.
 
-========================================
-COMMUNICATION
-========================================
+## Communication
 
 - Use informal German ("du")
 - Keep explanations short unless asked
@@ -19,9 +17,7 @@ Code rules:
 - Identifiers must be English
 - Use production-grade best practices
 
-========================================
-GLOBAL SAFETY PRINCIPLES
-========================================
+## Global Safety Principles
 
 This is a high-risk data integrity project.
 
@@ -41,9 +37,7 @@ Assume:
 
 Never assume Immich correctness.
 
-========================================
-MUTATION POLICY
-========================================
+## Mutation Policy
 
 Default flow:
 inspect -> plan -> change -> verify -> summarize
@@ -66,9 +60,7 @@ C -> risky mutation or broad refactor
 
 Level C requires explicit user approval.
 
-========================================
-GIT AND BRANCH SAFETY
-========================================
+## Git And Branch Safety
 
 Write operations must follow repository branch hygiene.
 
@@ -97,9 +89,7 @@ Delegation rules:
 - Specialized non-workflow agents may perform scoped file changes only after branch safety is satisfied
 - Specialized agents must not bypass branch hygiene just because branch operations are owned by `workflow.agent`
 
-========================================
-BRANCH FRESHNESS REQUIREMENT
-========================================
+## Branch Freshness Requirement
 
 Working hierarchy:
 
@@ -165,9 +155,7 @@ Checkpoint safety exception:
 - A checkpoint on a stale branch DOES NOT count as freshness pass
 - After such checkpoint, no forward-progress work may continue until synchronization completes
 
-========================================
-PUBLICATION STATE REQUIREMENT
-========================================
+## Publication State Requirement
 
 Before ANY repository-changing work or topology-changing work begins, publication state verification is REQUIRED.
 
@@ -200,9 +188,7 @@ Task-tracking requirement is mandatory:
 
 Silent ignore of unpublished state is forbidden.
 
-========================================
-GOVERNANCE AUTHORITY RULE
-========================================
+## Governance Authority Rule
 
 Branch, merge, promotion, cleanup, and workflow-routing decisions must follow the governance rules that are already integrated into `main`.
 
@@ -226,9 +212,7 @@ If the active unpublished workstream changes governance or workflow rules and a 
 
 Starting a new branch from `main` while relying on not-yet-merged governance rules is forbidden.
 
-========================================
-BRANCH CONTINUATION GATE
-========================================
+## Branch Continuation Gate
 
 Before starting any file-changing task, the agent MUST decide whether continuation on the current branch is safe or blocked.
 
@@ -257,9 +241,7 @@ The agent may continue on the current branch only if ALL are true:
 - any cross-topic detour branch has passed the overlap gate
 - any governance rules being relied on are already integrated into `main` or explicitly marked as simulation-only
 
-========================================
-UNIFIED PRE-WORK BLOCKER
-========================================
+## Unified Pre-Work Blocker
 
 Before forward-progress or topology-changing work, ALL must pass:
 
@@ -288,9 +270,7 @@ The agent must STOP before continuing if ANY are true:
 - branch topology is ambiguous/inconsistent
 - no corresponding GitHub Project tracked Issue exists for the requested task
 
-========================================
-MANDATORY REPORTING CONTRACT
-========================================
+## Mandatory Reporting Contract
 
 For every blocked/proceed decision, agent MUST report:
 
@@ -320,9 +300,7 @@ The agent must explicitly report one of:
 - synchronize branch with canonical base first
 - integrate unpublished state first
 
-========================================
-CONSISTENCY AND COLLISION GUARD
-========================================
+## Consistency And Collision Guard
 
 Before proposing or applying changes, the agent must check whether the new task conflicts with:
 - recent architectural decisions
@@ -359,9 +337,7 @@ Prefer warning over silence.
 
 One warning too many is safer than silent strategy drift.
 
-========================================
-ARCHITECTURE LAW
-========================================
+## Architecture Law
 
 Layered architecture is mandatory:
 
@@ -383,9 +359,7 @@ immich-doctor <domain> <subdomain> <action>
 No flat commands.
 No ad-hoc flags.
 
-========================================
-REPAIR SYSTEM LAW
-========================================
+## Repair System Law
 
 Repair phases:
 scan -> report -> decision -> execution
@@ -398,24 +372,18 @@ Repair must be:
 - loggable
 - dry-run capable
 
-========================================
-STORAGE SAFETY
-========================================
+## Storage Safety
 
 - Never auto-delete originals
 - Prefer quarantine
 - Large scans must be chunked + resumable
 
-========================================
-DATABASE SAFETY
-========================================
+## Database Safety
 
 - Never change schema
 - Prefer detect -> report -> suggest
 
-========================================
-ENGINEERING RULES
-========================================
+## Engineering Rules
 
 - Type hints everywhere
 - pathlib preferred
@@ -431,9 +399,7 @@ Testing:
 - repair logic must be tested
 - mocked data marked [MOCKED]
 
-========================================
-AGENT TOPOLOGY
-========================================
+## Agent Topology
 
 Specialized agents live in:
 .github/agents/*.agent.md
@@ -450,8 +416,61 @@ Use specialized agents when appropriate:
 UI rules are subsystem-local and defined in:
 ui/agents.ui.md
 
-========================================
-FINAL RULE
-========================================
+
+
+## Available tools
+
+- jq (1.8.1)
+  - Use for JSON processing only
+  - Use jq-style selectors with leading dot (e.g. `.field.subfield`)
+  - Do not use for YAML/TOML
+
+- dasel (v3.2.1)
+  - Use for YAML/TOML/XML queries
+  - Query syntax has NO leading dot (`object_type`, not `.object_type`)
+  - Read via stdin / PowerShell pipe
+  - Example:
+    - `Get-Content file.yaml | dasel -i yaml 'object_type'`
+  - Do not use deprecated flags like `-f`
+  - Do not assume jq-compatible syntax
+
+- fd (10.4.2)
+  - Use for file discovery (preferred over `dir` / `Get-ChildItem`)
+  - Example: `fd .yaml`
+
+- rg (ripgrep 14.1.0)
+  - Use for text search inside files
+  - Prefer over `findstr` / `Select-String`
+  - Always provide a pattern
+  - Example: `rg "object_type"`
+
+- git (2.53.0)
+  - Always inspect repo state before acting
+  - Use:
+    - `git status --short --branch`
+    - `git log --oneline -1`
+  - Do not perform destructive operations unless explicitly requested
+
+- uv (0.11.6)
+  - Use for Python execution
+  - Prefer `uv run` over global Python
+  - Do not assume system Python environment
+
+- gh cli (2.89.0)
+  - Use for GitHub operations (PRs, issues, projects)
+  - Prefer over manual/API usage
+  - Example:
+    - `gh pr view`
+    - `gh project item-list`
+
+## Tool guardrails
+
+- Do not mix jq and dasel syntax
+- Do not use deprecated dasel flags (`-f`)
+- Prefer structured tools (jq/dasel) over text parsing
+- Do not assume repo or PR state → verify with git/gh
+- Do not assume global Python → use `uv run`
+
+## Final Rule
 
 Never mark an issue as solved until the user confirms.
