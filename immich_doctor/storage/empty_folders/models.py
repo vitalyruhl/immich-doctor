@@ -190,9 +190,7 @@ class EmptyDirQuarantineItem:
                 else None
             ),
             deleted_at=(
-                str(payload["deleted_at"])
-                if payload.get("deleted_at") is not None
-                else None
+                str(payload["deleted_at"]) if payload.get("deleted_at") is not None else None
             ),
         )
 

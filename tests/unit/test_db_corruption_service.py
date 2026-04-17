@@ -91,10 +91,7 @@ class FakePostgresAdapter:
         order_columns: tuple[str, ...] = (),
     ) -> list[dict[str, object]]:
         if table_name == "memory_asset":
-            return [
-                {"assetId": value}
-                for value in values
-            ]
+            return [{"assetId": value} for value in values]
         return []
 
     def execute_statement(self, dsn: str, timeout_seconds: int, query: str) -> None:
@@ -412,8 +409,7 @@ def test_apply_executes_previewed_steps_and_produces_before_after_diff(tmp_path:
     assert apply_report.overall_status in {CheckStatus.PASS, CheckStatus.WARN}
     executed = apply_report.sections[1].rows
     assert any(
-        row["step_key"] == "clear_pg_statistic" and row["status"] == "applied"
-        for row in executed
+        row["step_key"] == "clear_pg_statistic" and row["status"] == "applied" for row in executed
     )
     assert any(
         row["step_key"] == "delete_duplicate_assets" and row["status"] == "applied"

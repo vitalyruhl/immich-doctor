@@ -490,8 +490,7 @@ class DbCorruptionRepairService:
         step = 1
         system_issue = bool(snapshot["toast"]["detected"] or snapshot["invalid_system_indexes"])
         clear_available = bool(
-            snapshot["toast"]["detected"]
-            and (system_index_duplicate_error_text or "").strip()
+            snapshot["toast"]["detected"] and (system_index_duplicate_error_text or "").strip()
         )
         if system_issue:
             if clear_available:
