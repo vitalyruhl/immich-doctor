@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "immich-doctor"
-version = "0.2.0"
+dynamic = ["version"]
 description = "CLI-first validation and maintenance scaffold for Immich environments."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,6 +21,9 @@ dependencies = [
   "uvicorn>=0.42.0,<1.0.0",
   "pillow>=12.1.1",
 ]
+
+[tool.hatch.version]
+path = "immich_doctor/version.py"
 
 [project.scripts]
 immich-doctor = "immich_doctor.main:run"
