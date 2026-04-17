@@ -15,14 +15,23 @@ from immich_doctor.db.connection import (
     fetch_all_composed,
 )
 from immich_doctor.db.queries import (
+    ACTIVE_NON_IDLE_SESSIONS_QUERY,
+    CURRENT_DATABASE_NAME_QUERY,
+    CURRENT_ROLE_CAPABILITIES_QUERY,
     LIST_ALL_INDEXES_QUERY,
+    LIST_ASSET_REFERENCING_FOREIGN_KEYS_QUERY,
     LIST_BASE_TABLES_QUERY,
+    LIST_DUPLICATE_ASSET_CHECKSUM_GROUPS_QUERY,
+    LIST_DUPLICATE_ASSET_CHECKSUM_ROWS_QUERY,
     LIST_INDEX_SIZES_QUERY,
     LIST_INDEX_USAGE_STATS_QUERY,
     LIST_INVALID_INDEXES_QUERY,
+    LIST_INVALID_SYSTEM_INDEXES_QUERY,
+    LIST_INVALID_USER_INDEXES_QUERY,
     LIST_MISSING_FK_INDEXES_QUERY,
     LIST_TABLE_COLUMNS_QUERY,
     LIST_TABLE_FOREIGN_KEYS_QUERY,
+    READ_PG_STATISTIC_TOAST_QUERY,
 )
 
 
@@ -91,11 +100,48 @@ class PostgresAdapter:
             "full_version": str(row["full_version"]),
         }
 
+    def fetch_current_database_name(self, dsn: str, timeout_seconds: int) -> str:
+        rows = fetch_all(dsn, timeout_seconds, CURRENT_DATABASE_NAME_QUERY)
+        if not rows:
+            raise ValueError("Current database query returned no rows.")
+        return str(rows[0]["database_name"])
+
+    def current_role_capabilities(self, dsn: str, timeout_seconds: int) -> dict[str, object]:
+        rows = fetch_all(dsn, timeout_seconds, CURRENT_ROLE_CAPABILITIES_QUERY)
+        if not rows:
+            raise ValueError("Current role capability query returned no rows.")
+        row = rows[0]
+        return {
+            "current_user": str(row["current_user"]),
+            "session_user": str(row["session_user"]),
+            "is_superuser": bool(row["is_superuser"]),
+        }
+
+    def count_active_non_idle_sessions(self, dsn: str, timeout_seconds: int) -> int:
+        rows = fetch_all(dsn, timeout_seconds, ACTIVE_NON_IDLE_SESSIONS_QUERY)
+        if not rows:
+            return 0
+        return int(rows[0]["session_count"])
+
     def list_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_ALL_INDEXES_QUERY)
 
     def list_invalid_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_INVALID_INDEXES_QUERY)
+
+    def list_invalid_system_indexes(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        return fetch_all(dsn, timeout_seconds, LIST_INVALID_SYSTEM_INDEXES_QUERY)
+
+    def list_invalid_user_indexes(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        return fetch_all(dsn, timeout_seconds, LIST_INVALID_USER_INDEXES_QUERY)
 
     def list_index_usage_stats(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_INDEX_USAGE_STATS_QUERY)
@@ -105,6 +151,49 @@ class PostgresAdapter:
 
     def list_missing_fk_indexes(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_MISSING_FK_INDEXES_QUERY)
+
+    def read_pg_statistic_toast_health(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        try:
+            rows = fetch_all(dsn, timeout_seconds, READ_PG_STATISTIC_TOAST_QUERY)
+        except Exception as exc:  # pragma: no cover - exact driver errors vary by environment
+            message = str(exc)
+            lowered = message.lower()
+            return {
+                "detected": "missing chunk" in lowered or "toast" in lowered,
+                "exception_text": message,
+                "read_ok": False,
+            }
+        return {
+            "detected": False,
+            "exception_text": None,
+            "read_ok": True,
+            "row_count": len(rows),
+        }
+
+    def list_duplicate_asset_checksum_groups(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        return fetch_all(dsn, timeout_seconds, LIST_DUPLICATE_ASSET_CHECKSUM_GROUPS_QUERY)
+
+    def list_duplicate_asset_checksum_rows(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        return fetch_all(dsn, timeout_seconds, LIST_DUPLICATE_ASSET_CHECKSUM_ROWS_QUERY)
+
+    def list_asset_referencing_foreign_keys(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+    ) -> list[dict[str, object]]:
+        return fetch_all(dsn, timeout_seconds, LIST_ASSET_REFERENCING_FOREIGN_KEYS_QUERY)
 
     def list_tables(self, dsn: str, timeout_seconds: int) -> list[dict[str, object]]:
         return fetch_all(dsn, timeout_seconds, LIST_BASE_TABLES_QUERY)
@@ -789,6 +878,32 @@ class PostgresAdapter:
             asset_table=sql.Identifier("public", "asset"),
         )
         return fetch_all_composed(dsn, timeout_seconds, query, (limit, offset))
+
+    def execute_statement(self, dsn: str, timeout_seconds: int, query: str) -> None:
+        with psycopg.connect(
+            dsn,
+            connect_timeout=timeout_seconds,
+            autocommit=True,
+            row_factory=dict_row,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+
+    def execute_statement_composed(
+        self,
+        dsn: str,
+        timeout_seconds: int,
+        query,
+        params: tuple[object, ...] = (),
+    ) -> None:
+        with psycopg.connect(
+            dsn,
+            connect_timeout=timeout_seconds,
+            autocommit=True,
+            row_factory=dict_row,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
 
     def delete_album_asset_rows_by_keys(
         self,

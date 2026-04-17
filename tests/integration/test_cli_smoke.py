@@ -194,6 +194,48 @@ def test_storage_paths_check_with_sample_directories(tmp_path, monkeypatch) -> N
     assert payload["status"] == "PASS"
 
 
+def test_storage_empty_folders_scan_json_output(tmp_path, monkeypatch) -> None:
+    runner = CliRunner()
+
+    library_root = tmp_path / "library"
+    uploads = library_root / "upload"
+    thumbs = library_root / "thumbs"
+    profile = library_root / "profile"
+    video = library_root / "encoded-video"
+
+    for path in [library_root, uploads, thumbs, profile, video]:
+        path.mkdir(parents=True, exist_ok=True)
+    (uploads / "empty-dir").mkdir()
+
+    reports = tmp_path / "reports"
+    manifests = tmp_path / "manifests"
+    quarantine = tmp_path / "quarantine"
+    logs = tmp_path / "logs"
+    tmp_dir = tmp_path / "tmp"
+
+    for path in [reports, manifests, quarantine, logs, tmp_dir]:
+        path.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("IMMICH_DOCTOR_IMMICH_LIBRARY_ROOT", str(library_root))
+    monkeypatch.setenv("IMMICH_DOCTOR_IMMICH_UPLOADS_PATH", str(uploads))
+    monkeypatch.setenv("IMMICH_DOCTOR_IMMICH_THUMBS_PATH", str(thumbs))
+    monkeypatch.setenv("IMMICH_DOCTOR_IMMICH_PROFILE_PATH", str(profile))
+    monkeypatch.setenv("IMMICH_DOCTOR_IMMICH_VIDEO_PATH", str(video))
+    monkeypatch.setenv("REPORTS_PATH", str(reports))
+    monkeypatch.setenv("MANIFESTS_PATH", str(manifests))
+    monkeypatch.setenv("QUARANTINE_PATH", str(quarantine))
+    monkeypatch.setenv("LOG_PATH", str(logs))
+    monkeypatch.setenv("TMP_PATH", str(tmp_dir))
+
+    result = runner.invoke(app, ["storage", "empty-folders", "scan", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "storage.empty-folders"
+    assert payload["total_empty_dirs"] == 1
+    assert payload["findings"][0]["relative_path"] == "empty-dir"
+
+
 def test_runtime_validate_with_safe_paths(tmp_path, monkeypatch) -> None:
     runner = CliRunner()
 
@@ -716,6 +758,98 @@ def test_db_health_check_json_output(monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert payload["domain"] == "db.health"
     assert payload["action"] == "check"
+
+
+def test_db_corruption_scan_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_run(self, settings):
+        return ValidationReport(
+            domain="db.corruption",
+            action="scan",
+            summary="Database corruption scan detected 1 invalid user indexes.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            sections=[
+                ValidationSection(
+                    name="INVALID_USER_INDEXES",
+                    status=CheckStatus.FAIL,
+                    rows=[
+                        {
+                            "schema_name": "public",
+                            "index_name": "memory_asset_pkey",
+                            "table_name": "memory_asset",
+                            "indisvalid": False,
+                            "indisready": False,
+                        }
+                    ],
+                )
+            ],
+        )
+
+    monkeypatch.setattr(db_cli.DbCorruptionScanService, "run", fake_run)
+
+    result = runner.invoke(app, ["db", "corruption", "scan", "--output", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "db.corruption"
+    assert payload["sections"][0]["rows"][0]["index_name"] == "memory_asset_pkey"
+
+
+def test_db_corruption_repair_preview_json_output(monkeypatch) -> None:
+    runner = CliRunner()
+
+    monkeypatch.setenv("DB_HOST", "postgres")
+    monkeypatch.setenv("DB_PORT", "5432")
+    monkeypatch.setenv("DB_NAME", "immich")
+    monkeypatch.setenv("DB_USER", "immich")
+    monkeypatch.setenv("DB_PASSWORD", "secret")
+
+    def fake_preview(self, settings, **kwargs):
+        return ValidationReport(
+            domain="db.corruption",
+            action="repair.preview",
+            summary="Database corruption repair preview prepared 2 executable SQL steps.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            sections=[
+                ValidationSection(
+                    name="PLAN_STEPS",
+                    status=CheckStatus.WARN,
+                    rows=[
+                        {"step_key": "reindex_system"},
+                        {"step_key": "analyze_database"},
+                    ],
+                )
+            ],
+            metadata={"repair_run_id": "repair-run-1", "dry_run": True},
+        )
+
+    monkeypatch.setattr(db_cli.DbCorruptionRepairService, "preview", fake_preview)
+
+    result = runner.invoke(app, ["db", "corruption", "repair", "--output", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["domain"] == "db.corruption"
+    assert payload["metadata"]["repair_run_id"] == "repair-run-1"
 
 
 def test_remote_sync_validate_json_output(monkeypatch) -> None:

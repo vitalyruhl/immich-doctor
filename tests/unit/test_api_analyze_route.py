@@ -251,3 +251,152 @@ def test_catalog_scan_job_routes_return_expected_shape(monkeypatch) -> None:
     assert actor_stop_response.status_code == 200
     assert workers_response.status_code == 200
     assert workers_response.json()["data"]["result"]["workerResize"]["semantics"] == "next_run_only"
+
+
+def test_empty_folder_scan_route_returns_expected_shape(tmp_path, monkeypatch) -> None:
+    storage = tmp_path / "storage"
+    uploads = storage / "upload"
+    thumbs = storage / "thumbs"
+    profile = storage / "profile"
+    video = storage / "encoded-video"
+    quarantine = tmp_path / "quarantine"
+    manifests = tmp_path / "manifests"
+    reports = tmp_path / "reports"
+    logs = tmp_path / "logs"
+    tmp_dir = tmp_path / "tmp"
+    for path in [
+        storage,
+        uploads,
+        thumbs,
+        profile,
+        video,
+        quarantine,
+        manifests,
+        reports,
+        logs,
+        tmp_dir,
+    ]:
+        path.mkdir(parents=True, exist_ok=True)
+    (uploads / "empty-dir").mkdir()
+
+    monkeypatch.setenv("IMMICH_STORAGE_PATH", str(storage))
+    monkeypatch.setenv("IMMICH_UPLOADS_PATH", str(uploads))
+    monkeypatch.setenv("IMMICH_THUMBS_PATH", str(thumbs))
+    monkeypatch.setenv("IMMICH_PROFILE_PATH", str(profile))
+    monkeypatch.setenv("IMMICH_VIDEO_PATH", str(video))
+    monkeypatch.setenv("QUARANTINE_PATH", str(quarantine))
+    monkeypatch.setenv("MANIFESTS_PATH", str(manifests))
+    monkeypatch.setenv("REPORTS_PATH", str(reports))
+    monkeypatch.setenv("LOG_PATH", str(logs))
+    monkeypatch.setenv("TMP_PATH", str(tmp_dir))
+
+    client = TestClient(create_api_app())
+
+    response = client.post("/api/analyze/storage/empty-folders/scan", json={"root": "uploads"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["domain"] == "storage.empty-folders"
+    assert payload["data"]["total_empty_dirs"] == 1
+    assert payload["data"]["findings"][0]["relative_path"] == "empty-dir"
+
+
+def test_empty_folder_quarantine_routes_round_trip(tmp_path, monkeypatch) -> None:
+    storage = tmp_path / "storage"
+    uploads = storage / "upload"
+    thumbs = storage / "thumbs"
+    profile = storage / "profile"
+    video = storage / "encoded-video"
+    quarantine = tmp_path / "quarantine"
+    manifests = tmp_path / "manifests"
+    reports = tmp_path / "reports"
+    logs = tmp_path / "logs"
+    tmp_dir = tmp_path / "tmp"
+    for path in [
+        storage,
+        uploads,
+        thumbs,
+        profile,
+        video,
+        quarantine,
+        manifests,
+        reports,
+        logs,
+        tmp_dir,
+    ]:
+        path.mkdir(parents=True, exist_ok=True)
+    (uploads / "empty-dir").mkdir()
+
+    monkeypatch.setenv("IMMICH_STORAGE_PATH", str(storage))
+    monkeypatch.setenv("IMMICH_UPLOADS_PATH", str(uploads))
+    monkeypatch.setenv("IMMICH_THUMBS_PATH", str(thumbs))
+    monkeypatch.setenv("IMMICH_PROFILE_PATH", str(profile))
+    monkeypatch.setenv("IMMICH_VIDEO_PATH", str(video))
+    monkeypatch.setenv("QUARANTINE_PATH", str(quarantine))
+    monkeypatch.setenv("MANIFESTS_PATH", str(manifests))
+    monkeypatch.setenv("REPORTS_PATH", str(reports))
+    monkeypatch.setenv("LOG_PATH", str(logs))
+    monkeypatch.setenv("TMP_PATH", str(tmp_dir))
+
+    client = TestClient(create_api_app())
+
+    quarantine_response = client.post(
+        "/api/analyze/storage/empty-folders/quarantine",
+        json={"paths": ["empty-dir"], "quarantine_all": False, "dry_run": False},
+    )
+    assert quarantine_response.status_code == 200
+    session_id = quarantine_response.json()["data"]["session_id"]
+    assert quarantine_response.json()["data"]["quarantined_count"] == 1
+
+    list_response = client.get("/api/analyze/storage/empty-folders/quarantine-list")
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["count"] == 1
+
+    restore_response = client.post(
+        f"/api/analyze/storage/empty-folders/quarantine/{session_id}/restore",
+        json={"restore_all": True, "paths": []},
+    )
+    assert restore_response.status_code == 200
+    assert restore_response.json()["data"]["restored_count"] == 1
+
+
+def test_db_corruption_scan_route_returns_expected_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        analyze_routes.DbCorruptionScanService,
+        "run",
+        lambda self, settings: ValidationReport(
+            domain="db.corruption",
+            action="scan",
+            summary="Database corruption scan detected 1 invalid user indexes.",
+            checks=[
+                CheckResult(
+                    name="postgres_connection",
+                    status=CheckStatus.PASS,
+                    message="PostgreSQL connection established.",
+                )
+            ],
+            sections=[
+                ValidationSection(
+                    name="INVALID_USER_INDEXES",
+                    status=CheckStatus.FAIL,
+                    rows=[
+                        {
+                            "schema_name": "public",
+                            "index_name": "memory_asset_pkey",
+                            "table_name": "memory_asset",
+                            "indisvalid": False,
+                            "indisready": False,
+                        }
+                    ],
+                )
+            ],
+        ),
+    )
+    client = TestClient(create_api_app())
+
+    response = client.post("/api/analyze/db/corruption/scan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["domain"] == "db.corruption"
+    assert payload["data"]["sections"][0]["rows"][0]["index_name"] == "memory_asset_pkey"
