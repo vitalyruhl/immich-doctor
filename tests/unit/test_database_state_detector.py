@@ -222,7 +222,7 @@ def _version_history_entries() -> list[dict[str, object]]:
         {
             "entry_id": "vh-1",
             "created_at": "2026-03-07T23:06:01+00:00",
-            "version": "2.5.6",
+            "version": "2.7.5",
         },
         {
             "entry_id": "vh-0",
@@ -244,7 +244,7 @@ def test_database_state_detector_reads_version_history_when_present() -> None:
 
     state = detector.detect("dsn", 5)
 
-    assert state.product_version_current == "2.5.6"
+    assert state.product_version_current == "2.7.5"
     assert state.product_version_confidence.value == "high"
     assert len(state.product_version_history) == 2
     assert state.support_status == DatabaseSchemaSupportStatus.SUPPORTED

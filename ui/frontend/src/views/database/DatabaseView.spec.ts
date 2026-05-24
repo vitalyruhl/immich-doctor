@@ -23,9 +23,9 @@ function createStore() {
       },
       immich: {
         status: "ok",
-        summary: "Detected Immich 2.5.6 with schema profile supported.",
-        details: "Immich version signal: 2.5.6 (source: version_history, confidence: high).",
-        productVersionCurrent: "2.5.6",
+        summary: "Detected Immich 2.7.5 with schema profile supported.",
+        details: "Immich version signal: 2.7.5 (source: version_history, confidence: high).",
+        productVersionCurrent: "2.7.5",
         productVersionConfidence: "high",
         productVersionSource: "version_history",
         supportStatus: "supported",
@@ -35,9 +35,9 @@ function createStore() {
       },
       compatibility: {
         status: "ok",
-        summary: "Detected Immich 2.5.6, which matches the currently tested validation target.",
+        summary: "Detected Immich 2.7.5, which matches the currently tested validation target.",
         details: "This compatibility signal comes from schema detection plus version_history metadata.",
-        testedAgainstImmichVersion: "2.5.6",
+        testedAgainstImmichVersion: "2.7.5",
       },
       relatedFindings: {
         status: "warning",
@@ -45,7 +45,7 @@ function createStore() {
         details: "Open the Consistency page for detailed compare rows and repair workflows.",
         route: "/consistency",
       },
-      testedAgainstImmichVersion: "2.5.6",
+      testedAgainstImmichVersion: "2.7.5",
     },
     isLoading: false,
     error: null as string | null,
@@ -84,9 +84,9 @@ describe("DatabaseView", () => {
 
     expect(store.load).toHaveBeenCalled();
     expect(wrapper.text()).toContain("Database access works against postgres:5432.");
-    expect(wrapper.text()).toContain("Detected Immich 2.5.6 with schema profile supported.");
+    expect(wrapper.text()).toContain("Detected Immich 2.7.5 with schema profile supported.");
     expect(wrapper.text()).toContain("Consistency findings are waiting for a current storage index.");
-    expect(wrapper.text()).toContain("Immich 2.5.6");
+    expect(wrapper.text()).toContain("Immich 2.7.5");
   });
 
   it("keeps cached database details visible when a later refresh error exists", async () => {

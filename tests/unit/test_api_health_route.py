@@ -90,9 +90,9 @@ def test_database_overview_route_returns_expected_shape(monkeypatch) -> None:
             },
             "immich": {
                 "status": "ok",
-                "summary": "Detected Immich 2.5.6.",
+                "summary": "Detected Immich 2.7.5.",
                 "details": "Version history is available.",
-                "productVersionCurrent": "2.5.6",
+                "productVersionCurrent": "2.7.5",
                 "productVersionConfidence": "high",
                 "productVersionSource": "version_history",
                 "supportStatus": "supported",
@@ -102,9 +102,9 @@ def test_database_overview_route_returns_expected_shape(monkeypatch) -> None:
             },
             "compatibility": {
                 "status": "ok",
-                "summary": "Detected Immich 2.5.6 matches the tested target.",
+                "summary": "Detected Immich 2.7.5 matches the tested target.",
                 "details": "Schema support is modeled.",
-                "testedAgainstImmichVersion": "2.5.6",
+                "testedAgainstImmichVersion": "2.7.5",
             },
             "relatedFindings": {
                 "status": "warning",
@@ -112,7 +112,7 @@ def test_database_overview_route_returns_expected_shape(monkeypatch) -> None:
                 "details": "Open the Consistency page for details.",
                 "route": "/consistency",
             },
-            "testedAgainstImmichVersion": "2.5.6",
+            "testedAgainstImmichVersion": "2.7.5",
         },
     )
 
@@ -122,5 +122,5 @@ def test_database_overview_route_returns_expected_shape(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["data"]["connectivity"]["serverVersion"] == "14.10"
-    assert payload["data"]["immich"]["productVersionCurrent"] == "2.5.6"
+    assert payload["data"]["immich"]["productVersionCurrent"] == "2.7.5"
     assert payload["data"]["relatedFindings"]["route"] == "/consistency"

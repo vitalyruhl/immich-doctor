@@ -205,7 +205,7 @@ def _version_history_entries() -> list[dict[str, object]]:
         {
             "entry_id": "vh-1",
             "created_at": "2026-03-07T23:06:01+00:00",
-            "version": "2.5.6",
+            "version": "2.7.5",
         }
     ]
 
@@ -253,7 +253,7 @@ def test_consistency_validation_supports_album_asset_asset_id_variant() -> None:
 
     assert result.consistency_summary.profile_supported is True
     assert result.consistency_summary.asset_reference_column == "assetId"
-    assert result.consistency_summary.product_version_current == "2.5.6"
+    assert result.consistency_summary.product_version_current == "2.7.5"
     assert result.consistency_summary.schema_generation_key is not None
 
 

@@ -165,7 +165,7 @@ import { useDatabaseStore } from "@/stores/database";
 const databaseStore = useDatabaseStore();
 const overview = computed(() => databaseStore.overview);
 const testedAgainstVersion = computed(
-  () => overview.value?.testedAgainstImmichVersion ?? "2.5.6",
+  () => overview.value?.testedAgainstImmichVersion ?? "2.7.5",
 );
 
 function formatDate(value: string): string {
