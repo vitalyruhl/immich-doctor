@@ -4,7 +4,7 @@
 The project started as a safe CLI-first tool and now also exposes a FastAPI backend plus
 a Vue-based operator UI on top of the same service layer.
 
-Current release target: `v0.2.0`
+Current release target: `v0.3.0`
 
 ## UI snapshot
 
