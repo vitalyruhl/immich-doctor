@@ -12,7 +12,7 @@ from immich_doctor.db.health.service import DbHealthCheckService
 from immich_doctor.db.schema_detection import DatabaseSchemaSupportStatus, DatabaseStateDetector
 from immich_doctor.services.dashboard_health import DashboardHealthStatus
 
-SUPPORTED_IMMICH_TEST_VERSION = "2.5.6"
+SUPPORTED_IMMICH_TEST_VERSION = "2.7.5"
 
 
 def _iso_now() -> str:

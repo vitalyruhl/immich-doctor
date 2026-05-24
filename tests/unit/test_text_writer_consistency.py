@@ -21,7 +21,7 @@ def _summary(profile_supported: bool = True) -> ConsistencySummary:
         profile_name="immich_db_schema_detection_v1",
         profile_supported=profile_supported,
         support_status="supported" if profile_supported else "unsupported",
-        product_version_current="2.5.6" if profile_supported else None,
+        product_version_current="2.7.5" if profile_supported else None,
         product_version_confidence="high" if profile_supported else "unknown",
         schema_generation_key="immich_schema:album_asset.assetId+memory_asset+album_thumbnail_asset+stack_primary_asset+version_history",
         schema_fingerprint="abc123",
@@ -66,7 +66,7 @@ def test_consistency_validation_text_output_groups_by_category() -> None:
     output = render_text_report(report)
 
     assert "Database State:" in output
-    assert "product_version=2.5.6" in output
+    assert "product_version=2.7.5" in output
     assert "asset_reference_column=assetId" in output
     assert "Categories:" in output
     assert "db.orphan.album_asset.missing_asset" in output

@@ -471,8 +471,11 @@ class PostgresAdapter:
             sql.SQL('"updatedAt" AS "updatedAt"'),
             sql.SQL('"originalFileName" AS "originalFileName"'),
             sql.SQL('"originalPath" AS "originalPath"'),
-            sql.SQL('"encodedVideoPath" AS "encodedVideoPath"'),
         ]
+        if "encodedVideoPath" in asset_columns:
+            select_columns.append(sql.SQL('"encodedVideoPath" AS "encodedVideoPath"'))
+        else:
+            select_columns.append(sql.SQL('NULL::text AS "encodedVideoPath"'))
         for column in optional_columns:
             select_columns.append(
                 sql.SQL("{column} AS {alias}").format(

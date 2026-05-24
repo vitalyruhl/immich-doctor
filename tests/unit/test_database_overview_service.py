@@ -72,7 +72,7 @@ def test_database_overview_service_reports_supported_tested_version() -> None:
         ),
         schema_detector=_FakeSchemaDetector(
             {
-                "product_version_current": "2.5.6",
+                "product_version_current": "2.7.5",
                 "product_version_confidence": "high",
                 "product_version_source": "version_history",
                 "support_status": "supported",
@@ -100,9 +100,9 @@ def test_database_overview_service_reports_supported_tested_version() -> None:
     )
 
     assert overview["connectivity"]["status"] == "ok"
-    assert overview["immich"]["productVersionCurrent"] == "2.5.6"
+    assert overview["immich"]["productVersionCurrent"] == "2.7.5"
     assert overview["compatibility"]["status"] == "ok"
-    assert overview["testedAgainstImmichVersion"] == "2.5.6"
+    assert overview["testedAgainstImmichVersion"] == "2.7.5"
 
 
 def test_database_overview_service_marks_related_findings_as_waiting_during_indexing() -> None:
