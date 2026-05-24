@@ -156,7 +156,7 @@ def test_catalog_scan_reports_prepare_phase_and_fixed_directory_total(tmp_path: 
     )
 
     prepare_updates = [
-        payload for payload in progress_payloads if payload.get("phase") == "collect"
+        payload for payload in progress_payloads if payload.get("phase") == "discovery"
     ]
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
 
@@ -300,6 +300,86 @@ def test_catalog_scan_parallel_workers_no_duplicates_or_misses(tmp_path: Path) -
     assert len(scanned_paths) == len(set(scanned_paths))
 
 
+def test_catalog_scan_prepares_balanced_work_before_processing(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    (uploads / "a").mkdir(parents=True, exist_ok=True)
+    (uploads / "z" / "large").mkdir(parents=True, exist_ok=True)
+    (uploads / "a" / "small.txt").write_bytes(b"small")
+    for index in range(260):
+        (uploads / "z" / "large" / f"asset-{index:03}.jpg").write_bytes(b"asset")
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=4)
+    progress_payloads: list[dict[str, object]] = []
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+        progress_callback=progress_payloads.append,
+    )
+
+    assert report.overall_status == CheckStatus.PASS
+    phases = [str(payload.get("phase")) for payload in progress_payloads]
+    assert "discovery" in phases
+    assert "scan" in phases
+    assert max(index for index, phase in enumerate(phases) if phase == "discovery") < min(
+        index for index, phase in enumerate(phases) if phase == "scan"
+    )
+
+    store = CatalogStore()
+    with store.connect(settings) as connection:
+        first_work_item = connection.execute(
+            """
+            SELECT relative_path, payload_file_count, queue_priority
+            FROM scan_directory_queue
+            ORDER BY queue_priority ASC, id ASC
+            LIMIT 1;
+            """
+        ).fetchone()
+
+    assert first_work_item is not None
+    assert int(first_work_item["payload_file_count"]) == 256
+    assert str(first_work_item["relative_path"]).startswith("z/large::batch-")
+
+
+def test_catalog_scan_splits_oversized_directories_into_batches(tmp_path: Path) -> None:
+    uploads = tmp_path / "uploads"
+    large_directory = uploads / "large"
+    large_directory.mkdir(parents=True, exist_ok=True)
+    expected_paths = {f"large/asset-{index:03}.jpg" for index in range(260)}
+    for relative_path in expected_paths:
+        (uploads / relative_path).write_bytes(relative_path.encode("utf-8"))
+
+    settings = _settings(tmp_path, uploads=uploads, catalog_scan_workers=4)
+
+    report = CatalogInventoryScanService().run(
+        settings,
+        root_slug="uploads",
+        resume_session_id=None,
+        max_files=None,
+    )
+
+    assert report.overall_status == CheckStatus.PASS
+
+    store = CatalogStore()
+    with store.connect(settings) as connection:
+        batch_rows = connection.execute(
+            """
+            SELECT relative_path, payload_file_count
+            FROM scan_directory_queue
+            WHERE relative_path LIKE 'large::batch-%'
+            ORDER BY queue_priority ASC;
+            """
+        ).fetchall()
+    assert [int(row["payload_file_count"]) for row in batch_rows] == [256, 4]
+
+    files = store.list_latest_snapshot_files(settings, slug="uploads", limit=None)
+    scanned_paths = {str(row["relative_path"]) for row in files}
+    assert scanned_paths == expected_paths
+    assert len(scanned_paths) == len(expected_paths)
+
+
 def test_catalog_scan_handles_username_root_segments_without_uuid_assumptions(
     tmp_path: Path,
 ) -> None:
@@ -340,7 +420,7 @@ def test_catalog_scan_progress_includes_worker_count(tmp_path: Path) -> None:
 
     assert report.metadata["scan_workers"] == 3
     prepare_updates = [
-        payload for payload in progress_payloads if payload.get("phase") == "collect"
+        payload for payload in progress_payloads if payload.get("phase") == "discovery"
     ]
     scan_updates = [payload for payload in progress_payloads if payload.get("phase") == "scan"]
     assert prepare_updates
