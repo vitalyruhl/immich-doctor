@@ -952,18 +952,12 @@ class CatalogRemediationService:
         *,
         state: CatalogConsistencyState,
     ) -> list[BrokenDbOriginalFinding]:
-        resolver = ImmichStoragePathResolver(settings)
         uploads_root = settings.immich_uploads_path
         if uploads_root is None:
             return []
         owner_labels = self._owner_labels(settings, state=state)
         asset_owner_ids = {
             str(asset["id"]): truthy_path(asset.get("ownerId")) for asset in state.asset_rows
-        }
-        uploads_files_by_relative = {
-            str(row["relative_path"]): row
-            for row in state.latest_files
-            if str(row.get("root_slug")) == SOURCE_ROOT_SLUG
         }
         files_by_name: dict[str, list[dict[str, object]]] = {}
         for row in state.latest_files:
@@ -972,48 +966,9 @@ class CatalogRemediationService:
                 files_by_name.setdefault(file_name, []).append(row)
 
         findings: list[BrokenDbOriginalFinding] = []
-        handled_assets: set[str] = set()
-        for asset in state.asset_rows:
-            asset_id = str(asset["id"])
-            original_path = truthy_path(asset.get("originalPath"))
-            if original_path is None:
-                continue
-            resolved_original = resolver.resolve(original_path)
-            if resolved_original is None or resolved_original.root_slug != SOURCE_ROOT_SLUG:
-                continue
-            normalized_db_path = self._normalize_path_text(original_path)
-            normalized_canonical_path = self._normalize_path_text(
-                str(resolved_original.absolute_path)
-            )
-            canonical_row = uploads_files_by_relative.get(resolved_original.relative_path)
-            if canonical_row is not None and normalized_db_path != normalized_canonical_path:
-                findings.append(
-                    self._build_located_broken_db_finding(
-                        asset=asset,
-                        expected_relative_path=resolved_original.relative_path,
-                        expected_database_path=original_path,
-                        expected_absolute_path=str(resolved_original.absolute_path),
-                        owner_id=asset_owner_ids.get(asset_id),
-                        owner_label=self._resolve_owner_label(
-                            owner_id=asset_owner_ids.get(asset_id),
-                            relative_path=resolved_original.relative_path,
-                            owner_labels=owner_labels,
-                        ),
-                        located_file=_LocatedFile(
-                            root_slug=SOURCE_ROOT_SLUG,
-                            relative_path=resolved_original.relative_path,
-                            absolute_path=str(resolved_original.absolute_path),
-                            file_name=str(canonical_row["file_name"]),
-                            size_bytes=int(canonical_row["size_bytes"]),
-                        ),
-                    )
-                )
-                handled_assets.add(asset_id)
 
         for row in state.db_missing_rows:
             asset_id = str(row["asset_id"])
-            if asset_id in handled_assets:
-                continue
             asset = next((item for item in state.asset_rows if str(item["id"]) == asset_id), None)
             if asset is None:
                 continue
@@ -2397,9 +2352,6 @@ class CatalogRemediationService:
                 "plan_token_id": repair_run.plan_token_id,
             },
         )
-
-    def _normalize_path_text(self, value: str) -> str:
-        return value.replace("\\", "/")
 
     def _root_path_for(self, settings: AppSettings, *, root_slug: str) -> Path | None:
         return {

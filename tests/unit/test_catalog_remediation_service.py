@@ -65,6 +65,7 @@ class _FakePostgres:
                 "type": "image",
                 "originalFileName": "keep.jpg",
                 "originalPath": "/usr/src/app/upload/upload/user-a/keep.jpg",
+                "checksum": "unsupported-checksum-format",
                 "encodedVideoPath": "",
             },
             {
@@ -168,12 +169,12 @@ def _build_scanned_settings(tmp_path: Path) -> tuple[AppSettings, str]:
     (settings.immich_video_path / "user-a").mkdir(parents=True, exist_ok=True)
 
     (settings.immich_uploads_path / "user-a" / "keep.jpg").write_bytes(b"ok")
-    (settings.immich_uploads_path / "user-a" / "path-fix.jpg").write_bytes(b"path-fix")
     (settings.immich_uploads_path / "user-a" / "critical-zero.jpg").write_bytes(b"")
     (settings.immich_uploads_path / "user-a" / ".immich").write_bytes(b"marker")
     (settings.immich_uploads_path / "user-a" / ".fuse_hidden0001").write_bytes(b"blocked")
     (settings.immich_uploads_path / "user-b" / ".fuse_hidden0002").write_bytes(b"free")
     (settings.immich_uploads_path / "user-b" / ".fuse_hidden0003").write_bytes(b"unknown")
+    (settings.immich_uploads_path / "user-b" / "path-fix.jpg").write_bytes(b"path-fix")
     (settings.immich_uploads_path / "user-b" / "relocated.jpg").write_bytes(b"relocated")
     (settings.immich_uploads_path / "user-b" / "orphan-zero.jpg").write_bytes(b"")
     (settings.immich_thumbs_path / "user-a" / "thumb-zero.webp").write_bytes(b"")
@@ -218,6 +219,8 @@ def test_catalog_remediation_classifies_broken_zero_byte_and_fuse_hidden_finding
     )
 
     result = service.scan(settings)
+
+    assert all(item.asset_id != "asset-keep" for item in result.broken_db_originals)
 
     confirmed = next(
         item for item in result.broken_db_originals if item.asset_id == "asset-missing-confirmed"
