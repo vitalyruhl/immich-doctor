@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import logging
 import os
 import time
@@ -39,6 +40,7 @@ _SCAN_PRIORITY = {
 _DISCOVERY_PROGRESS_INTERVAL = 250
 _PROGRESS_EMIT_INTERVAL_SECONDS = 0.75
 _COLLECTOR_BATCH_SIZE = 128
+_DIRECTORY_FILE_CHUNK_SIZE = 256
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +188,7 @@ class ScanRuntimeController:
             return sum(
                 1
                 for actor in self._actors.values()
-                if actor.role == "worker" and actor.state in {"running", "waiting"}
+                if actor.role == "worker" and actor.state == "running"
             )
 
     def stopped_worker_count(self) -> int:
@@ -519,17 +521,19 @@ class CatalogInventoryScanService:
         root_slug: str,
         root_path: Path,
         worker_count: int,
+        controller: ScanRuntimeController,
         progress_callback: Callable[[dict[str, object]], None] | None,
         control_state_provider: Callable[[], dict[str, bool]] | None,
-    ) -> None:
+    ) -> str:
         discovered_directories: list[str] = []
+        work_items: list[dict[str, object]] = []
 
-        def emit_discovery(count: int) -> None:
+        def emit_discovery(count: int, *, relative_path: str | None = None) -> None:
             if progress_callback is None:
                 return
             progress_callback(
                 {
-                    "phase": "prepare",
+                    "phase": "discovery",
                     "rootSlug": root_slug,
                     "configuredWorkerCount": worker_count,
                     "activeWorkerCount": 0,
@@ -538,7 +542,9 @@ class CatalogInventoryScanService:
                     "total": None,
                     "percent": None,
                     "directoriesDiscovered": count,
-                    "message": f"Counting directories for root `{root_slug}`.",
+                    "actors": controller.snapshot(),
+                    "lastRelativePath": relative_path,
+                    "message": f"Discovering directories for root `{root_slug}`.",
                 }
             )
 
@@ -557,77 +563,199 @@ class CatalogInventoryScanService:
             ):
                 break
             current_path, relative_path = stack.pop()
+            controller.mark_running("collector", relative_path)
             discovered_directories.append(relative_path)
             discovered_count = len(discovered_directories)
             if progress_callback is not None and (
                 discovered_count == 1 or discovered_count % _DISCOVERY_PROGRESS_INTERVAL == 0
             ):
-                emit_discovery(discovered_count)
+                emit_discovery(discovered_count, relative_path=relative_path)
 
             try:
                 child_directories: list[tuple[Path, str]] = []
+                file_relative_paths: list[str] = []
                 with os.scandir(current_path) as iterator:
                     for entry in iterator:
                         try:
-                            if not entry.is_dir(follow_symlinks=False):
+                            if entry.is_dir(follow_symlinks=False):
+                                child_relative_path = self._relative_path(
+                                    root_path,
+                                    Path(entry.path),
+                                )
+                                if child_relative_path in seen_relative_paths:
+                                    continue
+                                seen_relative_paths.add(child_relative_path)
+                                child_directories.append((Path(entry.path), child_relative_path))
                                 continue
+                            if entry.is_file(follow_symlinks=False):
+                                file_relative_paths.append(
+                                    self._relative_path(root_path, Path(entry.path))
+                                )
                         except OSError:
                             continue
-                        child_relative_path = self._relative_path(root_path, Path(entry.path))
-                        if child_relative_path in seen_relative_paths:
-                            continue
-                        seen_relative_paths.add(child_relative_path)
-                        child_directories.append((Path(entry.path), child_relative_path))
+                file_relative_paths.sort()
+                work_items.extend(
+                    self._directory_work_items(
+                        relative_path=relative_path,
+                        file_relative_paths=file_relative_paths,
+                        error_count=0,
+                    )
+                )
                 child_directories.sort(key=lambda item: item[1], reverse=True)
                 stack.extend(child_directories)
             except OSError:
-                continue
+                work_items.extend(
+                    self._directory_work_items(
+                        relative_path=relative_path,
+                        file_relative_paths=[],
+                        error_count=1,
+                    )
+                )
+            finally:
+                controller.mark_idle("collector")
 
-        self.store.seed_directory_queue(
+        queued_work_items = self._balanced_directory_work_items(work_items)
+        self.store.seed_directory_work_queue(
             settings,
             session_id=session_id,
-            relative_paths=discovered_directories,
+            work_items=queued_work_items,
         )
 
-        if progress_callback is None:
-            return
+        if bool(control_state.get("stopRequested")):
+            controller.request_stop("collector")
+            controller.mark_idle("collector")
+            scan_state = "stopped"
+        elif bool(control_state.get("pauseRequested")):
+            controller.request_pause("collector")
+            controller.mark_idle("collector")
+            scan_state = "paused"
+        else:
+            controller.mark_collector_finished()
+            scan_state = "running"
 
-        session_row = self.store.get_scan_session(settings, session_id)
-        pending_directories = self.store.count_pending_directories(settings, session_id)
-        directories_completed = int(session_row["directories_completed"]) if session_row else 0
-        total_directories = directories_completed + pending_directories
-        progress_callback(
-            {
-                "phase": "prepare",
-                "rootSlug": root_slug,
-                "configuredWorkerCount": worker_count,
-                "activeWorkerCount": 0,
-                "scanState": (
-                    "stopped"
-                    if bool(control_state.get("stopRequested"))
-                    else "paused"
-                    if bool(control_state.get("pauseRequested"))
-                    else "running"
-                ),
-                "current": len(discovered_directories),
-                "total": len(discovered_directories),
-                "percent": None,
-                "directoriesDiscovered": len(discovered_directories),
-                "directoriesTotal": total_directories,
-                "directoriesCompleted": directories_completed,
-                "pendingDirectories": pending_directories,
-                "message": (
-                    f"Prepared {total_directories} directories for root `{root_slug}`."
-                    if not bool(control_state.get("pauseRequested"))
-                    and not bool(control_state.get("stopRequested"))
-                    else (
-                        f"Stopping directory inventory preparation for root `{root_slug}`."
-                        if bool(control_state.get("stopRequested"))
-                        else f"Pausing directory inventory preparation for root `{root_slug}`."
-                    )
-                ),
-            }
+        if progress_callback is not None:
+            session_row = self.store.get_scan_session(settings, session_id)
+            pending_directories = self.store.count_pending_directories(settings, session_id)
+            directories_completed = int(session_row["directories_completed"]) if session_row else 0
+            total_work_units = directories_completed + pending_directories
+            progress_callback(
+                {
+                    "phase": "discovery",
+                    "rootSlug": root_slug,
+                    "configuredWorkerCount": worker_count,
+                    "activeWorkerCount": 0,
+                    "scanState": scan_state,
+                    "current": len(discovered_directories),
+                    "total": len(discovered_directories),
+                    "percent": None,
+                    "directoriesDiscovered": len(discovered_directories),
+                    "directoriesTotal": total_work_units,
+                    "directoriesCompleted": directories_completed,
+                    "pendingDirectories": pending_directories,
+                    "pendingCollectorDirectories": self.store.count_pending_collect_directories(
+                        settings,
+                        session_id,
+                    ),
+                    "preparedWorkUnits": total_work_units,
+                    "actors": controller.snapshot(),
+                    "message": (
+                        f"Prepared {total_work_units} work units for root `{root_slug}`."
+                        if scan_state == "running"
+                        else (
+                            f"Stopping directory inventory preparation for root `{root_slug}`."
+                            if scan_state == "stopped"
+                            else f"Pausing directory inventory preparation for root `{root_slug}`."
+                        )
+                    ),
+                }
+            )
+        return scan_state
+
+    def _directory_work_items(
+        self,
+        *,
+        relative_path: str,
+        file_relative_paths: list[str],
+        error_count: int,
+    ) -> list[dict[str, object]]:
+        if not file_relative_paths:
+            return [
+                {
+                    "relative_path": self._directory_work_item_key(
+                        relative_path,
+                        chunk_index=0,
+                        chunk_count=1,
+                    ),
+                    "source_relative_path": relative_path,
+                    "file_relative_paths": [],
+                    "payload_error_count": error_count,
+                }
+            ]
+
+        chunks = [
+            file_relative_paths[index : index + _DIRECTORY_FILE_CHUNK_SIZE]
+            for index in range(0, len(file_relative_paths), _DIRECTORY_FILE_CHUNK_SIZE)
+        ]
+        work_items: list[dict[str, object]] = []
+        for chunk_index, chunk in enumerate(chunks):
+            work_items.append(
+                {
+                    "relative_path": self._directory_work_item_key(
+                        relative_path,
+                        chunk_index=chunk_index,
+                        chunk_count=len(chunks),
+                    ),
+                    "source_relative_path": relative_path,
+                    "file_relative_paths": chunk,
+                    "payload_error_count": error_count if chunk_index == 0 else 0,
+                }
+            )
+        return work_items
+
+    def _directory_work_item_key(
+        self,
+        relative_path: str,
+        *,
+        chunk_index: int,
+        chunk_count: int,
+    ) -> str:
+        if chunk_count == 1:
+            return relative_path
+        prefix = relative_path or "__root__"
+        return f"{prefix}::batch-{chunk_index:06d}"
+
+    def _balanced_directory_work_items(
+        self,
+        work_items: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        ordered_items = sorted(
+            work_items,
+            key=lambda item: (
+                -len(list(item.get("file_relative_paths") or [])),
+                self._top_level_segment(str(item.get("source_relative_path") or "")),
+                str(item.get("relative_path") or ""),
+            ),
         )
+        prepared_items: list[dict[str, object]] = []
+        for priority, item in enumerate(ordered_items):
+            file_relative_paths = [str(path) for path in item.get("file_relative_paths") or []]
+            prepared_items.append(
+                {
+                    "relative_path": str(item["relative_path"]),
+                    "payload_json": json.dumps(file_relative_paths, separators=(",", ":")),
+                    "payload_file_count": len(file_relative_paths),
+                    "payload_error_count": int(item.get("payload_error_count") or 0),
+                    "payload_bytes_delta": 0,
+                    "payload_last_relative_path": (
+                        file_relative_paths[-1] if file_relative_paths else None
+                    ),
+                    "queue_priority": priority,
+                }
+            )
+        return prepared_items
+
+    def _top_level_segment(self, relative_path: str) -> str:
+        return relative_path.split("/", maxsplit=1)[0] if relative_path else ""
 
     def _run_incremental_root_scan(
         self,
@@ -719,21 +847,29 @@ class CatalogInventoryScanService:
                 last_emit_phase[0] = phase
                 last_emit_monotonic[0] = now_monotonic
 
-        collector_thread = Thread(
-            target=self._collector_loop,
-            kwargs={
-                "settings": settings,
-                "session_id": session_id,
-                "root_row": root_row,
-                "root_path": root_path,
-                "controller": controller,
-                "current_control_state": current_control_state,
-                "emit_progress": emit_progress,
-                "stop_reason": stop_reason,
-                "discovered_directories": discovered_directories,
-            },
-            name="catalog-collector",
+        preparation_state = self._prepare_directory_queue(
+            settings,
+            session_id=session_id,
+            root_slug=str(root_row["slug"]),
+            root_path=root_path,
+            worker_count=worker_count,
+            controller=controller,
+            progress_callback=progress_callback,
+            control_state_provider=control_state_provider,
         )
+        if preparation_state in {"paused", "stopped"}:
+            stop_reason["value"] = preparation_state
+            return self._finalize_interrupted_incremental_scan(
+                settings,
+                root_row=root_row,
+                session_id=session_id,
+                session_row=session_row,
+                worker_count=worker_count,
+                checks=checks,
+                stop_reason=preparation_state,
+                controller=controller,
+            )
+
         worker_threads = [
             Thread(
                 target=self._scan_worker_loop,
@@ -757,14 +893,12 @@ class CatalogInventoryScanService:
             for worker_id in controller.actor_ids()
         ]
         emit_progress(
-            "collect",
-            f"Collecting directories for root `{root_row['slug']}`.",
+            "scan",
+            f"Scanning prepared work for root `{root_row['slug']}`.",
             force=True,
         )
-        collector_thread.start()
         for thread in worker_threads:
             thread.start()
-        collector_thread.join()
         for thread in worker_threads:
             thread.join()
 
@@ -932,7 +1066,21 @@ class CatalogInventoryScanService:
 
             relative_path = str(claimed["relative_path"])
             controller.mark_running(worker_id, relative_path)
-            observed = self._observe_directory_files(root_path, relative_path)
+            emit_progress("scan", f"Scanning files for root `{root_row['slug']}`.", force=True)
+            payload_json = claimed.get("payload_json")
+            if payload_json is None:
+                observed = self._observe_directory_files(root_path, relative_path)
+            else:
+                observed = self._observe_file_batch(
+                    root_path,
+                    self._file_paths_from_payload(str(payload_json)),
+                )
+                observed["error_count"] = int(observed["error_count"]) + int(
+                    claimed.get("payload_error_count") or 0
+                )
+                observed["last_relative_path"] = (
+                    observed["last_relative_path"] or claimed.get("payload_last_relative_path")
+                )
             self.store.apply_directory_files(
                 settings,
                 session_id=session_id,
@@ -1058,6 +1206,51 @@ class CatalogInventoryScanService:
                 f"{snapshot['zero_byte_count']} zero-byte findings."
             ),
             "run_context": {"scan_workers": worker_count, "actors": controller.snapshot()},
+        }
+
+    def _file_paths_from_payload(self, payload_json: str) -> list[str]:
+        try:
+            payload = json.loads(payload_json)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(payload, list):
+            return []
+        return [str(item) for item in payload if str(item).strip()]
+
+    def _observe_file_batch(
+        self,
+        root_path: Path,
+        relative_paths: list[str],
+    ) -> dict[str, object]:
+        files: list[CatalogFileObservation] = []
+        error_count = 0
+        bytes_delta = 0
+        last_relative_path: str | None = None
+
+        for relative_path in relative_paths:
+            file_path = root_path / relative_path
+            try:
+                if not file_path.is_file():
+                    continue
+                stat_result = file_path.stat()
+            except OSError:
+                error_count += 1
+                continue
+            observation = self._build_observation(
+                root_path=root_path,
+                entry_path=file_path,
+                stat_result=stat_result,
+            )
+            files.append(observation)
+            bytes_delta += observation.size_bytes
+            last_relative_path = observation.relative_path
+
+        files.sort(key=lambda item: item.relative_path)
+        return {
+            "files": files,
+            "error_count": error_count,
+            "bytes_delta": bytes_delta,
+            "last_relative_path": last_relative_path,
         }
 
     def _observe_directory_files(

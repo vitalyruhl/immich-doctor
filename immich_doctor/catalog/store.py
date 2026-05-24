@@ -311,10 +311,11 @@ class CatalogStore:
                     payload_file_count,
                     payload_error_count,
                     payload_bytes_delta,
-                    payload_last_relative_path
+                    payload_last_relative_path,
+                    queue_priority
                 FROM scan_directory_queue
                 WHERE scan_session_id = ? AND status = 'pending'
-                ORDER BY relative_path ASC
+                ORDER BY queue_priority ASC, id ASC
                 LIMIT 1;
                 """,
                 (session_id,),
@@ -398,6 +399,64 @@ class CatalogStore:
                 ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
                 """,
                 [(session_id, relative_path, now) for relative_path in unique_paths],
+            )
+            connection.commit()
+
+    def seed_directory_work_queue(
+        self,
+        settings: AppSettings,
+        *,
+        session_id: str,
+        work_items: list[dict[str, object]],
+    ) -> None:
+        self.initialize(settings)
+        if not work_items:
+            return
+
+        now = _utcnow()
+        with self.connect(settings) as connection:
+            connection.execute("BEGIN IMMEDIATE;")
+            connection.executemany(
+                """
+                INSERT INTO scan_directory_queue (
+                    scan_session_id,
+                    relative_path,
+                    status,
+                    worker_id,
+                    discovered_at,
+                    payload_json,
+                    payload_file_count,
+                    payload_error_count,
+                    payload_bytes_delta,
+                    payload_last_relative_path,
+                    queue_priority
+                )
+                VALUES (?, ?, 'pending', NULL, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scan_session_id, relative_path) DO NOTHING;
+                """,
+                [
+                    (
+                        session_id,
+                        str(item["relative_path"]),
+                        now,
+                        str(item.get("payload_json") or "[]"),
+                        int(item.get("payload_file_count") or 0),
+                        int(item.get("payload_error_count") or 0),
+                        int(item.get("payload_bytes_delta") or 0),
+                        item.get("payload_last_relative_path"),
+                        int(item.get("queue_priority") or 0),
+                    )
+                    for item in work_items
+                ],
+            )
+            connection.execute(
+                """
+                UPDATE scan_collect_queue
+                SET status = 'done',
+                    completed_at = COALESCE(completed_at, ?)
+                WHERE scan_session_id = ?;
+                """,
+                (now, session_id),
             )
             connection.commit()
 
@@ -590,9 +649,10 @@ class CatalogStore:
                         payload_file_count,
                         payload_error_count,
                         payload_bytes_delta,
-                        payload_last_relative_path
+                        payload_last_relative_path,
+                        queue_priority
                     )
-                    VALUES (?, ?, 'pending', NULL, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, 'pending', NULL, ?, ?, ?, ?, ?, ?, 0)
                     ON CONFLICT(scan_session_id, relative_path) DO UPDATE SET
                         status = 'pending',
                         worker_id = NULL,
@@ -600,7 +660,8 @@ class CatalogStore:
                         payload_file_count = excluded.payload_file_count,
                         payload_error_count = excluded.payload_error_count,
                         payload_bytes_delta = excluded.payload_bytes_delta,
-                        payload_last_relative_path = excluded.payload_last_relative_path;
+                        payload_last_relative_path = excluded.payload_last_relative_path,
+                        queue_priority = excluded.queue_priority;
                     """,
                     (
                         session_id,
@@ -1085,6 +1146,11 @@ class CatalogStore:
             connection.execute(
                 "ALTER TABLE scan_directory_queue ADD COLUMN payload_last_relative_path TEXT;"
             )
+        if "queue_priority" not in directory_columns:
+            connection.execute(
+                "ALTER TABLE scan_directory_queue "
+                "ADD COLUMN queue_priority INTEGER NOT NULL DEFAULT 0;"
+            )
 
         tables = {
             str(row["name"])
@@ -1211,12 +1277,13 @@ CREATE TABLE IF NOT EXISTS scan_directory_queue (
     payload_error_count INTEGER NOT NULL DEFAULT 0,
     payload_bytes_delta INTEGER NOT NULL DEFAULT 0,
     payload_last_relative_path TEXT,
+    queue_priority INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT,
     UNIQUE(scan_session_id, relative_path)
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_directory_queue_session_status
-    ON scan_directory_queue(scan_session_id, status, relative_path);
+    ON scan_directory_queue(scan_session_id, status, queue_priority, id);
 
 CREATE TABLE IF NOT EXISTS scan_collect_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
