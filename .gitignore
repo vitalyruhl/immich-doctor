@@ -42,3 +42,18 @@ dev/testbed/imports/
 dev/testbed/exports/
 dev/testbed/tmp/
 __Temp/
+
+# Serena project config: track stable project.yml and shared memories; ignore local/runtime state.
+.serena/.gitignore
+.serena/project.local.yml
+.serena/cache/
+.serena/logs/
+.serena/index/
+.serena/.cache/
+.serena/tmp/
+.serena/memories/local/
+.serena/memories/local/**
+.serena/memories/tmp/
+.serena/memories/tmp/**
+.serena/memories/local_*.md
+.serena/memories/tmp_*.md
