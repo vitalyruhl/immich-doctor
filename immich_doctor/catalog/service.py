@@ -1078,8 +1078,8 @@ class CatalogInventoryScanService:
                 observed["error_count"] = int(observed["error_count"]) + int(
                     claimed.get("payload_error_count") or 0
                 )
-                observed["last_relative_path"] = (
-                    observed["last_relative_path"] or claimed.get("payload_last_relative_path")
+                observed["last_relative_path"] = observed["last_relative_path"] or claimed.get(
+                    "payload_last_relative_path"
                 )
             self.store.apply_directory_files(
                 settings,
